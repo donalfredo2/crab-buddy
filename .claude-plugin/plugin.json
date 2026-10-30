@@ -1,0 +1,55 @@
+{
+  "name": "crab-buddy",
+  "version": "0.10.1",
+  "description": "A pixel crab with a life of its own on a little beach above the prompt: real sky, seasons and weather, a sea that shows your context, costume beaches, unlockable decor, a friend, tool-mirroring props, big moments for commits and tests, needs you care for and break reminders.",
+  "author": {
+    "name": "Andy"
+  },
+  "types": "./types/index.d.ts",
+  "license": "MIT",
+  "userConfig": {
+    "longTaskSeconds": {
+      "type": "number",
+      "title": "Long task (seconds)",
+      "description": "A turn at least this long ends with a wave, a toast and a chirp; 0 turns it off",
+      "default": 120,
+      "min": 0,
+      "max": 3600
+    },
+    "breakMinutes": {
+      "type": "number",
+      "title": "Break reminder (minutes)",
+      "description": "Minutes of continuous work before the crab suggests a break; 0 turns it off",
+      "default": 90,
+      "min": 0,
+      "max": 480
+    },
+    "sound": {
+      "type": "string",
+      "title": "Done chirp",
+      "description": "Play a short chirp when a long task finishes",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "bubbles": {
+      "type": "string",
+      "title": "Speech bubbles",
+      "description": "How often the crab talks on its own; your care actions always get a reply unless off",
+      "default": "rare",
+      "options": [
+        "often",
+        "rare",
+        "off"
+      ]
+    },
+    "weatherPlace": {
+      "type": "string",
+      "title": "Weather place",
+      "description": "A city whose real weather shows on the beach (rain, snow, wind). Its name and coordinates go to open-meteo.com once an hour. Empty: no weather is fetched.",
+      "default": ""
+    }
+  }
+}
