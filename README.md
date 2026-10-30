@@ -109,6 +109,8 @@ The sea measures against where Claude really compacts, read from Claude Code its
 
 The way to the mark takes up half the beach, because that's where most long sessions spend their time. Once the sea passes it, the mark still shows through the water.
 
+A compaction takes the sea back at once. Claude Code reports no size until its next reply, so until then the sea stands on a count made on your machine, which sends nothing.
+
 To pick the moment yourself, `/compact` at the good moment sign before you step away. To turn idle compaction off, set `"idleCompaction": false` in your Claude Code settings; the mark goes too, from your next session. Without it, coming back after an hour makes Claude re-read the whole conversation, which costs more of your usage. `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` moves the minimum, and the mark follows it.
 
 The mark only shows on a subscription: that's the crab's stand-in for the one-hour cache idle compaction needs, so it can be wrong. Without one, or with a small context window, the sea runs in a straight line to the top.

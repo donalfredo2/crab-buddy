@@ -46,7 +46,7 @@ const TURN = { answer: 'hi', durationMs: 1000, isAborted: false, turnId: 't1' } 
 
 // Stands for the engine beneath the plugin, recording toasts and sounds.
 // A blit is denied unless a test says a terminal beach stays mounted, as after an unmount.
-function engine(on: On, ctx: { percent: number | null; isPlaced?: boolean; isBlitOk?: boolean; full?: number; isOnPlan?: boolean; idleSetting?: boolean } = { percent: null }) {
+function engine(on: On, ctx: { percent: number | null; isPlaced?: boolean; isBlitOk?: boolean; full?: number; counted?: number; isOnPlan?: boolean; idleSetting?: boolean } = { percent: null }) {
   const isPlaced = ctx.isPlaced ?? true
   const toasts: string[] = []
   const sounds: unknown[] = []
@@ -64,7 +64,7 @@ function engine(on: On, ctx: { percent: number | null; isPlaced?: boolean; isBli
       context: {
         window: 1_000_000,
         ...(ctx.percent === null ? {} : { percent: ctx.percent, tokens: ctx.percent * 10_000 }),
-        ...((e as { breakdown?: string }).breakdown && ctx.full ? { breakdown: { autoCompactThreshold: ctx.full, isAutoCompactEnabled: true } } : {}),
+        ...((e as { breakdown?: string }).breakdown && ctx.full ? { breakdown: { autoCompactThreshold: ctx.full, isAutoCompactEnabled: true, totalTokens: ctx.counted ?? 0 } } : {}),
       },
       rateLimits: ctx.isOnPlan ? [{ kind: 'five_hour', percentUsed: 18 }] : [],
     },
@@ -2362,6 +2362,70 @@ test('coffee when the break is due and a walk later, once it is home', async ($,
   expect(toasts.filter(t => /Time for a walk/.test(t)).length).toBe(1)
   await crab($, 'snooze')
   expect(await heldWords($)).toBe(null)
+})
+
+const shoreOf = async ($: Tester): Promise<number> => Number(/class="sea" d="M(\d+)/.exec((await band($)).source)?.[1])
+
+test('a compaction takes the sea back at once, on the local count', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx = { percent: 60 as number | null, counted: 70_000, full: 967_000 }
+  engine(on, ctx)
+  summarizer(on)
+  await start($)
+  const high = await shoreOf($)
+  // Just compacted, the engine has no size until its next reply.
+  ctx.percent = null
+  await compact($)
+  await clock.advance(200)
+  expect(await shoreOf($)).toBeGreaterThan(high + 100)
+  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 70k · food/)
+  // A turn with no reply to measure leaves the count alone.
+  const back = await shoreOf($)
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await shoreOf($)).toBe(back)
+  // The next reply has the last word.
+  ctx.percent = 12
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 120k · food/)
+})
+
+test('it waits for the compaction to land, and the sea rises again from there', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx = { percent: 96.7 as number | null, counted: 70_000, full: 967_000 }
+  engine(on, ctx)
+  summarizer(on)
+  await start($)
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await alt($)).toMatch(/beside a sign saying/)
+  const high = await shoreOf($)
+  await compact($)
+  // Still the old size: not landed yet.
+  await clock.advance(200)
+  expect(await shoreOf($)).toBe(high)
+  ctx.percent = null
+  await clock.advance(200)
+  expect(await shoreOf($)).toBeGreaterThan(high + 100)
+  // The sea went well back, so the warning can come again.
+  ctx.percent = 96.7
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await alt($)).toMatch(/beside a sign saying/)
+})
+
+test('a precompute or a subagent compacting leaves the sea alone', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx = { percent: 60 as number | null, counted: 70_000, full: 967_000 }
+  engine(on, ctx)
+  summarizer(on)
+  await start($)
+  const high = await shoreOf($)
+  ctx.percent = null
+  await compact($, { trigger: 'precompute' })
+  await compact($, { agentId: 'helper' })
+  await clock.advance(2000)
+  expect(await shoreOf($)).toBe(high)
 })
 
 test('a compaction takes the planted sign down, with or without a log', async ($, on) => {

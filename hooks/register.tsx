@@ -70,6 +70,9 @@ const TIDE_SWEATY = 0.85
 const TIDE_WARN = 0.9
 /** Under this the warnings are ready to show again. */
 const TIDE_REARM = 0.4
+/** How long a compaction takes to land, and how often to look. */
+const EBB_MS = 200
+const EBB_TRIES = 5
 /** The engine compacts a conversation this big left idle for about 54 minutes. */
 const IDLE_MARK = 200_000
 /** The engine won't let its minimum go lower than this. */
@@ -819,13 +822,20 @@ async function linesFor($: EngineInterface, window: number): Promise<NonNullable
   return lines
 }
 
+/** Once the sea has gone well back, the signs may come again. */
+async function rearmTide($: EngineInterface, level: number): Promise<void> {
+  if (level >= TIDE_REARM) return
+  await update($, contextWarned, () => false)
+  await update($, contextHinted, () => false)
+}
+
 // The context as a tide; the plain call is free. Warns once per session near the top.
 async function refreshContext($: EngineInterface): Promise<void> {
   const usage = await $.session.usage().catch(() => null)
   if (!usage) return
   const { tokens, percent, window } = usage.context
   if (tokens === undefined) {
-    await update($, tide, () => null)
+    await update($, tide, t => (t?.isCounted ? t : null))
     return
   }
   const lines = await linesFor($, window)
@@ -833,14 +843,31 @@ async function refreshContext($: EngineInterface): Promise<void> {
   const mark = usage.rateLimits.length ? lines.idleMark : null
   const level = tideOf(tokens, lines.full, mark)
   await update($, tide, t => (t?.tokens === tokens && t.mark === mark ? t : { tokens, level, mark }))
-  if (level < TIDE_REARM) {
-    await update($, contextWarned, () => false)
-    await update($, contextHinted, () => false)
-  } else if (level >= TIDE_WARN && !(await read($, contextWarned))) {
+  await rearmTide($, level)
+  if (level >= TIDE_WARN && !(await read($, contextWarned))) {
     await update($, contextWarned, () => true)
     if (await read($, areSignsOff)) $.ui.toast(`Context is ${Math.round(percent ?? 0)}% full. A fresh session soon would help.`)
     else await plantSign($, 'context', CONTEXT_SIGN_MS)
   }
+}
+
+// A compaction leaves no size until the next reply, but the local count has it as soon as it
+// lands, which the plain size going blank shows. It sends nothing, and the sea goes back at once.
+async function ebbTide($: EngineInterface, tries = EBB_TRIES): Promise<void> {
+  const context = (await $.session.usage({ breakdown: 'summary' }).catch(() => null))?.context
+  if (!context) return
+  if (context.tokens !== undefined) {
+    if (tries > 1) $.clock.after(EBB_MS, () => void ebbTide($, tries - 1))
+    return
+  }
+  const tokens = context.breakdown?.totalTokens
+  if (tokens === undefined) return
+  const lines = await linesFor($, context.window)
+  const mark = (await read($, tide))?.mark ?? null
+  const level = tideOf(tokens, lines.full, mark)
+  await update($, tide, () => ({ tokens, level, mark, isCounted: true }))
+  await rearmTide($, level)
+  await startSegment($)
 }
 
 // /compact has to wait for the turn to end, so this runs then. Once per fill.
@@ -1303,7 +1330,10 @@ export const register: Register = (on, options) => {
     const result = await next(note ? { ...e, instructions: e.instructions ? `${e.instructions}\n\n${note}` : note } : e)
     // A precompute only prepares one: nothing has been compacted yet.
     const isCompacted = !e.agentId && e.trigger !== 'precompute' && result.skip === undefined
-    if (isCompacted) await update($, plantedSign, () => null)
+    if (isCompacted) {
+      await update($, plantedSign, () => null)
+      $.clock.after(EBB_MS, () => void ebbTide($))
+    }
     if (isCompacted && note) {
       const until = (await $.clock.now()) + BOTTLE_MS
       await update($, bottleUntil, () => until)

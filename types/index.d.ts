@@ -45,8 +45,8 @@ export type Beach = {
   hasMark?: boolean
 }
 
-/** The context as a tide. `level` runs 0 to 1, see tideOf; `mark` is null where there is none. */
-export type Tide = { tokens: number; level: number; mark: number | null } | null
+/** The context as a tide. `level` runs 0 to 1, see tideOf; `mark` is null where there is none; `isCounted`: a local count, until the next reply measures it. */
+export type Tide = { tokens: number; level: number; mark: number | null; isCounted?: boolean } | null
 
 /** Where compactions come, read once for a window: the engine's line, and the idle one if it's on. */
 export type TideLines = { window: number; full: number; idleMark: number | null } | null
@@ -165,7 +165,7 @@ declare module 'claude-code' {
       costume: string | null
       isHidden: boolean
       stats: Stats
-      /** The context as a tide; null when unknown, as just after a compaction. */
+      /** The context as a tide; null when unknown, as in a fresh session. */
       tide: Tide
       tideLines: TideLines
       /** The context fill already warned about this session. */
