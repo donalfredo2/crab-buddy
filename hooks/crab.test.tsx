@@ -820,6 +820,49 @@ test('/crab off hides it on every surface, /crab on brings it back', async ($, o
   expect(await alt($)).toMatch(/napping/)
 })
 
+test('/crab restart steps away long enough for a new frame, then comes back by itself', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const drawn = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
+    const svg = await ui.find({ type: 'Svg' })
+    await ui.unmount()
+    return svg !== undefined
+  }
+  expect(JSON.stringify(await crab($, 'restart'))).toMatch(/back in 35 seconds/)
+  expect(await drawn()).toBe(false)
+  expect(JSON.stringify(await crab($, 'restart'))).toMatch(/already away/)
+  // Past the 30 s VS Code waits before it closes the frame.
+  await clock.advance(31_000)
+  expect(await drawn()).toBe(false)
+  await clock.advance(4000)
+  expect(await drawn()).toBe(true)
+})
+
+test('a session closed mid-restart does not leave the crab hidden', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await crab($, 'restart')
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  expect(await ui.find({ type: 'Svg' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('/crab off during a restart wins', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await crab($, 'restart')
+  await crab($, 'off')
+  await clock.advance(36_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('/crab chef picks the chef, drawn as one plain image', async ($, on) => {
   mock.clock(on, { now: T0 })
   mock.store(on)
@@ -1054,7 +1097,7 @@ test('with 50 shells the crown is yours', async ($, on) => {
 })
 
 test('no costume shares a name with a /crab word', () => {
-  const words = ['feed', 'play', 'pet', 'name', 'stats', 'theme', 'size', 'tank', 'strip', 'snooze', 'breaks', 'sound', 'bubbles', 'off', 'on', 'today']
+  const words = ['feed', 'play', 'pet', 'name', 'stats', 'theme', 'size', 'tank', 'strip', 'snooze', 'breaks', 'sound', 'bubbles', 'off', 'on', 'restart', 'ride', 'today']
   for (const c of [...COSTUMES, ...SPECIAL_COSTUMES]) expect(words.includes(c)).toBe(false)
 })
 

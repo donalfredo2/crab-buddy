@@ -54,6 +54,8 @@ const NOTICE_MS = 1600
 const PROP_MS = 3500
 /** A different tool's prop waits this long, so a burst of calls doesn't flicker. */
 const PROP_SWITCH_MS = 3000
+/** VS Code closes a picture's frame after 30 s with nothing moving, and the next one starts healthy. */
+const RESTART_MS = 35_000
 
 // The tool Claude is using, mirrored by a prop in the crab's claw.
 const PROPS: Record<string, Prop> = {
@@ -674,7 +676,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'crab',
       description: 'Crab buddy: feed, play, pet, name, stats, theme, tank or strip, breaks, sound, bubbles, costume',
-      argumentHint: '[feed | play | pet | name <name> | stats | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | off | on | today | <costume>]',
+      argumentHint: '[feed | play | pet | name <name> | stats | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | off | on | restart | today | <costume>]',
     })
     const now = await $.clock.now()
     const hidden = await readStore($, KEY.hidden, false)
@@ -733,6 +735,15 @@ export const register: Register = (on, options) => {
       await $.store.set(KEY.hidden, hide)
       return { text: hide ? 'Crab buddy is hiding. /crab on brings it back.' : 'Crab buddy is back.' }
     }
+    // Only this session's flag, so closing it mid-restart doesn't leave the crab hidden.
+    if (word === 'restart') {
+      if (await read($, isHidden)) return { text: "It's already away. /crab on brings it back." }
+      await update($, isHidden, () => true)
+      $.clock.after(RESTART_MS, async () => {
+        if (!(await readStore($, KEY.hidden, false))) await update($, isHidden, () => false)
+      })
+      return { text: `${await read($, petName)} will be back in ${RESTART_MS / 1000} seconds, freshly drawn.` }
+    }
     if (word === 'tank') {
       const opened = await openTank($)
       await setTank($, true)
@@ -790,7 +801,7 @@ export const register: Register = (on, options) => {
       return { text: value === 'off' ? 'The done chirp is off.' : 'The done chirp is on.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, theme, size, tank, strip, snooze, breaks, sound, bubbles, off, on, today, or a costume (${COSTUMES.join(', ')}).` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, theme, size, tank, strip, snooze, breaks, sound, bubbles, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }

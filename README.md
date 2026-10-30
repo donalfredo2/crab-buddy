@@ -103,6 +103,7 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab`, `/crab <costume>`, `/crab today`: costumes
 - `/crab tank` / `/crab strip`: move it into its tank pane or back above the prompt; `/crab tank` again says where the pane sits
 - `/crab off` / `/crab on`: hide or show it
+- `/crab restart`: hide it for 35 seconds so VS Code draws it afresh, for when it drops to a frame a second after the window has been in the background
 
 ## Settings
 
