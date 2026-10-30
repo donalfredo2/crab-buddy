@@ -576,8 +576,23 @@ type View = {
   isDue: boolean
 }
 
-const sceneOf = (v: View, b: Bubble, work: readonly string[], width: number, fit: { height?: number; fill?: boolean } = {}): string =>
-  sceneSvg({ width, ...fit, costume: v.costume, look: v.look, timeOfDay: timeOfDay(hourOf(v.now)), bubble: b && b.until > v.now ? b.text : null, now: v.now, seg: v.seg, prop: v.prop, sky: v.sky, hour: v.hour, work })
+// A new image makes the surface swap it and every animation pick up again, so a redraw
+// that changes nothing you can see keeps the one it has. Not for long: if the surface
+// drew it afresh, its clock would be running late.
+const SCENE_KEEP_MS = 20_000
+const scenes = new Map<'band' | 'tank', { key: string; at: number; source: string }>()
+
+const sceneOf = (site: 'band' | 'tank', v: View, b: Bubble, work: readonly string[], width: number, fit: { height?: number; fill?: boolean } = {}): string => {
+  const words = b && b.until > v.now ? b.text : null
+  // A held pose ending counts: with Reduce Motion on, only a new image takes it away.
+  const isHolding = !!v.seg.hold && v.now < v.seg.startAt + v.seg.hold.ms
+  const key = JSON.stringify([v.seg.id, v.seg.startAt, isHolding, width, fit, v.costume, v.look, words, v.prop, work, v.sky.weather, v.sky.isWindy])
+  const kept = scenes.get(site)
+  if (kept?.key === key && v.now >= kept.at && v.now - kept.at < SCENE_KEEP_MS) return kept.source
+  const source = sceneSvg({ width, ...fit, costume: v.costume, look: v.look, timeOfDay: timeOfDay(hourOf(v.now)), bubble: words, now: v.now, seg: v.seg, prop: v.prop, sky: v.sky, hour: v.hour, work })
+  scenes.set(site, { key, at: v.now, source })
+  return source
+}
 
 async function beachFor($: EngineInterface, v: View, size: { columns: number; rows: number }): Promise<string> {
   const b = await read($, bubble)
@@ -900,7 +915,7 @@ export const register: Register = (on, options) => {
       lastWidth = width
       lastBand = { surface: e.surface, columns: e.props.bodyColumns, viewport: e.viewport?.columns, width }
       // A plain image, not the hover-capable frame: that frame paints a solid box behind the crab.
-      const scene = sceneOf(v, b, await read($, turnWork), width, { fill: true })
+      const scene = sceneOf('band', v, b, await read($, turnWork), width, { fill: true })
       // No wrapping: a row wraps by default, and the image starts out wider than any row.
       return (
         <Box flexDirection="column">
@@ -979,7 +994,7 @@ export const register: Register = (on, options) => {
       lastWidth = t.sceneWidth
       return (
         <Box flexDirection="column" gap={1}>
-          <Svg source={sceneOf(v, b, await read($, turnWork), t.sceneWidth, { height: t.sceneHeight })} alt={v.alt} width={t.width} height={t.height} />
+          <Svg source={sceneOf('tank', v, b, await read($, turnWork), t.sceneWidth, { height: t.sceneHeight })} alt={v.alt} width={t.width} height={t.height} />
           <Box flexDirection="row" justifyContent="center" gap={1}>
             {buttons}
           </Box>

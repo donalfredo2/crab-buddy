@@ -411,7 +411,14 @@ const compile = (pl: Plan, width: number, elapsed: number, shore: number) => {
   const css: string[] = []
   const anim = (name: string, timing: string) => `animation:${name} ${(D / 1000).toFixed(2)}s ${timing} forwards;animation-delay:-${(elapsed / 1000).toFixed(2)}s`
 
-  const moves = pl.beats.flatMap(b => [`${fine(b.t0)}{transform:translateX(${r1(x(b.p0))}px)}`, `${fine(b.t1)}{transform:translateX(${r1(x(b.p1))}px)}`])
+  // Whole pixels only: at a fraction each rect rounds to the screen on its own, and a
+  // sprite on the move changes shape. So it steps from one pixel to the next.
+  const whole = Math.round
+  const stepped = (from: number, to: number) => {
+    const n = Math.abs(whole(to) - whole(from))
+    return n ? `;animation-timing-function:steps(${n})` : ''
+  }
+  const moves = pl.beats.flatMap(b => [`${fine(b.t0)}{transform:translateX(${whole(x(b.p0))}px)${stepped(x(b.p0), x(b.p1))}}`, `${fine(b.t1)}{transform:translateX(${whole(x(b.p1))}px)}`])
   css.push(`@keyframes mv{${moves.join('')}}.mv{${anim('mv', 'linear')}}`)
   const faces = pl.beats.map(b => `${fine(b.t0)}{transform:${b.face === 1 ? RIGHT : LEFT}}`)
   css.push(`@keyframes fc{${faces.join('')}100%{transform:${pl.endFace === 1 ? RIGHT : LEFT}}}.fc{${anim('fc', 'steps(1,end)')}}`)
@@ -470,9 +477,9 @@ const compile = (pl: Plan, width: number, elapsed: number, shore: number) => {
       return `<g class="${name}" opacity="0">${banner}</g>`
     }
     if (m.kind === 'friend' && m.meet !== undefined && m.part !== undefined) {
-      const fx = (p: number) => r1(x(p) - CRAB_W - 4)
+      const fx = (p: number) => whole(x(p) - CRAB_W - 4)
       const arrive = m.t0 + 3000
-      markCss(name, [[0, `${hide};transform:translateX(-34px)`], [m.t0 - 1, `${hide};transform:translateX(-34px)`], [m.t0, `opacity:1;transform:translateX(-34px)`], [arrive, `opacity:1;transform:translateX(${fx(m.p0)}px)`], [m.meet, `opacity:1;transform:translateX(${fx(m.p0)}px)`], [m.part, `opacity:1;transform:translateX(${fx(m.p1)}px)`], [m.t1, `opacity:1;transform:translateX(-34px)`], [m.t1 + 1, hide]])
+      markCss(name, [[0, `${hide};transform:translateX(-34px)`], [m.t0 - 1, `${hide};transform:translateX(-34px)`], [m.t0, `opacity:1;transform:translateX(-34px)${stepped(-34, fx(m.p0))}`], [arrive, `opacity:1;transform:translateX(${fx(m.p0)}px)`], [m.meet, `opacity:1;transform:translateX(${fx(m.p0)}px)${stepped(fx(m.p0), fx(m.p1))}`], [m.part, `opacity:1;transform:translateX(${fx(m.p1)}px)${stepped(fx(m.p1), -34)}`], [m.t1, `opacity:1;transform:translateX(-34px)`], [m.t1 + 1, hide]])
       const play = m.variant === 'dance' ? 'dance' : m.variant === 'sky' ? 'skywatch' : 'chase'
       const blue = (pose: Pose) => crab('plain', pose).split(CLAY).join('#5B8FD9')
       const layer = (cls: string, pose: Pose) => `<g class="${cls}"><g transform="scale(${SCALE})" shape-rendering="crispEdges">${blue(pose)}</g></g>`
@@ -484,11 +491,11 @@ const compile = (pl: Plan, width: number, elapsed: number, shore: number) => {
       return `<g class="${name}" opacity="0"><g transform="translate(0,${CRAB_Y})"><g class="${name}f">${layer(`${name}a`, 'wander')}${layer(`${name}b`, 'wave')}${layer(`${name}c`, play)}</g></g></g>`
     }
     if (m.kind === 'neighbour') {
-      const stay = x(m.p0) + CRAB_W + 4
+      const stay = whole(x(m.p0) + CRAB_W + 4)
       const out = width + 8
       const arrive = Math.min(m.t1, m.t0 + 2200)
       const leave = Math.max(arrive, m.t1 - 2300)
-      markCss(name, [[0, `${hide};transform:translateX(${out}px)`], [m.t0 - 1, `${hide};transform:translateX(${out}px)`], [m.t0, `opacity:1;transform:translateX(${out}px)`], [arrive, `opacity:1;transform:translateX(${r1(stay)}px)`], [leave, `opacity:1;transform:translateX(${r1(stay)}px)`], [m.t1, `opacity:1;transform:translateX(${out}px)`], [m.t1 + 1, hide]])
+      markCss(name, [[0, `${hide};transform:translateX(${out}px)`], [m.t0 - 1, `${hide};transform:translateX(${out}px)`], [m.t0, `opacity:1;transform:translateX(${out}px)${stepped(out, stay)}`], [arrive, `opacity:1;transform:translateX(${stay}px)`], [leave, `opacity:1;transform:translateX(${stay}px)${stepped(stay, out)}`], [m.t1, `opacity:1;transform:translateX(${out}px)`], [m.t1 + 1, hide]])
       return `<g class="${name}" opacity="0"><g class="run stroll">${pixels(['..ddd...', '.dpwpd..', 'dpwpwpd.', 'dpppppde', '.lllll..'], { d: '#9C8B9E', p: '#C9B8CC', w: '#E6DCE8', e: '#1F1E1D', l: '#D97757' }, 0, GROUND - 5)}</g></g>`
     }
     if (m.kind === 'poof') {
@@ -524,7 +531,7 @@ const compile = (pl: Plan, width: number, elapsed: number, shore: number) => {
   const lifted = pl.beats.flatMap((b, i) => {
     const prev = pl.beats[i - 1]
     if (!b.y0 && !b.y1 && !prev?.y0 && !prev?.y1) return []
-    return [`${fine(b.t0)}{transform:translateY(${r1(-(b.y0 ?? 0))}px)}`, `${fine(b.t1)}{transform:translateY(${r1(-(b.y1 ?? 0))}px)}`]
+    return [`${fine(b.t0)}{transform:translateY(${whole(-(b.y0 ?? 0))}px)${stepped(b.y0 ?? 0, b.y1 ?? 0)}}`, `${fine(b.t1)}{transform:translateY(${whole(-(b.y1 ?? 0))}px)}`]
   })
   if (lifted.length) css.push(`@keyframes ly{${lifted.join('')}}.ly{${anim('ly', 'linear')}}`)
   const rides = pl.beats.some(b => b.pose === 'ride')
@@ -608,7 +615,7 @@ export const sceneSvg = (s: SceneInput): string => {
     : ''
 
   const bubble = s.bubble ? bubbleSvg(s.bubble) : null
-  const xNow = xOf(here.p, width)
+  const xNow = Math.round(xOf(here.p, width))
   const bubbleX = bubble ? Math.max(2 - xNow, Math.min(0, width - 2 - bubble.width - xNow)) : 0
 
   const layers = poses.map((pose, i) => {
@@ -631,9 +638,9 @@ export const sceneSvg = (s: SceneInput): string => {
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
 <g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells)}${footprints(pl, width, elapsed)}
 <g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}
-<g class="mv" transform="translate(${r1(xNow)},0)"><g transform="translate(0,${CRAB_Y})">
+<g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
 <ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>
-<g class="ly" transform="translate(0,${r1(-here.lift)})"><g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}</g>
+<g class="ly" transform="translate(0,${Math.round(-here.lift)})"><g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}</g>
 ${bubble ? `<g transform="translate(${r1(bubbleX)},-${CRAB_Y})">${bubble.svg}</g>` : ''}</g></g>
 ${skyFront(width, s.timeOfDay, s.sky, s.now, top)}</g>
 </svg>`

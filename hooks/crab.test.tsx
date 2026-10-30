@@ -392,6 +392,22 @@ test('every costume rides its gadget, and the plan never jumps', () => {
   }
 })
 
+test('everything that walks does so in whole pixels, so a sprite keeps its shape', () => {
+  for (const over of [{ ride: 'racer', first: 'ride' }, { ride: 'wizard', first: 'ride' }, { first: 'friend' }, { first: 'neighbour' }, { seed: 5 }] as Partial<Segment>[]) {
+    const s = rideScene(over)
+    const moving = [...s.matchAll(/translate[XY]\((-?[\d.]+)px\)/g)].map(m => m[1] ?? '')
+    expect(moving.length).toBeGreaterThan(0)
+    for (const v of moving) expect(v).toMatch(/^-?\d+$/)
+    expect(s).toMatch(/\.mv\{animation:mv [\d.]+s linear/)
+    expect(s).toMatch(/@keyframes mv\{.*animation-timing-function:steps\(\d+\)/)
+  }
+  // A step for each pixel crossed, so a fast car and a slow crab both land on every one.
+  const pl = plan(seg({ width: 900, ride: 'racer', first: 'ride' }))
+  const b = pl.beats.find(k => k.pose === 'ride' && k.p0 !== k.p1)
+  const px = Math.abs(Math.round(xOf(b?.p1 ?? 0, 900)) - Math.round(xOf(b?.p0 ?? 0, 900)))
+  expect(rideScene({ ride: 'racer' })).toMatch(new RegExp(`steps\\(${px}\\)`))
+})
+
 test('the gadgets draw small enough on every costume, in the day and at night', () => {
   for (const ride of ALL) {
     for (const timeOfDay of ['day', 'night'] as const) {
@@ -759,6 +775,34 @@ test('/crab ride sends it off now, with the gadget of what it wears, and a messa
   await $.turn.start({ text: 'again', turnId: 't2' })
   const after = (await band($, true)).source
   expect(after).toMatch(/fill="#E8E5DD"/)
+})
+
+test('a redraw that changes nothing visible keeps the same image, for a while', async ($, on) => {
+  const clock = mock.clock(on, { now: at(9) })
+  mock.store(on)
+  engine(on)
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false }, isError: false }) as never)
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const first = (await band($, true)).source
+
+  // Time passing and counters ticking: not worth a new image.
+  await clock.advance(5000)
+  expect((await band($, true)).source).toBe(first)
+  await $.tool.call({ tool: 'Read', file_path: '/x', agentId: 'helper' } as never)
+  expect((await band($, true)).source).toBe(first)
+
+  // Something you can see: a new one. Claude's own tool puts a block on the work pile.
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as never)
+  const piled = (await band($, true)).source
+  expect(piled).not.toBe(first)
+  await crab($, 'pet')
+  const petted = (await band($, true)).source
+  expect(petted).not.toBe(piled)
+
+  // And it never outstays its welcome: the image's clock would fall behind a fresh draw.
+  await clock.advance(21_000)
+  expect((await band($, true)).source).not.toBe(petted)
 })
 
 test('/crab off hides it on every surface, /crab on brings it back', async ($, on) => {
