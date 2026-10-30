@@ -25,6 +25,8 @@ export type TerminalInput = {
   timeOfDay: TimeOfDay
   sky: Sky
   bubble: string | null
+  hasSign?: boolean
+  hasBottle?: boolean
 }
 
 const HAT: Partial<Record<Costume, string>> = {
@@ -144,6 +146,17 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
     put(x, G - 1, '#2E8A57')
     put(x, G - 2, '#2E8A57')
     put(x, G - 3, '#F5C542')
+  }
+  if (t.hasSign) {
+    const x = Math.round(W * 0.38)
+    put(x, G - 1, '#A0703F')
+    put(x, G - 2, '#A0703F')
+    for (const dx of [-1, 0, 1]) put(x + dx, G - 3, '#E9D6A6')
+  }
+  if (t.hasBottle) {
+    put(shore - 4, G - 1, '#6FB98F')
+    put(shore - 3, G - 1, '#6FB98F')
+    put(shore - 2, G - 1, '#A0703F')
   }
 
   // The crab, centred where the plan puts it on the desktop's strip.

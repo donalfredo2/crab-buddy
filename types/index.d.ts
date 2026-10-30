@@ -94,6 +94,16 @@ export type Stats = {
   toolCalls: number
 }
 
+/** The state of the work, logged as it happens; goes to the summarizer before a compaction. */
+export type Logbook = {
+  /** Files changed since the last commit, newest last. */
+  files: string[]
+  test: 'passed' | 'failed' | null
+  build: 'passed' | 'failed' | null
+  /** Recent commits' subject lines, newest last. */
+  commits: string[]
+}
+
 export type BreakState = {
   /** Start of the current work streak; 0 when none. */
   streakStart: number
@@ -117,6 +127,13 @@ declare module 'claude-code' {
       contextPercent: number | null
       /** The context fill already warned about this session. */
       contextWarned: boolean
+      /** The good moment to compact was already signed at this fill. */
+      contextHinted: boolean
+      logbook: Logbook
+      /** The sign saying it's a good moment to compact is up. */
+      isSignUp: boolean
+      /** A bottle lies at the waterline after a compaction. */
+      isBottleUp: boolean
       breaks: BreakState
       areBreaksOff: boolean
       isSoundOff: boolean

@@ -6,8 +6,9 @@ import type { Segment } from '../types'
 import { RIDES, activityStarts, hasDecor, plan, planOf, rideFits, shoreFrac, spots, trackSpan, whereAt, xOf } from './life'
 
 import { line, themeLine, themeName } from './lines'
+import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
-import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, wornAt } from './register'
+import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, wornAt } from './register'
 import { sceneSvg, timeOfDay } from './scene'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
 import { COSTUMES, SPECIAL_COSTUMES, costumeOfDay } from './sprites'
@@ -1097,7 +1098,7 @@ test('with 50 shells the crown is yours', async ($, on) => {
 })
 
 test('no costume shares a name with a /crab word', () => {
-  const words = ['feed', 'play', 'pet', 'name', 'stats', 'theme', 'size', 'tank', 'strip', 'snooze', 'breaks', 'sound', 'bubbles', 'off', 'on', 'restart', 'ride', 'today']
+  const words = ['feed', 'play', 'pet', 'name', 'stats', 'log', 'theme', 'size', 'tank', 'strip', 'snooze', 'breaks', 'sound', 'bubbles', 'off', 'on', 'restart', 'ride', 'today']
   for (const c of [...COSTUMES, ...SPECIAL_COSTUMES]) expect(words.includes(c)).toBe(false)
 })
 
@@ -1383,4 +1384,205 @@ test('a denied repaint stops the timer until the beach is drawn again', async ($
   await ui.unmount()
   await clock.advance(5000)
   expect(blits.length).toBe(1)
+})
+
+// --- the logbook
+
+// Stands for the summarizer: records what it was told.
+function summarizer(on: On): (string | undefined)[] {
+  const told: (string | undefined)[] = []
+  on('session.compact', (_, e) => {
+    told.push(e.instructions)
+    return { messages: e.messages }
+  })
+  return told
+}
+const SAID = [{ role: 'user', text: 'hello', toolUses: [], toolResults: [] }]
+const compact = ($: Tester, over: object = {}) => $.session.compact({ trigger: 'manual', messages: SAID, ...over } as never)
+
+const FAILS = /npm test|npm run build|nothing to commit/
+function shell(on: On) {
+  on('tool.call', (_, e) => {
+    const command = String((e as { command?: unknown }).command ?? '')
+    return { result: { stdout: 'ok', stderr: '', interrupted: false }, isError: FAILS.test(command) } as never
+  })
+}
+const edit = ($: Tester, path: string, agentId?: string) =>
+  $.tool.call({ tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b', ...(agentId ? { agentId } : {}) } as never)
+const run = ($: Tester, command: string) => $.tool.call({ tool: 'Bash', command } as never)
+
+test('the log keeps the latest of each file and a commit settles them', () => {
+  let log = logFile(logFile(logFile(EMPTY_LOG, '/a/b.ts'), '/a/c.ts'), '/a/b.ts')
+  expect(log.files).toEqual(['/a/c.ts', '/a/b.ts'])
+  log = logCheck(logCheck(log, 'test', false), 'build', true)
+  expect(log.test).toBe('failed')
+  expect(log.build).toBe('passed')
+  log = logCommit(log, 'fix it')
+  expect(log.files).toEqual([])
+  expect(log.commits).toEqual(['fix it'])
+  expect(log.test).toBe('failed')
+  const many = Array.from({ length: 40 }, (_, i) => `/f${i}.ts`).reduce(logFile, EMPTY_LOG)
+  expect(many.files).toHaveLength(30)
+  expect(many.files.at(-1)).toBe('/f39.ts')
+  expect(logFile(EMPTY_LOG, '  ')).toEqual(EMPTY_LOG)
+})
+
+test('a commit title comes from -m or a heredoc', () => {
+  expect(commitTitle('git commit -m "fix the tide"')).toBe('fix the tide')
+  expect(commitTitle("git commit -am 'quick one'")).toBe('quick one')
+  expect(commitTitle(`git commit -m "$(cat <<'EOF'\ncrab-buddy 0.13.0: the logbook\n\nBody.\nEOF\n)"`)).toBe('crab-buddy 0.13.0: the logbook')
+  expect(commitTitle('git commit --amend --no-edit')).toBe('a commit')
+})
+
+test('the note stays short however much was logged, and is empty with nothing logged', () => {
+  expect(logNote(EMPTY_LOG)).toBe('')
+  expect(logText(EMPTY_LOG)).toBe('')
+  const long = `/${'deep/'.repeat(30)}`
+  const log = Array.from({ length: 30 }, (_, i) => `${long}file-with-a-long-name-${i}.tsx`).reduce(logFile, EMPTY_LOG)
+  const full = logCheck(logCheck(['one', 'two', 'three'].reduce((l, t) => logCommit(l, t.repeat(20).slice(0, 60)), EMPTY_LOG), 'test', true), 'build', false)
+  const note = logNote({ ...full, files: log.files })
+  expect(note.length).toBeLessThanOrEqual(NOTE_MAX)
+  expect(note).toMatch(/file-with-a-long-name-29\.tsx/)
+  expect(note).toMatch(/and \d+ more/)
+  expect(note).toMatch(/Last test run: passed\./)
+  expect(note).toMatch(/Last build: failed\./)
+})
+
+test('the shell log reads tests, builds and commits, and skips a failed commit', () => {
+  expect(logShell(EMPTY_LOG, 'npm test', true).test).toBe('failed')
+  expect(logShell(EMPTY_LOG, 'npm run build', false).build).toBe('passed')
+  expect(logShell(EMPTY_LOG, 'npm run build', true).build).toBe('failed')
+  const edited = logFile(EMPTY_LOG, '/a.ts')
+  expect(logShell(edited, 'git commit -m "x"', true).files).toEqual(['/a.ts'])
+  expect(logShell(edited, 'git commit -m "x"', false).files).toEqual([])
+  expect(logShell(edited, 'ls', false)).toEqual(edited)
+})
+
+test('the bottle joins what the summarizer was told and washes up afterwards', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  const told = summarizer(on)
+  await start($)
+  await edit($, '/repo/hooks/tide.ts')
+  await run($, 'npm test')
+  await compact($, { instructions: 'focus on the tide' })
+  expect(told[0]).toMatch(/^focus on the tide\n\n/)
+  expect(told[0]).toMatch(/hooks\/tide\.ts/)
+  expect(told[0]).toMatch(/Last test run: failed\./)
+  expect((await band($)).source).toMatch(/class="btl"/)
+  await clock.advance(5 * MIN + 1000)
+  expect((await band($)).source).not.toMatch(/class="btl"/)
+})
+
+test('with nothing logged or the bottle off, the summarizer hears nothing from the crab', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  const told = summarizer(on)
+  await start($)
+  await compact($, { instructions: 'mine' })
+  expect(told[0]).toBe('mine')
+  expect((await band($)).source).not.toMatch(/class="btl"/)
+
+  await edit($, '/a.ts')
+  expect(JSON.stringify(await crab($, 'log off'))).toMatch(/stays ashore/)
+  await compact($)
+  expect(told[1]).toBeUndefined()
+  expect(JSON.stringify(await crab($, 'log'))).toMatch(/a\.ts/)
+  expect(JSON.stringify(await crab($, 'log'))).toMatch(/bottle is off/)
+  await crab($, 'log on')
+  await compact($)
+  expect(told[2]).toMatch(/a\.ts/)
+})
+
+test('a subagent compacting leaves its own summary alone, but its edits are logged', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  const told = summarizer(on)
+  await start($)
+  await edit($, '/helper.ts', 'helper')
+  expect(JSON.stringify(await crab($, 'log'))).toMatch(/helper\.ts/)
+  await compact($, { agentId: 'helper' })
+  expect(told).toEqual([undefined])
+})
+
+test('a precompute gets the note, but nothing has washed up yet', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  const told = summarizer(on)
+  await start($)
+  await edit($, '/a.ts')
+  await compact($, { trigger: 'precompute' })
+  expect(told[0]).toMatch(/a\.ts/)
+  expect((await band($)).source).not.toMatch(/class="btl"/)
+})
+
+test('a clean stop past 60% plants the sign once, and it re-arms when the context drops', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx = { percent: 70 as number | null }
+  engine(on, ctx)
+  shell(on)
+  await start($)
+  const hasSign = async () => /beside a sign/.test(await alt($))
+
+  await run($, 'git commit -m "done"')
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await hasSign()).toBe(true)
+  await clock.advance(2 * MIN + 1000)
+  expect(await hasSign()).toBe(false)
+
+  await run($, 'git commit -m "more"')
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await hasSign()).toBe(false)
+
+  ctx.percent = 30
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  ctx.percent = 70
+  await run($, 'git commit -m "again"')
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await hasSign()).toBe(true)
+})
+
+test('no sign below 60%, after a later edit, or on a failing test', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx = { percent: 59 as number | null }
+  engine(on, ctx)
+  shell(on)
+  await start($)
+  const hasSign = async () => /beside a sign/.test(await alt($))
+
+  await run($, 'git commit -m "low"')
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await hasSign()).toBe(false)
+
+  ctx.percent = 70
+  await run($, 'git commit -m "then"')
+  await edit($, '/a.ts')
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await hasSign()).toBe(false)
+
+  await run($, 'git commit -m "then"')
+  await run($, 'npm test')
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await hasSign()).toBe(false)
+
+  await run($, 'git commit -m "aborted"')
+  await $.turn.complete({ ...TURN, reason: 'error', isAborted: true })
+  expect(await hasSign()).toBe(false)
+})
+
+test('the bottle and sign show on the terminal beach too', () => {
+  const base = { columns: 80, rows: 3, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
+  const plain = beachPixels(base).px
+  expect(beachPixels({ ...base, hasBottle: true }).px).not.toEqual(plain)
+  expect(beachPixels({ ...base, hasSign: true }).px).not.toEqual(plain)
 })

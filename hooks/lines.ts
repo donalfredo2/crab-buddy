@@ -7,6 +7,7 @@ export type Moment =
   | 'long' | 'commit' | 'testsFail' | 'testsPass' | 'hungry' | 'sleepy' | 'morning' | 'late'
   | 'fed' | 'played' | 'petted' | 'full' | 'tired' | 'pettedAgain' | 'named' | 'grumpy'
   | 'muse' | 'aware' | 'butterfly' | 'neighbour' | 'hic' | 'sky' | 'found' | 'built' | 'peek' | 'friend' | 'golden'
+  | 'compact' | 'bottle'
   | `ride-${Costume}`
 
 const LINES: Record<Moment, readonly string[]> = {
@@ -37,6 +38,8 @@ const LINES: Record<Moment, readonly string[]> = {
   peek: ['what do these do?', 'buttons…', 'shall I press one?'],
   friend: ['buddy!', 'you came!', 'best friends'],
   golden: ['a GOLDEN shell!', 'jackpot!', 'so shiny!!'],
+  compact: ['good moment for /compact', 'clean break: /compact?', 'tide is high: /compact?'],
+  bottle: ['message in a bottle!', 'bottle sent', 'ahoy, summarizer'],
   'ride-racer': ['vroom!', 'pit stop? never', 'new lap record'],
   'ride-viking': ['row, row, row', 'to Valhalla!', 'land ho… oh, it is land'],
   'ride-engineer': ['digging it', 'mind the bucket', 'structurally sound'],

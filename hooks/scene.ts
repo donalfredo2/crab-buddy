@@ -41,6 +41,10 @@ export type SceneInput = {
   height?: number
   /** Take whatever width the surface's slot has, stretching `width` to it (the strip). */
   fill?: boolean
+  /** A sign in the sand: a good moment to compact. */
+  hasSign?: boolean
+  /** A bottle at the waterline: a compaction just took the log. */
+  hasBottle?: boolean
 }
 
 export const timeOfDay = (hour: number): TimeOfDay => (hour >= 22 || hour < 6 ? 'night' : hour < 9 ? 'morning' : hour >= 18 ? 'evening' : 'day')
@@ -56,6 +60,8 @@ const SCENE_CSS = `
 .sw{fill:none;stroke-width:1.6;stroke-linecap:round;transform-box:fill-box;transform-origin:50% 100%;animation:sway2 4.2s ease-in-out infinite}
 .sw2{animation-duration:3.6s;animation-delay:-1.3s}.sw3{animation-duration:4.8s;animation-delay:-2.1s}
 @keyframes sway2{50%{transform:rotate(9deg)}}
+.btl{transform-box:fill-box;transform-origin:50% 100%;animation:btl 3s ease-in-out infinite}
+@keyframes btl{50%{transform:rotate(-7deg) translateY(-1px)}}
 .tw{animation:blink 2.6s steps(1) infinite}.tw2{animation-delay:-.9s}.tw3{animation-delay:-1.7s}
 .bubble{animation:pop .25s ease-out}
 @keyframes pop{from{transform:scale(.6);opacity:0}}
@@ -378,6 +384,12 @@ const workPile = (x0: number, kinds: readonly string[]): string =>
     return `<rect x="${r1(x0 + r * 1.6 + j * 3.2)}" y="${GROUND - 2 - r * 2}" width="3" height="2" fill="${BLOCK[k] ?? BLOCK.other}"/>`
   }).join('')
 
+const signSvg = (x: number): string =>
+  `<g shape-rendering="crispEdges"><rect x="${x + 6}" y="${GROUND - 7}" width="2" height="8" fill="#A0703F"/><rect x="${x}" y="${GROUND - 14}" width="14" height="8" fill="#E9D6A6"/><rect x="${x}" y="${GROUND - 7}" width="14" height="1" fill="#A0703F"/><rect x="${x + 2}" y="${GROUND - 12}" width="10" height="1" fill="#5A5853"/><rect x="${x + 2}" y="${GROUND - 10}" width="7" height="1" fill="#5A5853"/></g>`
+
+const bottleSvg = (x: number, now: number): string =>
+  `<g class="btl" style="${wall(now, 3)}" shape-rendering="crispEdges"><rect x="${x}" y="${GROUND - 3}" width="6" height="3" fill="#6FB98F"/><rect x="${x + 1}" y="${GROUND - 2}" width="3" height="1" fill="#F4F3EE"/><rect x="${x + 6}" y="${GROUND - 2}" width="2" height="1" fill="#6FB98F"/><rect x="${x + 8}" y="${GROUND - 2}" width="1" height="1" fill="#A0703F"/></g>`
+
 const habitat = (width: number, tod: TimeOfDay, sky: Sky, shore: number, now: number, costume: Costume, shells: number): string => {
   const at = spots(width, shore)
   const pebbles = [0.18, 0.53, 0.72, 0.96].map((p, i) => `<ellipse class="peb" cx="${Math.round(width * p)}" cy="${GROUND + 1.2}" rx="${1.6 + (i % 2)}" ry="1.1"/>`).join('')
@@ -637,7 +649,7 @@ export const sceneSvg = (s: SceneInput): string => {
   return `<svg xmlns="http://www.w3.org/2000/svg" ${fit}><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
 <g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells)}${footprints(pl, width, elapsed)}
-<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}
+<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}${s.hasSign ? signSvg(Math.round(width * 0.38)) : ''}${s.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}
 <g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
 <ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>
 <g class="ly" transform="translate(0,${Math.round(-here.lift)})"><g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}</g>

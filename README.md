@@ -14,8 +14,9 @@ A tiny pixel crab that lives on a beach above your Claude Code prompt. It has a 
 - **Has a real sky.** Sunrise and sunset, the actual moon phase, seasons, holidays and, if you like, your local weather.
 - **Looks after you.** It nudges you to take a break after a long stretch, and chirps when a long task finishes.
 - **Wants looking after.** Feed it, play with it, pet it. It remembers you across sessions.
+- **Keeps a logbook.** It writes down the state of your work and passes it to the summary when the context gets compacted.
 
-A new costume every day, a new beach to match. It's all CSS: no tokens spent.
+A new costume every day, a new beach to match. The animation is all CSS and costs no tokens.
 
 ## Install
 
@@ -25,7 +26,7 @@ Type this at the Claude Code prompt:
 /plugin install crab-buddy --marketplace donalfredo2/crab-buddy
 ```
 
-Answer `y` to add the marketplace, pick a scope, and the crab appears in your next session. It needs a recent Claude Code (2.1.275 or later). The desktop app shows the full beach; the terminal draws it in coloured blocks.
+Answer `y` to add the marketplace, pick a scope, and the crab appears in your next session. It needs a recent Claude Code (2.1.309 or later). The desktop app shows the full beach; the terminal draws it in coloured blocks.
 
 ## Updates
 
@@ -84,9 +85,16 @@ Food and Fun fade 5 points an hour, counted only while a session is open. When t
 
 - **Long task done**: a turn of 2 minutes or more ends with a wave, a toast and a short chirp.
 - **Context filling up**: half-lidded and slower from 50%, sweating from 80%, and one toast at 85%.
-- **Commits, tests, builds**: confetti, sunglasses, or a nervous shiver. It only watches; results are never changed.
+- **Commits, tests, builds**: confetti, sunglasses, or a nervous shiver. Results are never changed.
 - **Breaks**: after 90 minutes of continuous work it stretches and suggests a break; Snooze adds 30 minutes.
 - **Speech bubbles**: short canned lines at moments that matter, at most one unprompted line every 15 minutes (`rare`) or 5 (`often`). Your own care actions always get a reply.
+
+## The logbook
+
+The crab logs the session's work as it happens: files changed since the last commit, including by subagents, the last test and build results, and recent commits. Keeping the log costs nothing. `/crab log` shows it.
+
+- **The bottle:** before each compaction the log goes to the summarizer, as a note of up to 600 characters asking it to keep those facts. A bottle then washes up at the waterline. This is the one thing the mod adds to what Claude reads, so it costs a few tokens and it's disclosed here. It's on by default, and `/crab log off` turns it off. The summarizer can still leave things out, so it improves the odds and guarantees nothing.
+- **The good moment sign:** when a turn ends on a commit or passing tests with the context at 60% or more, the crab plants a sign. The work is at a clean break, so it's a good moment to `/compact`. It shows once, and again once the context has dropped below 50% and filled back up.
 
 ## Buttons and commands
 
@@ -96,6 +104,7 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab ride`: sends it off on its gadget right now
 - `/crab name <name>`: give it a name (up to 16 characters)
 - `/crab stats`: session time, turns, tool calls, context, needs, shells and today's theme
+- `/crab log`: what's in the logbook; `/crab log on|off` turns the bottle on or off
 - `/crab theme`: today's theme, and the costume you picked if it differs
 - `/crab size`: what this surface reports for the strip, handy if it looks stretched
 - `/crab bubbles often|rare|off`, `/crab breaks on|off`, `/crab sound on|off`
