@@ -59,20 +59,73 @@ export const DECOR = { palm: 5, chair: 10, house: 20 } as const
 export const ROOMY = 500
 export const hasDecor = (what: keyof typeof DECOR, shells: number, width: number): boolean => width >= ROOMY && shells >= DECOR[what]
 
+// How each temperament leans: the activities it likes, a word for it.
+const FOND = 2.5
+export const TEMPERAMENTS = {
+  digger: { word: 'a digger', fond: ['dig'] },
+  dancer: { word: 'a dancer', fond: ['dance', 'sway'] },
+  stargazer: { word: 'a stargazer', fond: ['skywatch'] },
+  kicker: { word: 'a kicker', fond: ['kick'] },
+  sunbather: { word: 'a sunbather', fond: ['sunbathe'] },
+  thinker: { word: 'a thinker', fond: ['muse', 'gaze'] },
+  social: { word: 'a social crab', fond: ['neighbour', 'friend'] },
+  homebody: { word: 'a homebody', fond: ['hide', 'inspect'] },
+} as const satisfies Record<string, { word: string; fond: readonly Activity[] }>
+export type Temperament = keyof typeof TEMPERAMENTS
+
+export const ROOFS = ['#C8553D', '#4A7FB5', '#4C8A5B', '#D9A441'] as const
+export const STRIPES = ['#E8577A', '#378ADD', '#F5C542', '#2E9E8F'] as const
+
+/** Where each thing may lie, as fractions of the width: apart from each other, the castle and the mark. */
+export const ZONES = {
+  house: [0.07, 0.105], palm: [0.21, 0.26], pebble: [0.4, 0.45], chair: [0.48, 0.55], seaweed: [0.58, 0.645], pool: [0.79, 0.87],
+} as const
+
+export type Layout = {
+  at: Record<keyof typeof ZONES, number>
+  roof: string
+  stripe: string
+  lean: 1 | -1
+  coconuts: 1 | 2
+  temperament: Temperament | null
+}
+
+/** The beach as it was before each install had its own. */
+const SHARED: Layout = {
+  at: { house: 0.07, palm: 0.22, pebble: 0.44, chair: 0.52, seaweed: 0.62, pool: 0.83 },
+  roof: ROOFS[0], stripe: STRIPES[0], lean: 1, coconuts: 2, temperament: null,
+}
+
+/**
+ * What an install's number makes of its beach. Each thing draws from a stream named after
+ * it, so one added later leaves the others where they lie. No number: the shared beach.
+ */
+export const layoutOf = (n?: number): Layout => {
+  if (n === undefined) return SHARED
+  const draw = (name: string): number => random([...name].reduce((h, c) => Math.imul(h ^ (c.codePointAt(0) ?? 0), 16777619), n ^ 2166136261))()
+  const within = (name: keyof typeof ZONES): number => ZONES[name][0] + draw(name) * (ZONES[name][1] - ZONES[name][0])
+  const one = <T>(name: string, of: readonly T[]): T => of[Math.floor(draw(name) * of.length)] as T
+  return {
+    at: { house: within('house'), palm: within('palm'), pebble: within('pebble'), chair: within('chair'), seaweed: within('seaweed'), pool: within('pool') },
+    roof: one('roof', ROOFS), stripe: one('stripe', STRIPES), lean: one('lean', [1, -1] as const), coconuts: one('coconuts', [1, 2] as const),
+    temperament: one('temperament', Object.keys(TEMPERAMENTS) as Temperament[]),
+  }
+}
+
 /** The habitat's landmarks in px; the scene draws them, the plan walks to them. */
-export const spots = (width: number, shore = NO_CONTEXT_SHORE) => {
+export const spots = (width: number, shore = NO_CONTEXT_SHORE, own = SHARED) => {
   const castle = Math.round(width * 0.3)
   const sea = Math.round(width * shore)
-  const pool = Math.round(width * 0.83)
-  const seaweed = Math.round(width * 0.62)
-  const pebble = Math.round(width * 0.44)
+  const pool = Math.round(width * own.at.pool)
+  const seaweed = Math.round(width * own.at.seaweed)
+  const pebble = Math.round(width * own.at.pebble)
+  const chair = Math.round(width * own.at.chair)
   return {
-    castle, pebble, seaweed, pool, sea,
+    castle, pebble, seaweed, pool, sea, chair,
     pile: castle + 14,
-    palm: Math.round(width * 0.22),
-    chair: Math.round(width * 0.52),
-    house: Math.max(40, Math.round(width * 0.07)),
-    hasChair: Math.round(width * 0.52) + 12 < sea,
+    palm: Math.round(width * own.at.palm),
+    house: Math.max(40, Math.round(width * own.at.house)),
+    hasChair: chair + 12 < sea,
     hasPool: pool + 18 < sea,
     hasSeaweed: seaweed + 10 < sea,
     hasPebble: pebble + 10 < sea,
@@ -81,8 +134,8 @@ export const spots = (width: number, shore = NO_CONTEXT_SHORE) => {
 
 // Where the crab stands to use a landmark: just left of it, facing it. Undefined
 // where the landmark is under the sea.
-const stops = (width: number, shore = NO_CONTEXT_SHORE) => {
-  const at = spots(width, shore)
+const stops = (width: number, shore: number | undefined, own: Layout) => {
+  const at = spots(width, shore, own)
   const before = (x: number) => pOf(x - CRAB_W - 1, width)
   const limit = Math.min(1, pOf(at.sea - 4 - CRAB_W, width))
   return {
@@ -199,6 +252,8 @@ export const weights = (seg: Segment): Partial<Record<Activity, number>> => {
     w.skywatch = (w.skywatch ?? 0) * 0.5
     w.hide = (w.hide ?? 0) + 1
   }
+  const { temperament } = layoutOf(seg.layout)
+  if (temperament) for (const a of TEMPERAMENTS[temperament].fond) w[a] = (w[a] ?? 0) * FOND
   return w
 }
 
@@ -229,7 +284,7 @@ export const planOf = (seg: Segment): Plan => {
 export const plan = (seg: Segment): Plan => {
   const rnd = random(seg.seed)
   const span = trackSpan(seg.width)
-  const at = stops(seg.width, seg.shore)
+  const at = stops(seg.width, seg.shore, layoutOf(seg.layout))
   const inside = (x: number) => Math.min(at.limit, clamp01(x))
   const isWork = seg.mode === 'work'
   const speed = isWork ? 22 : 15

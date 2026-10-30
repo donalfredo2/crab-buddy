@@ -5,7 +5,7 @@ import type { Activity, Antic, Beach, BreakState, Bubble, CatchKind, LifeMode, L
 import { reconcile, sameRods } from './fishing'
 import { FRESH_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, whereCrabIs } from './roam'
 import type { BeachRecord } from './roam'
-import { MARK_TIDE, MAX_RODS, planOf, rideFits, shoreFrac, tideOf, whereAt } from './life'
+import { MARK_TIDE, MAX_RODS, TEMPERAMENTS, layoutOf, planOf, rideFits, shoreFrac, tideOf, whereAt } from './life'
 import type { LifeEvent } from './life'
 import { line, signLine, themeLine, themeName } from './lines'
 import type { Moment } from './lines'
@@ -376,12 +376,17 @@ async function desiredMode($: EngineInterface): Promise<LifeMode> {
   return isAwake ? 'idle' : 'sleep'
 }
 
-async function traces($: EngineInterface): Promise<{ castle: number; shells: number; golden: number }> {
+async function traces($: EngineInterface): Promise<{ castle: number; shells: number; golden: number; layout?: number }> {
   const now = await $.clock.now()
   const c = await $.store.get(KEY.castle)
   const sh = await $.store.get(KEY.shells)
   const gold = await $.store.get(KEY.golden)
-  return { castle: isCastle(c) && c.day === dayKey(now) ? c.stage : 0, shells: isShells(sh) ? sh.count : 0, golden: isShells(gold) ? gold.count : 0 }
+  // When you met is this install's own: it stays put, on this machine, and every window reads the same one.
+  const met = await $.store.get(KEY.firstMet)
+  return {
+    castle: isCastle(c) && c.day === dayKey(now) ? c.stage : 0, shells: isShells(sh) ? sh.count : 0, golden: isShells(gold) ? gold.count : 0,
+    ...(typeof met === 'number' ? { layout: met >>> 0 } : {}),
+  }
 }
 
 /**
@@ -413,6 +418,7 @@ async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms:
     weather: (await read($, weather))?.kind ?? 'clear',
     shore: shoreFrac((await read($, tide))?.level ?? null, new Date(now).getHours() + new Date(now).getMinutes() / 60),
     ride: await wearing($),
+    ...(tr.layout === undefined ? {} : { layout: tr.layout }),
     ...(hold ? { hold } : {}), ...(opts.first ? { first: opts.first } : {}), ...(opts.haul ? { haul: opts.haul } : {}), ...(opts.isLeaving ? { isLeaving: true } : {}), ...(poof ? { poof } : {}),
   }
   await update($, life, () => seg)
@@ -1136,7 +1142,8 @@ export const register: Register = (on, options) => {
       const v = await view($, false)
       const tr = await traces($)
       const fish = await $.store.get(KEY.fish)
-      return { text: `${v.summary} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''}${typeof fish === 'number' && fish > 0 ? ` · ${fish} fish` : ''} · ${themeAt(v.now)}` }
+      const { temperament } = layoutOf(tr.layout)
+      return { text: `${v.summary} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''}${typeof fish === 'number' && fish > 0 ? ` · ${fish} fish` : ''}${temperament ? ` · ${TEMPERAMENTS[temperament].word}` : ''} · ${themeAt(v.now)}` }
     }
     if (word === 'lines') {
       const out = await read($, rods)

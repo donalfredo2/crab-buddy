@@ -4,8 +4,8 @@
 // wall clock, so a redraw picks up the segment where it was instead of starting over.
 
 import type { Beach, Pose, Prop, Segment, TimeOfDay } from '../types'
-import { CRAB_W, MARK_SHORE, MAX_CASTLE, NO_CONTEXT_SHORE, ROOMY, hasDecor, isWalking, planOf, rodSpots, spots, whereAt, xOf } from './life'
-import type { Plan } from './life'
+import { CRAB_W, MARK_SHORE, MAX_CASTLE, NO_CONTEXT_SHORE, ROOMY, hasDecor, isWalking, layoutOf, planOf, rodSpots, spots, whereAt, xOf } from './life'
+import type { Layout, Plan } from './life'
 import { moonLit } from './sky'
 import type { Sky } from './sky'
 import { CLAY, CRAB_CSS, crab, overlay, propSvg, umbrellaSvg } from './sprites'
@@ -341,23 +341,26 @@ const costumeBeach = (costume: Costume, width: number, sea: number, now: number)
   }
 }
 
-const unlocked = (width: number, tod: TimeOfDay, shells: number, sea: number): string => {
-  const at = spots(width)
+const unlocked = (width: number, tod: TimeOfDay, shells: number, sea: number, own: Layout): string => {
+  const at = spots(width, undefined, own)
   const g = GROUND
   const out: string[] = []
   if (hasDecor('house', shells, width)) {
     // Someone's home after dark: the window glows, and nothing moves.
     const pane = tod === 'night' || tod === 'evening' ? '#F5D96A' : '#A9D6F5'
-    out.push(pixels(['.......rrr.......', '.....rrrrrrr.....', '...rrrrrrrrrrr...', '.rrrrrrrrrrrrrrr.', '..wwwwwwwwwwwww..', '..wwwwwwwdddwww..', '..wlllwwdddddww..', '..wlllwwdddddww..', '..wlllwwdddddww..', '..wwwwwwdddddww..', '..wwwwwwdddddww..', '..wwwwwwdddddww..', '.ggggggggggggggg.'], { r: '#C8553D', w: '#F0E2C4', d: '#8A5A2B', l: pane, g: '#8E929A' }, at.house - 8, g - 13))
+    out.push(pixels(['.......rrr.......', '.....rrrrrrr.....', '...rrrrrrrrrrr...', '.rrrrrrrrrrrrrrr.', '..wwwwwwwwwwwww..', '..wwwwwwwdddwww..', '..wlllwwdddddww..', '..wlllwwdddddww..', '..wlllwwdddddww..', '..wwwwwwdddddww..', '..wwwwwwdddddww..', '..wwwwwwdddddww..', '.ggggggggggggggg.'], { r: own.roof, w: '#F0E2C4', d: '#8A5A2B', l: pane, g: '#8E929A' }, at.house - 8, g - 13))
   }
   if (hasDecor('palm', shells, width)) {
     const x = at.palm
-    const trunk = [[0, -2], [0, -4], [1, -6], [1, -8], [2, -10], [2, -12], [3, -14]].map(([dx, dy]) => `<rect x="${x + (dx ?? 0)}" y="${g + (dy ?? 0)}" width="2" height="2" fill="#8A5A2B"/>`).join('')
-    out.push(trunk + `<g class="palm" style="transform-origin:${x + 4}px ${g - 15}px">${pixels(['.gg....gg.', 'gggg..gggg', 'g..gggg..g', '...gggg...', '..g.gg.g..', '.g..gg..g.'], { g: '#3E9E5A' }, x - 1, g - 19)}</g><rect x="${x + 3}" y="${g - 15}" width="1.5" height="1.5" fill="#6B4423"/><rect x="${x + 5}" y="${g - 15}" width="1.5" height="1.5" fill="#6B4423"/>`)
+    // It leans its own way: the crown sits over the top of the trunk either way.
+    const crown = x + 1 + own.lean * 3
+    const trunk = [[0, -2], [0, -4], [1, -6], [1, -8], [2, -10], [2, -12], [3, -14]].map(([dx, dy]) => `<rect x="${x + own.lean * (dx ?? 0)}" y="${g + (dy ?? 0)}" width="2" height="2" fill="#8A5A2B"/>`).join('')
+    const coconuts = [crown - 1, crown + 1].slice(0, own.coconuts).map(cx => `<rect x="${cx}" y="${g - 15}" width="1.5" height="1.5" fill="#6B4423"/>`).join('')
+    out.push(trunk + `<g class="palm" style="transform-origin:${crown}px ${g - 15}px">${pixels(['.gg....gg.', 'gggg..gggg', 'g..gggg..g', '...gggg...', '..g.gg.g..', '.g..gg..g.'], { g: '#3E9E5A' }, crown - 5, g - 19)}</g>${coconuts}`)
   }
   if (hasDecor('chair', shells, width) && at.chair + 12 < sea) {
     const x = at.chair
-    out.push(`<rect x="${x + 4}" y="${g - 17}" width="1" height="17" fill="#8E929A"/>${pixels(['....rrwrr....', '..rrwwrrwwr..', '.rrwwrrrwwrr.', 'rrwwrrrrrwwrr'], { r: '#E8577A', w: '#F4F3EE' }, x - 2, g - 20)}${pixels(['........bb', '.......bb.', '......bb..', 'bbbbbbbb..', 'b.....b...'], { b: '#378ADD' }, x - 3, g - 5)}`)
+    out.push(`<rect x="${x + 4}" y="${g - 17}" width="1" height="17" fill="#8E929A"/>${pixels(['....rrwrr....', '..rrwwrrwwr..', '.rrwwrrrwwrr.', 'rrwwrrrrrwwrr'], { r: own.stripe, w: '#F4F3EE' }, x - 2, g - 20)}${pixels(['........bb', '.......bb.', '......bb..', 'bbbbbbbb..', 'b.....b...'], { b: '#378ADD' }, x - 3, g - 5)}`)
   }
   return out.join('')
 }
@@ -415,8 +418,8 @@ const wrackSvg = (width: number): string => {
   return `<g shape-rendering="crispEdges"><rect x="${x - 9}" y="${GROUND - 1}" width="6" height="2" fill="#4C8A5B"/><rect x="${x - 6}" y="${GROUND - 2}" width="2" height="1" fill="#6FB98F"/><rect x="${x - 2}" y="${GROUND - 1}" width="3" height="2" fill="#F4F3EE"/><rect x="${x + 2}" y="${GROUND - 1}" width="7" height="2" fill="#4C8A5B"/><rect x="${x + 5}" y="${GROUND - 2}" width="2" height="1" fill="#6FB98F"/></g>`
 }
 
-const habitat = (width: number, tod: TimeOfDay, sky: Sky, shore: number, now: number, costume: Costume, shells: number, hasMark: boolean): string => {
-  const at = spots(width, shore)
+const habitat = (width: number, tod: TimeOfDay, sky: Sky, shore: number, now: number, costume: Costume, shells: number, hasMark: boolean, own: Layout): string => {
+  const at = spots(width, shore, own)
   const pebbles = [0.18, 0.53, 0.72, 0.96].map((p, i) => `<ellipse class="peb" cx="${Math.round(width * p)}" cy="${GROUND + 1.2}" rx="${1.6 + (i % 2)}" ry="1.1"/>`).join('')
   const weed = [0, 4, 8]
     .map((dx, i) => `<path class="sw${i ? ` sw${i + 1}` : ''}" d="M${at.seaweed + dx} ${GROUND} q-3 -${5 + i} 0 -${10 + i * 2} q3 -4 0 -${7 + i}"/>`)
@@ -425,7 +428,7 @@ const habitat = (width: number, tod: TimeOfDay, sky: Sky, shore: number, now: nu
   const pool = !at.hasPool ? '' : `${glow}<ellipse class="pool" cx="${at.pool}" cy="${GROUND + 2}" rx="14" ry="2.2"/><rect class="shim" x="${at.pool - 6}" y="${GROUND + 1.4}" width="4" height=".6" fill="#fff" opacity=".7"/><rect class="shim tw2" x="${at.pool + 3}" y="${GROUND + 2.4}" width="3" height=".6" fill="#fff" opacity=".6"/>`
   const snowy = sky.season === 'winter' || sky.weather === 'snow'
   const snow = snowy ? `<rect class="snowl" x="0" y="${GROUND - 0.8}" width="${width}" height="2" rx="1"/>${Array.from({ length: Math.floor(width / 60) }, (_, i) => `<ellipse class="snowl" cx="${i * 60 + 23}" cy="${GROUND - 0.6}" rx="5" ry="1.4"/>`).join('')}` : ''
-  return `<rect class="sand" x="0" y="${GROUND}" width="${width}" height="${SCENE_H - GROUND}" rx="2"/><rect class="sand2" x="0" y="${GROUND}" width="${width}" height="1"/>${snow}${pool}${pebbles}${weed}${sea(width, at.sea, now)}${hasMark ? wrackSvg(width) : ''}${holidayDecor(width, tod, sky)}${sky.holiday ? '' : costumeBeach(costume, width, at.sea, now)}${unlocked(width, tod, shells, at.sea)}`
+  return `<rect class="sand" x="0" y="${GROUND}" width="${width}" height="${SCENE_H - GROUND}" rx="2"/><rect class="sand2" x="0" y="${GROUND}" width="${width}" height="1"/>${snow}${pool}${pebbles}${weed}${sea(width, at.sea, now)}${hasMark ? wrackSvg(width) : ''}${holidayDecor(width, tod, sky)}${sky.holiday ? '' : costumeBeach(costume, width, at.sea, now)}${unlocked(width, tod, shells, at.sea, own)}`
 }
 
 const bubbleSvg = (text: string): { svg: string; width: number } => {
@@ -441,7 +444,7 @@ const RIGHT = 'none'
 const LEFT = `translate(${CRAB_W}px,0) scale(-1,1)`
 
 /** Compiles one plan into keyframes; times are ms into the segment. */
-const compile = (pl: Plan, width: number, elapsed: number, shore: number) => {
+const compile = (pl: Plan, width: number, elapsed: number, shore: number, own: Layout) => {
   const D = Math.max(1, pl.duration)
   const fine = (t: number) => `${(Math.max(0, Math.min(100, (t / D) * 100))).toFixed(3)}%`
   const x = (p: number) => xOf(p, width)
@@ -491,7 +494,7 @@ const compile = (pl: Plan, width: number, elapsed: number, shore: number) => {
       return `<g class="${name}" opacity="0"><g fill="#8E929A"><rect class="wing" x="-5" y="-2" width="4" height="1.4"/><rect class="wing" x="1" y="-2" width="4" height="1.4"/><rect x="-1.5" y="-1" width="3" height="2" fill="#E6E8EE"/><rect x="-2.6" y="-.6" width="1.2" height=".8" fill="#F5C542"/></g></g>`
     }
     if (m.kind === 'fish') {
-      const at = spots(width, shore)
+      const at = spots(width, shore, own)
       const cx = at.hasPool ? at.pool : Math.min(width - 6, at.sea + 16)
       const mid = (m.t0 + m.t1) / 2
       markCss(name, [[0, `${hide};transform:translate(${cx - 6}px,${GROUND + 1}px)`], [m.t0 - 1, `${hide};transform:translate(${cx - 6}px,${GROUND + 1}px)`], [m.t0, `opacity:1;transform:translate(${cx - 6}px,${GROUND + 1}px) rotate(-50deg)`], [mid, `opacity:1;transform:translate(${cx}px,${GROUND - 13}px) rotate(0deg)`], [m.t1, `opacity:1;transform:translate(${cx + 6}px,${GROUND + 1}px) rotate(60deg)`], [m.t1 + 1, hide]])
@@ -621,8 +624,9 @@ export const sceneSvg = (s: SceneInput): string => {
   const elapsed = Math.max(0, Math.min(pl.duration, s.now - s.seg.startAt))
   const here = whereAt(pl, elapsed)
   const shore = s.seg.shore ?? NO_CONTEXT_SHORE
-  const { css, poses, marks } = compile(pl, width, elapsed, shore)
-  const at = spots(width, shore)
+  const own = layoutOf(s.seg.layout)
+  const { css, poses, marks } = compile(pl, width, elapsed, shore, own)
+  const at = spots(width, shore, own)
 
   // The pile disappears once the crab picks it up.
   const tidy = pl.marks.find(m => m.kind === 'pile')
@@ -689,7 +693,7 @@ export const sceneSvg = (s: SceneInput): string => {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" ${fit}><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
-<g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells, !!s.beach?.hasMark)}${footprints(pl, width, elapsed)}
+<g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells, !!s.beach?.hasMark, own)}${footprints(pl, width, elapsed)}
 <g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
 <g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
 ${isGone ? '' : `<ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>`}

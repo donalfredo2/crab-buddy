@@ -2,11 +2,12 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import type { Rod, Segment } from '../types'
+import type { Beach, Rod, Segment } from '../types'
 import { reconcile, sameRods } from './fishing'
 import { ACTIVE_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, whereCrabIs } from './roam'
 import type { BeachRecord } from './roam'
-import { MARK_SHORE, MARK_TIDE, MAX_RODS, RIDES, activityStarts, hasDecor, plan, planOf, rideFits, rodSpots, shoreFrac, spots, tideOf, trackSpan, whereAt, xOf } from './life'
+import { MARK_SHORE, MARK_TIDE, MAX_RODS, RIDES, ROOFS, STRIPES, TEMPERAMENTS, ZONES, activityStarts, hasDecor, layoutOf, plan, planOf, rideFits, rodSpots, shoreFrac, spots, tideOf, trackSpan, weights, whereAt, xOf } from './life'
+import type { Temperament } from './life'
 
 import { line, signLine, themeLine, themeName } from './lines'
 import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
@@ -20,6 +21,7 @@ import { beachCells, beachPixels, cellText, decodeCells } from './terminal'
 
 const DAY = 86_400_000
 const MIN = 60_000
+const hex = (c: string): number => parseInt(c.slice(1), 16)
 // Local times, so day and night do not depend on where the tests run.
 const at = (hour: number, minute = 0) => new Date(2026, 9, 29, hour, minute).getTime()
 const T0 = at(12)
@@ -542,7 +544,180 @@ test('the terminal shows the gadget, and a rocket leaves the top', () => {
   expect(has(at('astronaut', 0.55), 0xf4f3ee)).toBe(false)
 })
 
+// --- every install's own beach
+
+const LAYOUTS = Array.from({ length: 300 }, (_, i) => (Math.imul(i + 1, 2654435761) >>> 0))
+const WIDTHS = [500, 725, 800, 1200, 1600]
+const withTemperament = (t: Temperament): number => LAYOUTS.find(n => layoutOf(n).temperament === t) ?? 0
+const beachOf = (over: Partial<Segment>, extra: { width?: number; beach?: Beach; timeOfDay?: 'day' | 'night' } = {}) => {
+  const width = extra.width ?? 800
+  const timeOfDay = extra.timeOfDay ?? 'day'
+  return sceneSvg({ width, costume: 'plain', look: {}, timeOfDay, bubble: null, now: T0 + 1000, prop: null, sky: skyFor(T0), hour: 12, work: [], seg: seg({ width, timeOfDay, ...over }), ...(extra.beach ? { beach: extra.beach } : {}) })
+}
+
+test('no number is the beach as it always was; a number is a beach of its own, the same every time', () => {
+  const shared = spots(800)
+  expect([shared.house, shared.palm, shared.castle, shared.pebble, shared.chair, shared.seaweed, shared.pool]).toEqual([56, 176, 240, 352, 416, 496, 664])
+  expect(layoutOf().temperament).toBe(null)
+
+  expect(layoutOf(1234)).toEqual(layoutOf(1234))
+  expect(beachOf({ layout: 1234, shells: 30 })).toBe(beachOf({ layout: 1234, shells: 30 }))
+  expect(beachOf({ layout: 1234, shells: 30 })).not.toBe(beachOf({ shells: 30 }))
+  expect(new Set(LAYOUTS.map(n => JSON.stringify(layoutOf(n).at))).size).toBe(LAYOUTS.length)
+  // Close numbers, as two people meeting it the same minute, aren't close beaches.
+  expect(Math.abs(layoutOf(1000).at.palm - layoutOf(1001).at.palm) + Math.abs(layoutOf(1000).at.pool - layoutOf(1001).at.pool)).toBeGreaterThan(0.005)
+  // The spread uses each zone, so two beaches side by side really differ.
+  for (const name of Object.keys(ZONES) as (keyof typeof ZONES)[]) {
+    const all = LAYOUTS.map(n => layoutOf(n).at[name])
+    const [from, to] = ZONES[name]
+    expect(Math.max(...all) - Math.min(...all)).toBeGreaterThan((to - from) * 0.9)
+  }
+})
+
+test('everything stays in its zone, clear of the others, the castle and the mark', () => {
+  for (const n of LAYOUTS) {
+    const own = layoutOf(n)
+    for (const name of Object.keys(ZONES) as (keyof typeof ZONES)[]) {
+      expect(own.at[name]).toBeGreaterThanOrEqual(ZONES[name][0])
+      expect(own.at[name]).toBeLessThanOrEqual(ZONES[name][1])
+    }
+    for (const width of WIDTHS) {
+      const at = spots(width, undefined, own)
+      const mark = Math.round(width * MARK_SHORE)
+      expect(at.house).toBeGreaterThanOrEqual(40)
+      expect(at.house + 9).toBeLessThan(at.palm - 7)
+      expect(at.palm + 9).toBeLessThan(at.castle - 6)
+      expect(at.pile + 16).toBeLessThan(at.pebble - 3)
+      expect(at.pebble + 3).toBeLessThan(at.chair - 3)
+      expect(at.chair + 11).toBeLessThan(at.seaweed - 3)
+      expect(at.seaweed + 11).toBeLessThanOrEqual(mark - 9)
+      expect(mark + 9).toBeLessThan(at.pool - 14)
+      expect(at.hasPool && at.hasChair && at.hasSeaweed && at.hasPebble).toBe(true)
+    }
+  }
+})
+
+test('the crab uses the things where they are, and never walks into the sea for them', () => {
+  for (const n of LAYOUTS.slice(0, 40)) {
+    const own = layoutOf(n)
+    const chair = spots(800, undefined, own).chair
+    const sun = plan(seg({ layout: n, shells: 30, first: 'sunbathe' })).beats.find(b => b.pose === 'sun')
+    expect(Math.abs(xOf(sun?.p0 ?? 0, 800) + 13 - chair)).toBeLessThan(2)
+    for (const shore of [0.45, 0.5, 0.6, 0.8]) {
+      const at = spots(800, shore, own)
+      const pl = plan(seg({ layout: n, shore, shells: 30, startP: 0.2 }))
+      for (const b of pl.beats.slice(1)) expect(xOf(b.p1, 800) + 26).toBeLessThan(at.sea)
+      if (!at.hasSeaweed) expect(activityStarts(pl).some(a => a.act === 'sway')).toBe(false)
+      if (!at.hasPebble) expect(activityStarts(pl).some(a => a.act === 'kick')).toBe(false)
+      const scene = beachOf({ layout: n, shore, shells: 30 })
+      expect(scene.includes('class="pool"')).toBe(at.hasPool)
+      expect(scene.includes('height="17" fill="#8E929A"')).toBe(at.hasChair)
+    }
+  }
+})
+
+test('the decor has its own look, and the shared beach keeps its colours', () => {
+  const shared = beachOf({ shells: 30 })
+  expect(shared).toContain(ROOFS[0])
+  expect(shared).toContain(STRIPES[0])
+  for (const n of LAYOUTS.slice(0, 40)) {
+    const own = layoutOf(n)
+    const scene = beachOf({ layout: n, shells: 30 })
+    expect(scene).toContain(own.roof)
+    expect(scene).toContain(own.stripe)
+    expect(scene.split('fill="#6B4423"').length - 1).toBe(own.coconuts)
+    // The top of the trunk goes the way it leans.
+    expect(scene).toContain(`<rect x="${spots(800, undefined, own).palm + own.lean * 3}" y="21" width="2" height="2" fill="#8A5A2B"/>`)
+  }
+  expect(new Set(LAYOUTS.map(n => layoutOf(n).roof)).size).toBe(ROOFS.length)
+  expect(new Set(LAYOUTS.map(n => layoutOf(n).stripe)).size).toBe(STRIPES.length)
+  expect(new Set(LAYOUTS.map(n => layoutOf(n).lean)).size).toBe(2)
+  expect(new Set(LAYOUTS.map(n => layoutOf(n).coconuts)).size).toBe(2)
+})
+
+test('a crab leans its own way, and its life keeps the rules and the pace', () => {
+  expect(new Set(LAYOUTS.map(n => layoutOf(n).temperament)).size).toBe(Object.keys(TEMPERAMENTS).length)
+  for (const t of Object.keys(TEMPERAMENTS) as Temperament[]) {
+    const layout = withTemperament(t)
+    const fond = TEMPERAMENTS[t].fond[0]
+    // Enough plans for the rarest favourite to show.
+    expect(count({ layout, width: 1200 }, fond)).toBeGreaterThan(count({ width: 1200 }, fond) * 1.3)
+    // Night and rain still have the last word, and no temperament finds shells faster.
+    expect(weights(seg({ layout, timeOfDay: 'night' })).sunbathe).toBe(0)
+    expect(weights(seg({ layout, weather: 'rain' })).butterfly).toBe(0)
+    expect(weights(seg({ layout })).forage).toBe(weights(seg()).forage)
+    expect(weights(seg({ layout })).build).toBe(weights(seg()).build)
+    expect(weights(seg({ layout })).ride).toBe(weights(seg()).ride)
+    const starts = SEEDS.flatMap(seed => {
+      const all = activityStarts(plan(seg({ seed, layout })))
+      return all.slice(1).map((s, i) => s.t - (all[i]?.t ?? 0))
+    })
+    const mean = starts.reduce((a, b) => a + b, 0) / starts.length / 1000
+    expect(mean).toBeGreaterThan(20)
+    expect(mean).toBeLessThan(45)
+  }
+})
+
+test('the terminal shows the same things where this beach has them', () => {
+  const G = 5
+  const pixelsOf = (columns: number, over: Partial<Segment>) =>
+    beachPixels({ columns, rows: 3, now: T0 + 1000, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null, seg: seg({ width: columns * 8, startP: 0.95, ...over }) }).px
+  const columnsOf = (px: number[], W: number, color: number) => [...new Set(px.flatMap((c, i) => (c === color ? [i % W] : [])))]
+  for (const layout of LAYOUTS.slice(0, 40)) {
+    const own = layoutOf(layout)
+    for (const W of [63, 80, 120]) {
+      const px = pixelsOf(W, { layout, shells: 30 })
+      expect(px[(G - 1) * W + Math.round(W * own.at.pebble)]).toBe(0x9a948a)
+      expect(px[(G - 1) * W + Math.round(W * own.at.seaweed)]).toBe(0x3e8e5e)
+      expect(px[G * W + Math.round(W * own.at.pool)]).toBe(0x9fd3e8)
+      const palm = Math.round(W * own.at.palm)
+      expect(px[(G - 1) * W + palm]).toBe(0x8a5a2b)
+      expect(columnsOf(px, W, 0x3e9e5a).sort((a, b) => a - b)).toEqual([palm + own.lean - 1, palm + own.lean, palm + own.lean + 1])
+      expect(px[(G - 4) * W + Math.round(W * own.at.chair)]).toBe(hex(own.stripe))
+      // The house stays between the shell pile and the palm; a beach too short goes without.
+      const walls = columnsOf(px, W, 0xf0e2c4)
+      expect(walls.length > 0).toBe(palm >= 17)
+      if (walls.length) {
+        expect(Math.min(...walls)).toBeGreaterThan(9)
+        expect(Math.max(...walls)).toBeLessThan(palm + own.lean - 1)
+        expect(px.includes(hex(own.roof))).toBe(true)
+      }
+    }
+    // Too narrow, too few shells, or under the sea: nothing to draw.
+    const narrow = pixelsOf(50, { layout, shells: 30 })
+    expect(narrow.includes(0x3e9e5a)).toBe(false)
+    expect(pixelsOf(80, { layout, shells: 4 }).includes(0x3e9e5a)).toBe(false)
+    expect(pixelsOf(80, { layout, shells: 30, shore: 0.45 }).includes(0x9fd3e8)).toBe(false)
+    expect(pixelsOf(80, { layout, shells: 30, shore: 0.45 })[(G - 2) * 80 + Math.round(80 * own.at.chair)]).not.toBe(0x8e929a)
+  }
+})
+
 // --- the mod in the engine
+
+test('an install keeps its beach from when you first met, in every window', async ($, on) => {
+  const met = 1793309359555
+  const own = layoutOf(met >>> 0)
+  mock.clock(on, { now: T0 })
+  mock.store(on, { firstMet: met })
+  engine(on)
+  await start($)
+  const first = await band($)
+  expect(first.source).toContain(`class="pool" cx="${spots(725, undefined, own).pool}"`)
+  const word = own.temperament ? TEMPERAMENTS[own.temperament].word : 'none'
+  expect(JSON.stringify(await crab($, 'stats'))).toContain(` · ${word} · `)
+})
+
+test('a new install gets a beach of its own at once', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  const own = layoutOf(T0 >>> 0)
+  const pool = `class="pool" cx="${spots(725, undefined, own).pool}"`
+  expect((await band($)).source).toContain(pool)
+  await clock.advance(5 * MIN)
+  expect((await band($)).source).toContain(pool)
+})
 
 test('the crab naps, works, cheers, wanders, then naps again', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
@@ -875,12 +1050,10 @@ test('/crab ride sends it off now, with the gadget of what it wears, and a messa
   expect((await band($, true)).source).toMatch(/class="c-wizard run"/)
   expect((await band($, true)).source).toMatch(/@keyframes ly\{/)
 
-  // A new turn mid-flight: no gadget left hanging, a puff where it was.
-  await clock.advance(3000)
+  // The turn ends mid-flight: no gadget left hanging, a puff where it was.
+  for (let i = 0; i < 60 && !(await alt($, true)).includes('out on its gadget'); i++) await clock.advance(500)
   await $.turn.complete({ answer: 'hi', durationMs: 1000, isAborted: false, turnId: 't1', reason: 'answer' })
-  await $.turn.start({ text: 'again', turnId: 't2' })
-  const after = (await band($, true)).source
-  expect(after).toMatch(/fill="#E8E5DD"/)
+  expect((await band($)).source).toMatch(/fill="#E8E5DD"/)
 })
 
 test('a redraw that changes nothing visible keeps the same image, for a while', async ($, on) => {

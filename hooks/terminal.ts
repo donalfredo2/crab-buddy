@@ -4,7 +4,7 @@
 // Empty cells keep the terminal's own colours, so it stays see-through.
 
 import type { Beach, Segment, TimeOfDay } from '../types'
-import { CRAB_W, MARK_SHORE, MAX_RODS, NO_CONTEXT_SHORE, isWalking, planOf, whereAt, xOf } from './life'
+import { CRAB_W, MARK_SHORE, MAX_RODS, NO_CONTEXT_SHORE, ZONES, hasDecor, isWalking, layoutOf, planOf, whereAt, xOf } from './life'
 import { moonLit } from './sky'
 import type { Sky } from './sky'
 import { CLAY } from './sprites'
@@ -120,10 +120,14 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   }
 
   // Sand, then the sea from where the context put the shore, lapping a column each way.
-  const shore = Math.round(W * (t.seg.shore ?? NO_CONTEXT_SHORE)) + Math.round(Math.sin((now / 5000) * 2 * Math.PI))
+  const restShore = Math.round(W * (t.seg.shore ?? NO_CONTEXT_SHORE))
+  const shore = restShore + Math.round(Math.sin((now / 5000) * 2 * Math.PI))
   for (let x = 0; x < W; x++) put(x, G, x < shore ? '#D9C08A' : x === shore ? '#FFFFFF' : '#4FA3CC')
   for (let x = shore + 2; x < W; x++) put(x, G - 1, '#8FCFE6')
   const onSand = (x: number) => x < shore - 1
+  const own = layoutOf(t.seg.layout)
+  const pool = Math.round(W * own.at.pool)
+  if (pool + 1 < restShore - 1) for (const dx of [-1, 0, 1]) put(pool + dx, G, '#9FD3E8')
   if (t.beach?.hasMark) {
     put(Math.round(W * MARK_SHORE) - 1, G - 1, '#4C8A5B')
     put(Math.round(W * MARK_SHORE), G - 1, '#F4F3EE')
@@ -143,12 +147,38 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   if (stage >= 3) put(c + 1, G - 2, '#C9A86A')
   if (stage >= 4) put(c, G - 2, '#B8975B')
   if (stage >= 5) put(c - 1, G - 3, '#E8577A')
-  const pebble = Math.round(W * 0.44)
+  const pebble = Math.round(W * own.at.pebble)
   if (onSand(pebble)) put(pebble, G - 1, '#9A948A')
-  const weed = Math.round(W * 0.62)
+  const weed = Math.round(W * own.at.seaweed)
   if (onSand(weed)) {
     put(weed, G - 1, '#3E8E5E')
     put(weed + ((sky.isWindy ? tick : sec) % 2), G - 2, '#4FA36E')
+  }
+  // What the shells unlocked, in a few cells each, where the beach is tall enough to hold them.
+  if (G >= 4 && hasDecor('palm', t.seg.shells, t.seg.width)) {
+    const palm = Math.round(W * own.at.palm)
+    for (let y = G - 3; y <= G - 1; y++) put(palm, y, '#8A5A2B')
+    for (const dx of [-1, 0, 1]) put(palm + own.lean + dx, G - 4, '#3E9E5A')
+    // Past the shell pile and clear of the palm; a beach too short to fit it goes without.
+    const room = palm - 17
+    if (room >= 0 && hasDecor('house', t.seg.shells, t.seg.width)) {
+      const [from, to] = ZONES.house
+      const x = 10 + Math.round(((own.at.house - from) / (to - from)) * Math.min(4, room))
+      const pane = t.timeOfDay === 'night' || t.timeOfDay === 'evening' ? '#F5D96A' : '#A9D6F5'
+      for (let dx = 0; dx < 5; dx++) {
+        put(x + dx, G - 1, dx === 3 ? '#8A5A2B' : '#F0E2C4')
+        put(x + dx, G - 2, dx === 1 ? pane : dx === 3 ? '#8A5A2B' : '#F0E2C4')
+        put(x + dx, G - 3, own.roof)
+      }
+      for (const dx of [1, 2, 3]) put(x + dx, G - 4, own.roof)
+    }
+  }
+  const chair = Math.round(W * own.at.chair)
+  if (G >= 4 && hasDecor('chair', t.seg.shells, t.seg.width) && onSand(chair + 2)) {
+    for (const dx of [-1, 0, 1]) put(chair + dx, G - 1, '#378ADD')
+    put(chair, G - 2, '#8E929A')
+    put(chair, G - 3, '#8E929A')
+    for (const dx of [-2, -1, 0, 1, 2]) put(chair + dx, G - 4, dx % 2 ? '#F4F3EE' : own.stripe)
   }
   if (sky.holiday === 'halloween') for (const f of [0.12, 0.565]) put(W * f, G - 1, '#E8822B')
   if (sky.holiday === 'christmas') {

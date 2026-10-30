@@ -55,6 +55,7 @@ The crab has a little beach: sand with its home shell, a pile of the shells it h
 - **Each costume has its beach:** a treasure chest and shipwreck for the pirate, craters and the Earth for the astronaut, a BBQ for the chef, cones and a crane for the engineer, a surfboard and beach ball for the surfer, fins and a buoy for the diver, a longship for the viking, a tower for the wizard, speakers and decks for the DJ, a beer table and flags for Oktoberfest, a finish flag for the racer, a magnifier and question marks for the detective.
 - **Each costume has its gadget:** every so often it takes it out, about every 11 minutes, and `/crab ride` sends it off right away. A low sports car for the racer (headlights on after dark), a longship for the viking, a digger for the engineer, a food cart for the chef, a skateboard when it's plain, a newspaper to hide behind for the detective, a barrel to balance on at Oktoberfest, a paper boat in the rain, a sedan chair carried by two friends for the king, a broom for the wizard, a sleigh for Santa, a pumpkin lantern for the ghost, a rocket for the astronaut, a wave for the surfer, a mini-sub for the diver, decks and a disco ball for the DJ, a cannon for the pirate.
 - **Shells unlock decor:** a palm tree at 5, a deck chair and umbrella at 10 (it sunbathes there), a little house at 20, its window lit after dark. Very rarely it finds a golden shell.
+- **No two beaches quite alike:** your palm, chair, house, pebble, seaweed and tide pool each lie somewhere of their own, your palm leans its own way and your house and umbrella have their own colours. Your crab has its own ways too, so one digs more and another watches the sky; `/crab stats` names it in a word. It's all worked out from the date you first met, on your machine, and stays the same in all your windows.
 
 Its costume changes every day (astronaut, surfer, detective, viking, engineer, diver, chef, wizard, racer, DJ, pirate, plain), and holidays win. In rain or a storm it puts on a raincoat, if you've set `weatherPlace`. From 20-09 to 05-10 it's Oktoberfest, and 50 shells earn the crown: `/crab king`. A costume you pick beats a holiday, a holiday beats the rain, and the rain beats the day's costume. Your first message of the day gets a hello that names the theme ("ahoy, it's pirate day!"), and `/crab theme` tells you any time. While a savvy-progress bar is showing, the crab steps aside so there is only one crab on screen.
 
@@ -147,7 +148,7 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab feed`, `/crab play`, `/crab pet`
 - `/crab ride`: sends it off on its gadget right now
 - `/crab name <name>`: give it a name (up to 16 characters)
-- `/crab stats`: session time, turns, tool calls, context, needs, shells, fish and today's theme
+- `/crab stats`: session time, turns, tool calls, context, needs, shells, fish, what kind of crab it is and today's theme
 - `/crab lines`: the subagents out fishing
 - `/crab log`: what's in the logbook; `/crab log on|off` turns the bottle on or off
 - `/crab theme`: today's theme, and the costume you picked if it differs
@@ -169,7 +170,7 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 
 ## In the terminal
 
-The terminal draws no pictures, so there the beach is coloured half-block characters: three rows above the prompt with the buttons beside it, and a taller beach in the tank when the terminal docks panes (fullscreen). The same life plan drives it, so the crab does what it does on the desktop: walks, naps, builds its castle, watches the sea creep in with your context, and talks beside its head. Empty cells keep your terminal's own colours. It is repainted four times a second (once a second while it naps) only while it is on screen. It needs Claude Code 2.1.309 or later; `claude update` gets you there.
+The terminal draws no pictures, so there the beach is coloured half-block characters: three rows above the prompt with the buttons beside it, and a taller beach in the tank when the terminal docks panes (fullscreen). The same life plan drives it, so the crab does what it does on the desktop: walks, naps, builds its castle, watches the sea creep in with your context, and talks beside its head. The decor your shells unlock shows from about 63 columns, and the house from about 80. Empty cells keep your terminal's own colours. It is repainted four times a second (once a second while it naps) only while it is on screen. It needs Claude Code 2.1.309 or later; `claude update` gets you there.
 
 On the desktop and in VS Code the animation is CSS only, costs no tokens, and stops when macOS "Reduce motion" is on. The chirp is an original sound synthesized for this mod.
 

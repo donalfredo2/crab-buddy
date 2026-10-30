@@ -87,6 +87,8 @@ export type Segment = {
   ride?: Costume
   /** The last segment was cut off mid-ride: a puff of dust covers the gadget going. */
   poof?: boolean
+  /** This install's own number, the same in all its windows: what its beach and its ways are like. */
+  layout?: number
   castle: number
   shells: number
   /** Rare golden shells found, kept apart from the pile's count. */
