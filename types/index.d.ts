@@ -18,9 +18,9 @@ export type WeatherNow = { kind: Weather; isWindy: boolean; at: number } | null
 export type Pose =
   | Mood
   | 'stand' | 'look' | 'gaze' | 'wink' | 'dig' | 'sit' | 'yawn' | 'sneeze' | 'dance' | 'duck' | 'carry' | 'build'
-  | 'peek' | 'notice' | 'kick' | 'hide' | 'sun' | 'sway' | 'hic' | 'chase' | 'skywatch' | 'muse' | 'ride'
+  | 'peek' | 'notice' | 'kick' | 'hide' | 'sun' | 'sway' | 'hic' | 'chase' | 'skywatch' | 'muse' | 'ride' | 'gone'
 
-export type LifeMode = 'idle' | 'work' | 'sleep' | 'stretch'
+export type LifeMode = 'idle' | 'work' | 'sleep' | 'stretch' | 'away'
 
 /** News the crab shows on a sign. */
 export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact' | 'fish' | 'boot'
@@ -52,7 +52,7 @@ export type CatchKind = 'fish' | 'boot'
 export type Activity =
   | 'stroll' | 'lookAround' | 'gaze' | 'peek' | 'muse' | 'dig' | 'forage' | 'kick' | 'inspect' | 'hide' | 'sway'
   | 'sunbathe' | 'butterfly' | 'seagull' | 'fish' | 'neighbour' | 'yawn' | 'sneeze' | 'hiccup' | 'skywatch' | 'dance'
-  | 'build' | 'tidy' | 'friend' | 'sleep' | 'stretch' | 'hold' | 'ride' | 'cast' | 'reel'
+  | 'build' | 'tidy' | 'friend' | 'sleep' | 'stretch' | 'hold' | 'ride' | 'cast' | 'reel' | 'away' | 'arrive'
 
 /**
  * One stretch of the crab's life: the seed and the inputs its plan is made from,
@@ -73,6 +73,8 @@ export type Segment = {
   first?: Activity
   /** What the line it reels in brings up. */
   haul?: CatchKind
+  /** It's off to another window: it wades in and sinks. */
+  isLeaving?: boolean
   /** What it wears: its gadget is that costume's. */
   ride?: Costume
   /** The last segment was cut off mid-ride: a puff of dust covers the gadget going. */
@@ -162,6 +164,12 @@ declare module 'claude-code' {
       plantedSign: PlantedSign
       signQueue: QueuedSign[]
       rods: Rod[]
+      /** Where the crab is, in a sign's words, while it's in another window. */
+      crabAway: string | null
+      /** A task that finished elsewhere while you're busy here. */
+      roamNote: string | null
+      /** This beach's roster file: a reload forgets the module's copy. */
+      beachSlot: string
       areSignsOff: boolean
       /** The segment in which it reached home to stretch, so the break's sign goes up then. */
       stretchedSeg: number

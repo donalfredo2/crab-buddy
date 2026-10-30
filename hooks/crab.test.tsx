@@ -4,6 +4,8 @@ import type { On } from 'claude-code'
 
 import type { Rod, Segment } from '../types'
 import { reconcile, sameRods } from './fishing'
+import { ACTIVE_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, whereCrabIs } from './roam'
+import type { BeachRecord } from './roam'
 import { MAX_RODS, RIDES, activityStarts, hasDecor, plan, planOf, rideFits, rodSpots, shoreFrac, spots, trackSpan, whereAt, xOf } from './life'
 
 import { line, signLine, themeLine, themeName } from './lines'
@@ -2094,6 +2096,225 @@ test('rods and a catch show on the terminal beach too', () => {
   const mark = plan(reeling).marks.find(m => m.kind === 'catch')
   const early = T0 + (mark?.t0 ?? 0) + 0.2 * ((mark?.t1 ?? 0) - (mark?.t0 ?? 0))
   expect(beachPixels({ ...base, seg: reeling, now: early }).px).toContain(0xF28C3A)
+})
+
+// --- one crab, many beaches
+
+const beach = (slot: string, over: Partial<BeachRecord> = {}): BeachRecord =>
+  ({ slot, token: slot, at: T0, repo: slot, personAt: 0, doneAt: 0, canHold: true, ...over })
+
+test('the crab is where you last spoke', () => {
+  const a = beach('a', { personAt: T0 - 5000 })
+  const b = beach('b', { personAt: T0 - 1000 })
+  expect(holderOf([a, b], T0)?.slot).toBe('b')
+  expect(holderOf([], T0)).toBe(null)
+  expect(holderOf([beach('a', { canHold: false })], T0)).toBe(null)
+})
+
+test('a window that went quiet, closed or cannot show it loses the crab', () => {
+  const here = beach('here', { personAt: T0 - 1000, at: T0 - 31_000 })
+  const there = beach('there', { personAt: T0 - 9000 })
+  expect(holderOf([here, there], T0)?.slot).toBe('there')
+  expect(holderOf([{ ...here, at: 0 }, there], T0)?.slot).toBe('there')
+  expect(holderOf([{ ...here, at: T0, canHold: false }, there], T0)?.slot).toBe('there')
+})
+
+test('a finished task calls it once you have gone quiet, and says so until then', () => {
+  const you = beach('you', { repo: 'api', personAt: T0 - 10_000 })
+  const done = beach('done', { repo: 'web', doneAt: T0 - 5000 })
+  expect(holderOf([you, done], T0)?.slot).toBe('you')
+  expect(finishedElsewhere([you, done], you, T0)?.repo).toBe('web')
+  const later = T0 + ACTIVE_MS
+  expect(holderOf([{ ...you, at: later }, { ...done, at: later }], later)?.slot).toBe('done')
+  expect(finishedElsewhere([{ ...you, personAt: T0 }, done], { ...you, personAt: T0 }, T0)).toBe(null)
+})
+
+test('a new session takes the oldest stale file, or a new one', () => {
+  const stale = (name: string, ago: number) => ({ name, mtimeMs: T0 - ago })
+  expect(pickSlot([stale('old.json', 900_000), stale('older.json', 999_000), stale('now.json', 1000)], T0)).toBe('older.json')
+  expect(pickSlot([stale('now.json', 1000), stale('note.txt', 999_000)], T0)).toBe(`${T0.toString(36)}.json`)
+})
+
+test('a half-written file reads as nothing, and the sign names the window', () => {
+  expect(parseBeach('{"at": 12', 's')).toBe(null)
+  expect(parseBeach('{}', 's')).toBe(null)
+  expect(parseBeach(JSON.stringify(beach('x')), 's')?.slot).toBe('s')
+  expect(whereCrabIs('web', 'api')).toBe('at web')
+  expect(whereCrabIs('api', 'api')).toBe('in another window')
+  expect(whereCrabIs('', 'api')).toBe('in another window')
+})
+
+test('leaving, it wades in and sinks, and nothing happens on the empty beach', () => {
+  const left = plan(seg({ mode: 'away', isLeaving: true, startP: 0.3, shore: 0.8 }))
+  const last = left.beats[left.beats.length - 1]
+  expect(last?.pose).toBe('gone')
+  expect(left.beats[left.beats.length - 2]?.y1).toBe(-24)
+  expect(left.events.map(e => e.kind)).toEqual(['rest'])
+  for (const seed of SEEDS) expect(plan(seg({ seed, mode: 'away' })).marks).toEqual([])
+  expect(plan(seg({ mode: 'away', hold: { pose: 'party', ms: 7000 } })).marks.map(m => m.kind)).toEqual(['fireworks'])
+})
+
+test('arriving, it rises from the sea and walks up the sand', () => {
+  const came = plan(seg({ first: 'arrive', startP: 0, shore: 0.8 }))
+  expect(came.beats[0]?.y0).toBe(-24)
+  expect(came.beats[0]?.y1).toBe(0)
+  expect(came.beats[0]?.act).toBe('arrive')
+  expect(xOf(came.beats[0]?.p0 ?? 0, 800)).toBeGreaterThan(640)
+})
+
+test('an empty beach draws no crab anywhere', () => {
+  const empty = seg({ mode: 'away', startP: 0.5, shore: 0.8 })
+  const svg = sceneSvg({ width: 800, costume: 'plain', look: {}, timeOfDay: 'day', bubble: null, now: T0 + 1000, seg: empty, prop: 'hammer', sky: skyFor(T0), work: [], hour: 12, beach: { planted: 'at web' } })
+  expect(svg).not.toContain('opacity=".12"')
+  expect(svg).toContain('at web')
+  const base = { columns: 80, rows: 3, now: T0 + 1000, costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
+  expect(beachPixels({ ...base, seg: empty }).px).not.toContain(parseInt('D97757', 16))
+  expect(beachPixels({ ...base, seg: seg({ shore: 0.8 }) }).px).toContain(parseInt('D97757', 16))
+})
+
+// A folder in memory, and a way to stand in for the other sessions' files.
+function shoreline(on: On, clockNow: () => number, surfaces: string[] = ['desktop']) {
+  const files = new Map<string, { text: string; mtimeMs: number }>()
+  const DIR = '/home/u/.claude/crab-buddy/beaches'
+  mock.env(on, { HOME: '/home/u' })
+  on('session.surfaces', () => ({ value: surfaces }) as never)
+  on('session.cwd', () => ({ value: '/work/api' }) as never)
+  on('session.repo', () => ({ value: { root: '/work/api', remote: null, internal: false, repository: null } }) as never)
+  on('fs.write', (_, e) => {
+    files.set(e.path, { text: e.text, mtimeMs: clockNow() })
+    return { value: undefined } as never
+  })
+  on('fs.read', (_, e) => {
+    const file = files.get(e.path)
+    if (!file) throw new Error('ENOENT')
+    return { value: file.text } as never
+  })
+  on('fs.list', () => ({ value: [...files].map(([path, f]) => ({ name: path.split('/').pop(), kind: 'file', size: 1, mtimeMs: f.mtimeMs, isLink: false })) }) as never)
+  return {
+    files,
+    other: (over: Partial<BeachRecord>) => files.set(`${DIR}/web.json`, { text: JSON.stringify(beach('web.json', { repo: 'web', at: clockNow(), ...over })), mtimeMs: clockNow() }),
+    mine: () => [...files].filter(([path]) => !path.endsWith('web.json')).map(([, f]) => JSON.parse(f.text) as BeachRecord)[0],
+  }
+}
+
+test('roaming is off until asked, and the folder stays untouched', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const { files } = shoreline(on, clock.now)
+  await start($)
+  await clock.advance(10_000)
+  expect(files.size).toBe(0)
+  expect((await crab($, 'here')).text).toMatch(/roam on/)
+  expect((await crab($, 'where')).text).toMatch(/is here/)
+})
+
+test('it stays while no one else claims it, leaves for your message elsewhere, and comes back for yours', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const { files, other } = shoreline(on, clock.now)
+  await start($)
+  expect((await crab($, 'roam')).text).toMatch(/roam on or/)
+  await crab($, 'roam on')
+  await clock.advance(3100)
+  expect(files.size).toBe(1)
+  expect(await alt($)).toMatch(/^Crabby the crab/)
+
+  await $.prompt.submit({ text: 'hi', isMeta: false } as never)
+  await clock.advance(3100)
+  other({ personAt: clock.now() })
+  await clock.advance(3100)
+  expect(await alt($)).toMatch(/^Crabby's beach, empty: Crabby is at web/)
+  expect((await crab($, 'where')).text).toBe('Crabby is at web.')
+  await clock.advance(20_000)
+  const { source } = await band($)
+  expect(source).toContain('at web')
+  expect(source).not.toContain('opacity=".12"')
+
+  await clock.advance(1000)
+  await $.prompt.submit({ text: 'back', isMeta: false } as never)
+  expect(await alt($)).toMatch(/^Crabby the crab/)
+  await clock.advance(1000)
+  expect(await crab($, 'where')).toEqual(expect.objectContaining({ text: 'Crabby is here.' }))
+})
+
+test('a care button on an empty beach calls it over', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const { other } = shoreline(on, clock.now)
+  await start($)
+  await crab($, 'roam on')
+  other({ personAt: clock.now() + 1 })
+  await clock.advance(3100)
+  expect(await alt($)).toMatch(/empty/)
+  expect((await crab($, 'pet')).text).toMatch(/on its way/)
+  expect(await alt($)).toMatch(/^Crabby the crab/)
+})
+
+test('a long task elsewhere waits for you, then takes the crab', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const { other } = shoreline(on, clock.now)
+  await start($)
+  await crab($, 'roam on')
+  await $.prompt.submit({ text: 'hi', isMeta: false } as never)
+  await clock.advance(1000)
+  other({ doneAt: clock.now() })
+  await clock.advance(3100)
+  expect(await alt($)).toMatch(/beside a sign saying web is done/)
+  for (let i = 0; i < 12; i++) {
+    other({ doneAt: T0 + 1000 })
+    await clock.advance(5000)
+  }
+  expect(await alt($)).toMatch(/empty: Crabby is at web/)
+})
+
+test('a long task finishing here calls the crab back, and closing frees the beach', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const { other, mine } = shoreline(on, clock.now)
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  await start($)
+  await crab($, 'roam on')
+  other({ personAt: clock.now() + 1 })
+  await clock.advance(3100)
+  expect(await alt($)).toMatch(/empty/)
+  for (let i = 0; i < 13; i++) {
+    other({ personAt: T0 + 1 })
+    await clock.advance(5000)
+  }
+  await $.turn.complete({ ...TURN, reason: 'answer', durationMs: 150_000 })
+  expect(await alt($)).toMatch(/^Crabby the crab/)
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
+  expect(mine()?.at).toBe(0)
+})
+
+test('roam off brings it home, and a session with nothing to draw on stays out', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const { other } = shoreline(on, clock.now)
+  await start($)
+  await crab($, 'roam on')
+  other({ personAt: clock.now() + 1 })
+  await clock.advance(3100)
+  expect(await alt($)).toMatch(/empty/)
+  await crab($, 'roam off')
+  expect(await alt($)).toMatch(/^Crabby the crab/)
+})
+
+test('a headless session never joins the roster', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on, { isRoaming: true })
+  engine(on)
+  const { files } = shoreline(on, clock.now, [])
+  await start($)
+  await clock.advance(10_000)
+  expect(files.size).toBe(0)
 })
 
 test('the bottle and sign show on the terminal beach too', () => {

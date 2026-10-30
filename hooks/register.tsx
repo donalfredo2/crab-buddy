@@ -3,6 +3,8 @@ import type { EngineInterface, PaneCloseInput, PluginOptions, Register, Timer } 
 
 import type { Activity, Antic, Beach, BreakState, Bubble, CatchKind, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, SignKind, Tiredness, Weather, WeatherNow } from '../types'
 import { reconcile, sameRods } from './fishing'
+import { FRESH_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, whereCrabIs } from './roam'
+import type { BeachRecord } from './roam'
 import { MAX_RODS, planOf, rideFits, shoreFrac, whereAt } from './life'
 import type { LifeEvent } from './life'
 import { line, signLine, themeLine, themeName } from './lines'
@@ -32,6 +34,9 @@ const plantedSign = atom({ plugin: 'crab-buddy', key: 'plantedSign' } as const, 
 const bottleUntil = atom({ plugin: 'crab-buddy', key: 'bottleUntil' } as const, 0)
 const signQueue = atom({ plugin: 'crab-buddy', key: 'signQueue' } as const, [])
 const rods = atom({ plugin: 'crab-buddy', key: 'rods' } as const, [])
+const crabAway = atom({ plugin: 'crab-buddy', key: 'crabAway' } as const, null)
+const roamNote = atom({ plugin: 'crab-buddy', key: 'roamNote' } as const, null)
+const beachSlot = atom({ plugin: 'crab-buddy', key: 'beachSlot' } as const, '')
 const areSignsOff = atom({ plugin: 'crab-buddy', key: 'areSignsOff' } as const, false)
 const stretchedSeg = atom({ plugin: 'crab-buddy', key: 'stretchedSeg' } as const, 0)
 const breaks = atom({ plugin: 'crab-buddy', key: 'breaks' } as const, { streakStart: 0, lastActive: 0, snoozedUntil: 0, toastedFor: 0 })
@@ -74,6 +79,10 @@ const LINES_MS = 500
 const WATCH_MS = 5000
 /** A second cast this soon stays a rod in the sand: it's already at the water. */
 const CAST_GAP_MS = 30_000
+/** How often a roaming session writes its file and reads the others'. */
+const ROAM_MS = 3000
+/** /clear empties the session's state just after it ends: this is when to fill it again. */
+const CLEAR_MS = 1000
 const BOTTLE_MS = 5 * MIN
 const CHIRP = 'sounds/chirp.wav'
 const BUBBLE_GAP: Record<string, number> = { often: 5 * MIN, rare: 15 * MIN }
@@ -95,7 +104,7 @@ const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const KEY = {
   hidden: 'isHidden', breaksOff: 'areBreaksOff', soundOff: 'isSoundOff', needs: 'needs', name: 'name',
   firstMet: 'firstMet', bubbles: 'bubbles', signsOff: 'areSignsOff', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo',
-  greeted: 'greetedDay', tank: 'isTank', fish: 'fishCaught', logOff: 'isLogOff',
+  greeted: 'greetedDay', tank: 'isTank', fish: 'fishCaught', roam: 'isRoaming', logOff: 'isLogOff',
 } as const
 
 const TERMINAL_GLYPH: Record<Mood, string> = {
@@ -212,6 +221,12 @@ let ticker: Timer | null = null
 let watcher: Timer | null = null
 let isLookDue = false
 let lastCast = -CAST_GAP_MS
+// Roaming. In the module because /clear empties the atoms and keeps these; the slot is
+// copied to an atom because a reload does the opposite.
+const beachOf = { slot: '', token: '', repo: '', personAt: 0, doneAt: 0 }
+const others = new Map<string, { mtimeMs: number; beach: BeachRecord }>()
+let rover: Timer | null = null
+let isRoamBusy = false
 
 export const dayKey = (now: number): string => {
   const d = new Date(now)
@@ -343,6 +358,7 @@ async function plantSign($: EngineInterface, kind: SignKind, ms: number): Promis
 
 // What it should be doing now: the break reminder, working with Claude, its own life, or asleep.
 async function desiredMode($: EngineInterface): Promise<LifeMode> {
+  if (await read($, crabAway)) return 'away'
   const now = await $.clock.now()
   const b = await read($, breaks)
   if (!(await read($, areBreaksOff)) && isBreakDue(b, now, cfg.breakMs)) return 'stretch'
@@ -364,7 +380,7 @@ async function traces($: EngineInterface): Promise<{ castle: number; shells: num
  * Starts the next stretch of its life from wherever it stands now, so it never
  * jumps. A "!" from noticing you, or a sign it's holding up, carries over into the new segment.
  */
-async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms: number; sign?: string }; first?: Activity; haul?: CatchKind } = {}): Promise<void> {
+async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms: number; sign?: string }; first?: Activity; haul?: CatchKind; isLeaving?: boolean } = {}): Promise<void> {
   const now = await $.clock.now()
   const cur = await read($, life)
   let p = 0
@@ -389,7 +405,7 @@ async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms:
     weather: (await read($, weather))?.kind ?? 'clear',
     shore: shoreFrac(await read($, contextPercent), new Date(now).getHours() + new Date(now).getMinutes() / 60),
     ride: await wearing($),
-    ...(hold ? { hold } : {}), ...(opts.first ? { first: opts.first } : {}), ...(opts.haul ? { haul: opts.haul } : {}), ...(poof ? { poof } : {}),
+    ...(hold ? { hold } : {}), ...(opts.first ? { first: opts.first } : {}), ...(opts.haul ? { haul: opts.haul } : {}), ...(opts.isLeaving ? { isLeaving: true } : {}), ...(poof ? { poof } : {}),
   }
   await update($, life, () => seg)
   const pl = planOf(seg)
@@ -554,8 +570,114 @@ async function refreshWeather($: EngineInterface): Promise<void> {
   }
 }
 
+// The shared folder, beside the rest of Claude Code's own.
+async function beachDir($: EngineInterface): Promise<string> {
+  const base = (await $.env.get('CLAUDE_CONFIG_DIR')) || `${(await $.env.get('HOME')) ?? ''}/.claude`
+  return `${base}/crab-buddy/beaches`
+}
+
+// A window that shows nothing, or a crab that's hiding or stepped aside, can't have it.
+async function canHoldCrab($: EngineInterface): Promise<boolean> {
+  if ((await read($, isHidden)) || !(await $.session.surfaces()).length) return false
+  const { value: flow } = await $.state.get(savvyFlow)
+  return !flow
+}
+
+async function settleOnBeach($: EngineInterface, dir: string, now: number): Promise<void> {
+  beachOf.slot ||= await read($, beachSlot)
+  if (beachOf.slot) {
+    const mine = parseBeach(await $.fs.read(`${dir}/${beachOf.slot}`).catch(() => ''), beachOf.slot)
+    // Another session started at the same moment and took this file.
+    if (mine && mine.token !== beachOf.token && beachOf.token && now - mine.at < ROAM_MS * 3) beachOf.slot = ''
+  }
+  if (!beachOf.slot) {
+    beachOf.slot = pickSlot(await $.fs.list(dir).catch(() => []), now)
+    beachOf.token = `${now.toString(36)}${Math.random().toString(36).slice(2, 8)}`
+  }
+  if ((await read($, beachSlot)) !== beachOf.slot) {
+    const slot = beachOf.slot
+    await update($, beachSlot, () => slot)
+  }
+  if (!beachOf.repo) beachOf.repo = ((await $.session.repo().catch(() => null))?.root ?? (await $.session.cwd())).split('/').filter(Boolean).pop() ?? ''
+}
+
+async function writeBeach($: EngineInterface, dir: string, at: number, canHold: boolean): Promise<BeachRecord> {
+  const beach: BeachRecord = { slot: beachOf.slot, token: beachOf.token, at, repo: beachOf.repo, personAt: beachOf.personAt, doneAt: beachOf.doneAt, canHold }
+  await $.fs.write(`${dir}/${beachOf.slot}`, JSON.stringify(beach))
+  return beach
+}
+
+// Only files that changed are read, and a half-written one keeps its last good reading.
+async function readOthers($: EngineInterface, dir: string, now: number): Promise<BeachRecord[]> {
+  const files = (await $.fs.list(dir)).filter(f => f.name.endsWith('.json') && f.name !== beachOf.slot && now - f.mtimeMs < FRESH_MS)
+  for (const file of files) {
+    if (others.get(file.name)?.mtimeMs === file.mtimeMs) continue
+    const beach = parseBeach(await $.fs.read(`${dir}/${file.name}`).catch(() => ''), file.name)
+    if (beach) others.set(file.name, { mtimeMs: file.mtimeMs, beach })
+  }
+  const names = new Set(files.map(f => f.name))
+  for (const name of others.keys()) if (!names.has(name)) others.delete(name)
+  return [...others.values()].map(o => o.beach)
+}
+
+// Moves the crab only when the holder changes: a write here redraws, and this runs every 3 seconds.
+async function followCrab($: EngineInterface, holder: BeachRecord | null, note: string | null): Promise<void> {
+  const away = await read($, crabAway)
+  const where = holder && holder.slot !== beachOf.slot ? whereCrabIs(holder.repo, beachOf.repo) : null
+  if (where !== away) {
+    await update($, crabAway, () => where)
+    if (where && !away) await startSegment($, { isLeaving: true })
+    else if (!where) await startSegment($, { first: 'arrive' })
+  }
+  if (note !== (await read($, roamNote))) await update($, roamNote, () => note)
+}
+
+async function roamTick($: EngineInterface): Promise<void> {
+  if (isRoamBusy) return
+  isRoamBusy = true
+  try {
+    const now = await $.clock.now()
+    const dir = await beachDir($)
+    await settleOnBeach($, dir, now)
+    const mine = await writeBeach($, dir, now, await canHoldCrab($))
+    const beaches = [mine, ...(await readOthers($, dir, now))]
+    const holder = holderOf(beaches, now)
+    const finished = holder?.slot === beachOf.slot ? finishedElsewhere(beaches, holder, now) : null
+    await followCrab($, holder, finished ? `${finished.repo.slice(0, 16) || 'other'} is done` : null)
+  } catch {
+    // The folder can't be reached: it stays where it is and tries again.
+  } finally {
+    isRoamBusy = false
+  }
+}
+
+async function claimCrab($: EngineInterface, why: 'person' | 'done'): Promise<void> {
+  if (!rover) return
+  const now = await $.clock.now()
+  if (why === 'person') beachOf.personAt = now
+  else beachOf.doneAt = now
+  await roamTick($)
+}
+
+// Roaming is one choice for all your sessions: each picks it up here within a minute.
+async function syncRoam($: EngineInterface): Promise<void> {
+  const isOn = (await readStore($, KEY.roam, false)) && (await $.session.surfaces()).length > 0
+  if (isOn && !rover) {
+    rover = $.clock.every(ROAM_MS, () => {
+      void roamTick($)
+    })
+    void roamTick($)
+  } else if (!isOn && rover) {
+    rover.cancel()
+    rover = null
+    await followCrab($, null, null)
+    if (beachOf.slot) await writeBeach($, await beachDir($), 0, false).catch(() => undefined)
+  }
+}
+
 async function minuteTick($: EngineInterface): Promise<void> {
   await refreshWeather($)
+  await syncRoam($)
   if ((await read($, rods)).length) await checkLines($)
   await checkBreak($)
   await tickNeeds($)
@@ -628,6 +750,10 @@ async function tickNeeds($: EngineInterface): Promise<void> {
 }
 
 async function doCare($: EngineInterface, what: Care): Promise<string> {
+  if (await read($, crabAway)) {
+    await claimCrab($, 'person')
+    return `${await read($, petName)} is on its way.`
+  }
   const now = await $.clock.now()
   const n = await currentNeeds($)
   const next = care(n, what, now)
@@ -773,7 +899,8 @@ const sceneOf = (site: 'band' | 'tank', surface: string, v: View, b: Bubble, wor
   const words = b && b.until > v.now ? b.text : null
   // A held pose ending counts: with Reduce Motion on, only a new image takes it away.
   const isHolding = !!v.seg.hold && v.now < v.seg.startAt + v.seg.hold.ms
-  const key = JSON.stringify([v.seg.id, v.seg.startAt, isHolding, width, fit, v.costume, v.look, words, v.prop, work, v.sky.weather, v.sky.isWindy, v.beach])
+  const isGone = whereAt(planOf(v.seg), v.now - v.seg.startAt).pose === 'gone'
+  const key = JSON.stringify([v.seg.id, v.seg.startAt, isHolding, isGone, width, fit, v.costume, v.look, words, v.prop, work, v.sky.weather, v.sky.isWindy, v.beach])
   const kept = scenes.get(`${site}:${surface}`)
   if (kept?.key === key && v.now >= kept.at && v.now - kept.at < SCENE_KEEP_MS) return kept.source
   const source = sceneSvg({ width, ...fit, costume: v.costume, look: v.look, timeOfDay: timeOfDay(hourOf(v.now)), bubble: words, now: v.now, seg: v.seg, prop: v.prop, sky: v.sky, hour: v.hour, work, beach: v.beach })
@@ -824,14 +951,17 @@ async function view($: EngineInterface, isWorking: boolean): Promise<View> {
   const tod = timeOfDay(hourOf(now))
   const isDue = !(await read($, areBreaksOff)) && isBreakDue(b, now, cfg.breakMs)
   const isAwake = b.lastActive > 0 && now - b.lastActive < AWAKE_MS && tod !== 'night' && !isSleepy(n)
-  const mood: Mood = r && r.until > now ? r.mood : isDue ? 'stretch' : isWorking ? 'work' : isAwake ? 'wander' : 'nap'
+  const away = await read($, crabAway)
+  const mood: Mood = away ? 'nap' : r && r.until > now ? r.mood : isDue ? 'stretch' : isWorking ? 'work' : isAwake ? 'wander' : 'nap'
   // Before the session starts its life (a preview, a test), it dozes at home.
   const seg: Segment = (await read($, life)) ?? {
     id: 0, seed: 1, startAt: now, startP: 0, startFace: 1, mode: 'sleep', width: lastWidth, castle: 0, shells: 0,
     food: n.food, fun: n.fun, energy: n.energy, timeOfDay: tod,
   }
   const a = await read($, antic)
-  const prop = a && a.until > now && isTurnRunning ? a.prop : null
+  const prop = a && a.until > now && isTurnRunning && !away ? a.prop : null
+  // It reaching the water is what takes the crab off the picture.
+  await read($, stretchedSeg)
   const doing = (mood === 'wander' || mood === 'work') ? ACT_WORD[whereAt(planOf(seg), now - seg.startAt).act] : undefined
   const choice = await read($, picked)
   const date = new Date(now)
@@ -846,14 +976,37 @@ async function view($: EngineInterface, isWorking: boolean): Promise<View> {
   const s = await read($, stats)
   const name = await read($, petName)
   const summary = `${fmtDuration(now - (s.startedAt || now))} · ${s.turns} turns · ${s.toolCalls} tool calls${pct === null ? '' : ` · context ${Math.round(pct)}%`}`
-  const sign = heldSign(seg, now) ?? (await breakSign($, now, seg))
+  const heldNow = heldSign(seg, now) ?? (await breakSign($, now, seg))
+  const sign = away ? null : heldNow
   const plantedNow = await read($, plantedSign)
-  const planted = plantedNow && plantedNow.until > now ? plantedNow.text : null
+  const signsOn = !(await read($, areSignsOff))
+  // With no crab to hold it, news stands in the sand; otherwise the sand says where it went.
+  const planted = (away ? heldNow : null) ?? (plantedNow && plantedNow.until > now ? plantedNow.text : null) ?? (signsOn ? (away ?? (await read($, roamNote))) : null)
   const lines = (await read($, rods)).length
   const beach: Beach = { ...(sign ? { sign } : {}), ...(planted ? { planted } : {}), ...((await read($, bottleUntil)) > now ? { hasBottle: true } : {}), ...(lines ? { rods: Math.min(MAX_RODS, lines) } : {}) }
   const extra = [tiredness === 'fresh' ? '' : tiredness, look.isGrumpy ? 'grumpy' : '', look.isHungry ? 'hungry' : '', sign ? `holding up a sign saying ${sign}` : '', planted ? `beside a sign saying ${planted}` : '', lines ? `${lines} fishing ${lines === 1 ? 'line' : 'lines'} out` : ''].filter(Boolean)
-  const alt = `${name} the crab, ${costume}, ${MOOD_WORD[mood]}${doing ? `, ${doing}` : ''}${extra.length ? `, ${extra.join(', ')}` : ''}`
+  const alt = away
+    ? `${name}'s beach, empty: ${name} is ${away}${planted && planted !== away ? `, a sign saying ${planted}` : ''}${lines ? `, ${lines} fishing ${lines === 1 ? 'line' : 'lines'} out` : ''}`
+    : `${name} the crab, ${costume}, ${MOOD_WORD[mood]}${doing ? `, ${doing}` : ''}${extra.length ? `, ${extra.join(', ')}` : ''}`
   return { now, name, costume, mood, seg, prop, sky, hour, look, n, summary, alt, isDue, beach }
+}
+
+// What outlives a session goes back into the state: at the start, and again after /clear empties it.
+async function loadChoices($: EngineInterface, options: PluginOptions): Promise<void> {
+  const hidden = await readStore($, KEY.hidden, false)
+  const breaksOff = await readStore($, KEY.breaksOff, cfg.breakMs === 0)
+  const soundOff = await readStore($, KEY.soundOff, options.sound === 'off')
+  const signsOff = await readStore($, KEY.signsOff, options.signs === 'off')
+  await update($, isHidden, () => hidden)
+  await update($, areBreaksOff, () => breaksOff)
+  await update($, isSoundOff, () => soundOff)
+  await update($, areSignsOff, () => signsOff)
+  const storedMode = await $.store.get(KEY.bubbles)
+  const mode = storedMode === 'often' || storedMode === 'rare' || storedMode === 'off' ? storedMode : options.bubbles === 'often' || options.bubbles === 'off' ? String(options.bubbles) : 'rare'
+  await update($, bubbleMode, () => mode)
+  const storedName = await $.store.get(KEY.name)
+  if (typeof storedName === 'string' && cleanName(storedName)) await update($, petName, () => cleanName(storedName))
+  if (await readStore($, KEY.tank, false)) void seatTank($)
 }
 
 export const register: Register = (on, options) => {
@@ -865,26 +1018,13 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await $.command.register({
       name: 'crab',
-      description: 'Crab buddy: feed, play, pet, name, stats, lines, log, theme, tank or strip, breaks, sound, bubbles, signs, costume',
-      argumentHint: '[feed | play | pet | name <name> | stats | lines | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | off | on | restart | today | <costume>]',
+      description: 'Crab buddy: feed, play, pet, name, stats, lines, log, theme, tank or strip, breaks, sound, bubbles, signs, roam, costume',
+      argumentHint: '[feed | play | pet | name <name> | stats | lines | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | roam on|off | here | where | off | on | restart | today | <costume>]',
     })
     const now = await $.clock.now()
-    const hidden = await readStore($, KEY.hidden, false)
-    const breaksOff = await readStore($, KEY.breaksOff, cfg.breakMs === 0)
-    const soundOff = await readStore($, KEY.soundOff, options.sound === 'off')
-    const signsOff = await readStore($, KEY.signsOff, options.signs === 'off')
-    await update($, isHidden, () => hidden)
-    await update($, areBreaksOff, () => breaksOff)
-    await update($, isSoundOff, () => soundOff)
-    await update($, areSignsOff, () => signsOff)
-    if (await readStore($, KEY.tank, false)) void seatTank($)
+    await loadChoices($, options)
     // A reload lost the timer, and the rods are still out.
     if ((await read($, rods)).length) await checkLines($)
-    const storedMode = await $.store.get(KEY.bubbles)
-    const mode = storedMode === 'often' || storedMode === 'rare' || storedMode === 'off' ? storedMode : options.bubbles === 'often' || options.bubbles === 'off' ? String(options.bubbles) : 'rare'
-    await update($, bubbleMode, () => mode)
-    const storedName = await $.store.get(KEY.name)
-    if (typeof storedName === 'string' && cleanName(storedName)) await update($, petName, () => cleanName(storedName))
     const met = await $.store.get(KEY.firstMet)
     const metAt = typeof met === 'number' && met > 0 ? met : now
     if (metAt === now) await $.store.set(KEY.firstMet, now)
@@ -906,6 +1046,9 @@ export const register: Register = (on, options) => {
     ticker = $.clock.every(MIN, () => {
       void minuteTick($)
     })
+    rover?.cancel()
+    rover = null
+    await syncRoam($)
 
     return started
   })
@@ -1003,6 +1146,21 @@ export const register: Register = (on, options) => {
       await setBubbles($, value)
       return { text: `Speech bubbles: ${value}.` }
     }
+    if (word === 'roam') {
+      if (value !== 'on' && value !== 'off') return { text: 'Use /crab roam on or /crab roam off. On, one crab goes between your windows.' }
+      await $.store.set(KEY.roam, value === 'on')
+      await syncRoam($)
+      return { text: value === 'on' ? 'One crab now: it comes to whichever window you write in, and goes to one that finishes a long task. Your other sessions join within a minute.' : 'Every window keeps its own crab again.' }
+    }
+    if (word === 'here') {
+      if (!rover) return { text: "It's not roaming. /crab roam on turns that on." }
+      await claimCrab($, 'person')
+      return { text: `${await read($, petName)} is on its way.` }
+    }
+    if (word === 'where') {
+      const away = await read($, crabAway)
+      return { text: `${await read($, petName)} is ${away ?? 'here'}.` }
+    }
     if (word === 'signs') {
       if (value !== 'on' && value !== 'off') return { text: 'Use /crab signs on or /crab signs off.' }
       await update($, areSignsOff, () => value === 'off')
@@ -1020,7 +1178,7 @@ export const register: Register = (on, options) => {
       return { text: value === 'off' ? 'The done chirp is off.' : 'The done chirp is on.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }
@@ -1073,6 +1231,7 @@ export const register: Register = (on, options) => {
       await refreshContext($)
       const tidy = (await read($, turnWork)).length ? 'tidy' : undefined
       if (isOk && cfg.longMs > 0 && e.durationMs >= cfg.longMs) {
+        await claimCrab($, 'done')
         if (!(await holdUp($, 'done', { time: fmtDuration(e.durationMs), ...(tidy ? { first: tidy } : {}) }))) {
           await react($, 'wave', WAVE_MS, tidy)
           await say($, 'long', false, fmtDuration(e.durationMs))
@@ -1120,6 +1279,14 @@ export const register: Register = (on, options) => {
       await update($, turnWork, () => [])
       await update($, contextWarned, () => false)
       await update($, contextHinted, () => false)
+      $.clock.after(CLEAR_MS, async () => {
+        await loadChoices($, options)
+        await saveNeeds($, await currentNeeds($))
+        await startSegment($)
+      })
+    } else if (rover && beachOf.slot) {
+      // Closing: the others needn't wait for this file to go stale.
+      await writeBeach($, await beachDir($), 0, false).catch(() => undefined)
     }
     return next(e)
   })
@@ -1128,7 +1295,9 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     if (!e.isMeta && !e.command) {
       await update($, signQueue, () => [])
-      await startSegment($, { hold: { pose: 'notice', ms: NOTICE_MS } })
+      const wasAway = !!(await read($, crabAway))
+      await claimCrab($, 'person')
+      if (!wasAway) await startSegment($, { hold: { pose: 'notice', ms: NOTICE_MS } })
       await greet($)
     }
     return next(e)

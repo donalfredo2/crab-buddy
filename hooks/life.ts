@@ -249,11 +249,35 @@ export const plan = (seg: Segment): Plan => {
 
   if (seg.poof) poof()
 
+  // The big moments get a set piece across the whole strip, crab or no crab.
+  const setPiece = (hold: NonNullable<Segment['hold']>) => {
+    const piece = hold.pose === 'party' ? 'fireworks' : hold.pose === 'nervous' ? 'storm' : hold.pose === 'wave' ? 'plane' : null
+    if (piece) marks.push({ kind: piece, t0: 0, t1: piece === 'plane' ? Math.max(hold.ms, 7 * S) : hold.ms + 0.6 * S, p0: p, p1: p, dir: 1 })
+  }
+
+  // The sea links the windows: it leaves by wading in, as the sub does, and the beach stays empty.
+  if (seg.mode === 'away') {
+    if (seg.hold) setPiece(seg.hold)
+    if (seg.isLeaving) {
+      const wade = pOf(spots(seg.width, seg.shore).sea + 2, seg.width)
+      walkTo(at.limit, 'away', 'chase', Math.max(70, (Math.abs(at.limit - p) * span) / 5))
+      push(walkMs(wade, 30), 'wander', 'away', wade, 1)
+      push(1.6 * S, 'wander', 'away', p, 1, 0, -24)
+    }
+    events.push({ t, kind: 'rest' })
+    push(10 * 60 * S, 'gone', 'away')
+    return { beats, marks, events, duration: t, endP: p, endFace: face }
+  }
+
+  if (seg.first === 'arrive') {
+    p = pOf(spots(seg.width, seg.shore).sea + 2, seg.width)
+    push(1.6 * S, 'wander', 'arrive', p, -1, -24, 0)
+    walkTo(at.limit, 'arrive')
+  }
+
   if (seg.hold) {
     stand(seg.hold.ms, seg.hold.pose, 'hold')
-    // The big moments get a set piece across the whole strip.
-    const piece = seg.hold.pose === 'party' ? 'fireworks' : seg.hold.pose === 'nervous' ? 'storm' : seg.hold.pose === 'wave' ? 'plane' : null
-    if (piece) marks.push({ kind: piece, t0: 0, t1: piece === 'plane' ? Math.max(seg.hold.ms, 7 * S) : seg.hold.ms + 0.6 * S, p0: p, p1: p, dir: 1 })
+    setPiece(seg.hold)
   }
   // The sea came in while it stood there: step out of the water first.
   if (p > at.limit) walkTo(at.limit)
@@ -513,7 +537,7 @@ export const plan = (seg: Segment): Plan => {
     }
   }
 
-  let first: Activity | undefined = seg.first
+  let first: Activity | undefined = seg.first === 'arrive' ? undefined : seg.first
   // Lines are errands: it hurries to the water's edge, however far off it is.
   if (first === 'cast' || first === 'reel') {
     walkTo(at.limit, first, 'chase', Math.max(70, (Math.abs(at.limit - p) * span) / 6))

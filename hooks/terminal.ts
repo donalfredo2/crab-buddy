@@ -184,9 +184,10 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   }
   const x0 = Math.max(0, Math.min(W - 7, Math.round((xOf(here.p, t.seg.width) + CRAB_W / 2) * f - 3.5)))
   const isNap = here.pose === 'nap'
-  const rows = isNap ? NAP : isWalking(here.pose) && tick % 2 ? STEP : STAND
+  const isGone = here.pose === 'gone'
+  const rows = isGone ? [] : isNap ? NAP : isWalking(here.pose) && tick % 2 ? STEP : STAND
   const ghost = t.costume === 'ghost'
-  const hat = HAT[t.costume]
+  const hat = isGone ? undefined : HAT[t.costume]
   const colors: Record<string, string> = { e: '#3A3936', b: ghost ? '#F2F2EE' : CLAY, d: ghost ? '#C9CCD2' : '#B85C3E' }
   const lift = BOUNCY.has(here.pose) && tick % 2 && G >= 5 ? 1 : 0
   // Up with the gadget, one half-cell per pixel of the strip's scale; a rocket leaves the top.
@@ -212,7 +213,7 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   if (hat && isNap) for (const dx of [2, 3, 4]) put(x0 + dx, G - 3, hat)
   if (isNap && G >= 5 && sec % 2) put(x0 + (here.face === 1 ? 6 : 0), G - 5, '#C9CCD2')
   // The pole of the sign it holds up, on the side the words go.
-  const held = t.beach?.sign && !t.bubble ? cellText(t.beach.sign) : ''
+  const held = t.beach?.sign && !t.bubble && !isGone ? cellText(t.beach.sign) : ''
   if (held) for (let y = G - 3; y <= G; y++) put(wordsAt(x0, held.length, W) - 1, y, '#A0703F')
 
   // Rain and snow fall in front of everything.

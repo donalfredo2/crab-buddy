@@ -12,6 +12,7 @@ A tiny pixel crab that lives on a beach above your Claude Code prompt. It has a 
 - **Watches Claude work.** It holds a hammer for edits, a scroll for reading and binoculars for the web. Commits get fireworks, failing tests a storm cloud, long tasks a "done!" plane.
 - **Shows your context.** The sea creeps up the beach as the context window fills.
 - **Has a real sky.** Sunrise and sunset, the actual moon phase, seasons, holidays and, if you like, your local weather.
+- **Goes between your windows, if you like.** One crab for all your sessions: it follows you and runs to a window that finishes.
 - **Goes fishing.** Every subagent is a rod on the shore: a fish when it finishes, an old boot when it fails.
 - **Holds up signs.** Task done, commit pushed, PR merged, coffee time: it stops, faces you and raises a plank.
 - **Looks after you.** It nudges you to take a break after a long stretch, and chirps when a long task finishes.
@@ -98,6 +99,16 @@ The crab logs the session's work as it happens: files changed since the last com
 - **The bottle:** before each compaction the log goes to the summarizer, as a note of up to 600 characters asking it to keep those facts. A bottle then washes up at the waterline. This is the one thing the mod adds to what Claude reads, so it costs a few tokens and it's disclosed here. It's on by default, and `/crab log off` turns it off. The summarizer can still leave things out, so it improves the odds and guarantees nothing.
 - **The good moment sign:** when a turn ends on a commit or passing tests with the context at 60% or more, the crab plants a sign. The work is at a clean break, so it's a good moment to `/compact`. It shows once, and again once the context has dropped below 50% and filled back up.
 
+## One crab, many beaches
+
+Off by default. `/crab roam on` gives all your open sessions one crab between them, and your other sessions join within a minute. `/crab roam off` gives every window its own again.
+
+It's wherever you last wrote. Write in another window and it wades into the sea, sinks, and rises out of the sea over there. When a long task finishes in a window you aren't using, it goes there, so an empty beach beside you means something is done. If you wrote in the last minute it stays with you and holds up a sign saying which one finished, and goes once you pause.
+
+A beach without the crab keeps its own sea, sky and fishing rods, its fireworks still go off, and a sign in the sand says where the crab went. Pressing a care button there calls it over, as does `/crab here`. `/crab where` tells you where it is. A window that hides the crab, or that a savvy-progress bar has taken over, can't have it.
+
+Each session writes a small file to `crab-buddy/beaches/` in your Claude folder every 3 seconds, holding when it was last seen, the repo's folder name and when you last wrote there. Nothing leaves your machine. With roaming off, or a single window open, nothing changes.
+
 ## Fishing
 
 Each running subagent is a rod at the water's edge with a float bobbing in the sea, so you can see at a glance what's still out. The rods move with the tide, and three are drawn at most.
@@ -132,6 +143,8 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab snooze`: snooze the break reminder for 30 minutes
 - `/crab`, `/crab <costume>`, `/crab today`: costumes
 - `/crab tank` / `/crab strip`: move it into its tank pane or back above the prompt; `/crab tank` again says where the pane sits
+- `/crab roam on|off`: one crab across your windows, or one each
+- `/crab where`, `/crab here`: where it is, and calling it over
 - `/crab off` / `/crab on`: hide or show it
 - `/crab restart`: hide it for 35 seconds so VS Code draws it afresh, for when it drops to a frame a second after the window has been in the background
 

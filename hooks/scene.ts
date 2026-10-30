@@ -662,20 +662,21 @@ export const sceneSvg = (s: SceneInput): string => {
   const xNow = Math.round(xOf(here.p, width))
   const bubbleX = bubble ? Math.max(2 - xNow, Math.min(0, width - 2 - bubble.width - xNow)) : 0
   // It stands still to hold a sign up, so the plank is placed once, inside the strip. A bubble answering you goes first.
-  const signWords = !bubble && s.beach?.sign ? s.beach.sign : null
+  const signWords = !bubble && s.beach?.sign && here.pose !== 'gone' ? s.beach.sign : null
   const signX = signWords ? Math.max(2 - xNow, Math.min(CRAB_W / 2 - plankW(signWords) / 2, width - 2 - plankW(signWords) - xNow)) : 0
 
+  const isGone = here.pose === 'gone'
   const layers = poses.map((pose, i) => {
     const look = { ...s.look, hasNightcap: s.timeOfDay === 'night' && pose === 'nap', isDark: s.timeOfDay === 'night' || s.timeOfDay === 'evening' }
-    return `<g class="l${i}" opacity="${pose === here.pose ? 1 : 0}"><g transform="scale(${SCALE})" shape-rendering="crispEdges">${crab(s.costume, pose, look)}</g></g>`
+    return `<g class="l${i}" opacity="${pose === here.pose ? 1 : 0}"><g transform="scale(${SCALE})" shape-rendering="crispEdges">${pose === 'gone' ? '' : crab(s.costume, pose, look)}</g></g>`
   })
   const uprights = poses.map((pose, i) => {
     const o = overlay(pose)
     return o ? `<g class="l${i}" opacity="${pose === here.pose ? 1 : 0}">${o}</g>` : ''
   })
   const held = (inner: string) => `<g class="nr" opacity="${here.pose === 'ride' ? 0 : 1}"><g transform="scale(${SCALE})" shape-rendering="crispEdges">${inner}</g></g>`
-  const prop = s.prop ? held(propSvg(s.prop)) : ''
-  const umbrella = isWet(s.sky) ? held(umbrellaSvg()) : ''
+  const prop = s.prop && !isGone ? held(propSvg(s.prop)) : ''
+  const umbrella = isWet(s.sky) && !isGone ? held(umbrellaSvg()) : ''
   const skyCss = `@keyframes clx{from{transform:translateX(-14px)}to{transform:translateX(${width + 4}px)}}@keyframes bat{0%{transform:translate(-8px,${sy(6)}px)}25%{transform:translate(${Math.round(width * 0.3)}px,${sy(3)}px)}50%{transform:translate(${Math.round(width * 0.55)}px,${sy(9)}px)}75%{transform:translate(${Math.round(width * 0.8)}px,${sy(4)}px)}100%{transform:translate(${width + 8}px,${sy(7)}px)}}`
   const faceNow = here.face === 1 ? '' : ` transform="translate(${CRAB_W},0) scale(-1,1)"`
 
@@ -686,7 +687,7 @@ export const sceneSvg = (s: SceneInput): string => {
 <g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells)}${footprints(pl, width, elapsed)}
 <g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
 <g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
-<ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>
+${isGone ? '' : `<ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>`}
 <g class="ly" transform="translate(0,${Math.round(-here.lift)})"><g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}</g>
 ${bubble ? `<g transform="translate(${r1(bubbleX)},-${CRAB_Y})">${bubble.svg}</g>` : ''}${signWords ? `<g transform="translate(${r1(signX)},-${CRAB_Y})">${heldSvg(signWords, CRAB_W / 2 - signX)}</g>` : ''}</g></g>
 ${skyFront(width, s.timeOfDay, s.sky, s.now, top)}</g>
