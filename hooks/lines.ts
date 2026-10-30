@@ -8,7 +8,7 @@ export type Moment =
   | 'long' | 'commit' | 'testsFail' | 'testsPass' | 'hungry' | 'sleepy' | 'morning' | 'late'
   | 'fed' | 'played' | 'petted' | 'full' | 'tired' | 'pettedAgain' | 'named' | 'grumpy'
   | 'muse' | 'aware' | 'butterfly' | 'neighbour' | 'hic' | 'sky' | 'found' | 'built' | 'peek' | 'friend' | 'golden'
-  | 'compact' | 'bottle'
+  | 'compact' | 'bottle' | 'caught' | 'lost'
   | `ride-${Costume}`
 
 const LINES: Record<Moment, readonly string[]> = {
@@ -41,6 +41,8 @@ const LINES: Record<Moment, readonly string[]> = {
   golden: ['a GOLDEN shell!', 'jackpot!', 'so shiny!!'],
   compact: ['good moment for /compact', 'clean break: /compact?', 'tide is high: /compact?'],
   bottle: ['message in a bottle!', 'bottle sent', 'ahoy, summarizer'],
+  caught: ['got one!', 'fish on!', 'a nice catch'],
+  lost: ['just an old boot', 'that is no fish', 'a boot. again.'],
   'ride-racer': ['vroom!', 'pit stop? never', 'new lap record'],
   'ride-viking': ['row, row, row', 'to Valhalla!', 'land ho… oh, it is land'],
   'ride-engineer': ['digging it', 'mind the bucket', 'structurally sound'],
@@ -79,6 +81,8 @@ const SIGNS: Record<SignKind, readonly string[]> = {
   green: ['green again!', 'back to green', 'phew, all green'],
   context: ['tide at 85%', 'the sea is rising', 'high tide: /compact'],
   compact: ['good moment: /compact', 'clean break: /compact', 'tide is high: /compact'],
+  fish: ['caught! {time}', 'got one! {time}', 'fish on! {time}'],
+  boot: ['old boot: it failed', 'a boot! it failed', 'no fish: it failed'],
 }
 
 export const signLine = (kind: SignKind, seed: number, time = ''): string => {

@@ -4,7 +4,7 @@
 // Empty cells keep the terminal's own colours, so it stays see-through.
 
 import type { Beach, Segment, TimeOfDay } from '../types'
-import { CRAB_W, NO_CONTEXT_SHORE, isWalking, planOf, whereAt, xOf } from './life'
+import { CRAB_W, MAX_RODS, NO_CONTEXT_SHORE, isWalking, planOf, whereAt, xOf } from './life'
 import { moonLit } from './sky'
 import type { Sky } from './sky'
 import { CLAY } from './sprites'
@@ -166,8 +166,22 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
 
   // The crab, centred where the plan puts it on the desktop's strip.
   const pl = planOf(t.seg)
-  const here = whereAt(pl, Math.max(0, Math.min(pl.duration, now - t.seg.startAt)))
+  const elapsed = Math.max(0, Math.min(pl.duration, now - t.seg.startAt))
+  const here = whereAt(pl, elapsed)
   const f = W / Math.max(1, t.seg.width)
+
+  // A rod at the water's edge for each line out, and a float in the sea that dips and rises.
+  for (let i = 0; i < Math.min(MAX_RODS, t.beach?.rods ?? 0); i++) {
+    for (let y = G - 3; y <= G - 1; y++) put(shore - 3 - i * 3, y, '#7A4A26')
+    put(Math.min(W - 1, shore + 4 + i * 4), (sec + i) % 3 ? G - 1 : G - 2, '#E8577A')
+  }
+  // What it reels in, up out of the sea and onto the sand behind it.
+  const caught = pl.marks.find(m => m.kind === 'catch')
+  if (caught && elapsed >= caught.t0 && elapsed <= caught.t1) {
+    const k = (elapsed - caught.t0) / Math.max(1, caught.t1 - caught.t0)
+    const to = (xOf(caught.p0, t.seg.width) + CRAB_W / 2) * f
+    put(shore + 4 + (to - shore - 4) * k, Math.max(0, Math.round(G - 1 - 4 * G * k * (1 - k))), caught.variant === 'boot' ? '#6B4A2E' : '#F28C3A')
+  }
   const x0 = Math.max(0, Math.min(W - 7, Math.round((xOf(here.p, t.seg.width) + CRAB_W / 2) * f - 3.5)))
   const isNap = here.pose === 'nap'
   const rows = isNap ? NAP : isWalking(here.pose) && tick % 2 ? STEP : STAND

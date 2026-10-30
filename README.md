@@ -12,6 +12,7 @@ A tiny pixel crab that lives on a beach above your Claude Code prompt. It has a 
 - **Watches Claude work.** It holds a hammer for edits, a scroll for reading and binoculars for the web. Commits get fireworks, failing tests a storm cloud, long tasks a "done!" plane.
 - **Shows your context.** The sea creeps up the beach as the context window fills.
 - **Has a real sky.** Sunrise and sunset, the actual moon phase, seasons, holidays and, if you like, your local weather.
+- **Goes fishing.** Every subagent is a rod on the shore: a fish when it finishes, an old boot when it fails.
 - **Holds up signs.** Task done, commit pushed, PR merged, coffee time: it stops, faces you and raises a plank.
 - **Looks after you.** It nudges you to take a break after a long stretch, and chirps when a long task finishes.
 - **Wants looking after.** Feed it, play with it, pet it. It remembers you across sessions.
@@ -68,7 +69,7 @@ The crab plans its own day, a couple of minutes at a time, and strolls between t
 
 Its needs steer the odds: hungry, it digs more; bored, it kicks pebbles; tired, it yawns and naps sooner; happy, it dances. After 10 quiet minutes, or at night, it walks home and sleeps.
 
-While Claude works it is a bit busier and mirrors the tool in use: a scroll for reading, a magnifier for searching, a hammer for edits, a tiny keyboard for shell commands, binoculars for the web, and a whistle for subagents, which brings the neighbour over. Every tool call adds a block to a work pile by the castle, which it tidies away after the turn.
+While Claude works it is a bit busier and mirrors the tool in use: a scroll for reading, a magnifier for searching, a hammer for edits, a tiny keyboard for shell commands, binoculars for the web, and a fishing rod for subagents. Every tool call adds a block to a work pile by the castle, which it tidies away after the turn.
 
 Big moments take the whole strip: fireworks for a commit, a storm cloud over the crab for failing tests, and a plane with a "done!" banner after a long task.
 
@@ -97,6 +98,14 @@ The crab logs the session's work as it happens: files changed since the last com
 - **The bottle:** before each compaction the log goes to the summarizer, as a note of up to 600 characters asking it to keep those facts. A bottle then washes up at the waterline. This is the one thing the mod adds to what Claude reads, so it costs a few tokens and it's disclosed here. It's on by default, and `/crab log off` turns it off. The summarizer can still leave things out, so it improves the odds and guarantees nothing.
 - **The good moment sign:** when a turn ends on a commit or passing tests with the context at 60% or more, the crab plants a sign. The work is at a clean break, so it's a good moment to `/compact`. It shows once, and again once the context has dropped below 50% and filled back up.
 
+## Fishing
+
+Each running subagent is a rod at the water's edge with a float bobbing in the sea, so you can see at a glance what's still out. The rods move with the tide, and three are drawn at most.
+
+When one finishes the crab hurries over and reels it in: a fish, and a sign saying how many are still out. A subagent that failed or was stopped brings up an old boot. `/crab lines` lists what's out, and `/crab stats` keeps the tally.
+
+Teammates that idle between turns get no rod, nor do a workflow's agents, which aren't listed for mods. While a savvy-progress bar is up the strip steps aside, so rods only show in the tank.
+
 ## Signs
 
 News goes on a plank, one sign at a time, about 7 seconds each. Bubbles are the crab chatting; signs are for you.
@@ -114,7 +123,8 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab feed`, `/crab play`, `/crab pet`
 - `/crab ride`: sends it off on its gadget right now
 - `/crab name <name>`: give it a name (up to 16 characters)
-- `/crab stats`: session time, turns, tool calls, context, needs, shells and today's theme
+- `/crab stats`: session time, turns, tool calls, context, needs, shells, fish and today's theme
+- `/crab lines`: the subagents out fishing
 - `/crab log`: what's in the logbook; `/crab log on|off` turns the bottle on or off
 - `/crab theme`: today's theme, and the costume you picked if it differs
 - `/crab size`: what this surface reports for the strip, handy if it looks stretched

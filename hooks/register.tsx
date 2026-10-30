@@ -1,8 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PaneCloseInput, PluginOptions, Register, Timer } from 'claude-code'
 
-import type { Activity, Antic, Beach, BreakState, Bubble, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, SignKind, Tiredness, Weather, WeatherNow } from '../types'
-import { planOf, rideFits, shoreFrac, whereAt } from './life'
+import type { Activity, Antic, Beach, BreakState, Bubble, CatchKind, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, SignKind, Tiredness, Weather, WeatherNow } from '../types'
+import { reconcile, sameRods } from './fishing'
+import { MAX_RODS, planOf, rideFits, shoreFrac, whereAt } from './life'
 import type { LifeEvent } from './life'
 import { line, signLine, themeLine, themeName } from './lines'
 import type { Moment } from './lines'
@@ -30,6 +31,7 @@ const logbook = atom({ plugin: 'crab-buddy', key: 'logbook' } as const, EMPTY_LO
 const plantedSign = atom({ plugin: 'crab-buddy', key: 'plantedSign' } as const, null)
 const bottleUntil = atom({ plugin: 'crab-buddy', key: 'bottleUntil' } as const, 0)
 const signQueue = atom({ plugin: 'crab-buddy', key: 'signQueue' } as const, [])
+const rods = atom({ plugin: 'crab-buddy', key: 'rods' } as const, [])
 const areSignsOff = atom({ plugin: 'crab-buddy', key: 'areSignsOff' } as const, false)
 const stretchedSeg = atom({ plugin: 'crab-buddy', key: 'stretchedSeg' } as const, 0)
 const breaks = atom({ plugin: 'crab-buddy', key: 'breaks' } as const, { streakStart: 0, lastActive: 0, snoozedUntil: 0, toastedFor: 0 })
@@ -66,6 +68,12 @@ const CONTEXT_SIGN_MS = 10 * MIN
 const HELD_SIGN_MS = 7000
 /** The same news again this soon (a subagent's burst of commits) is not news. */
 const SIGN_GAP_MS = 20_000
+/** A burst of spawns is one look at the list. */
+const LINES_MS = 500
+/** How often it checks its lines while any are out. */
+const WATCH_MS = 5000
+/** A second cast this soon stays a rod in the sand: it's already at the water. */
+const CAST_GAP_MS = 30_000
 const BOTTLE_MS = 5 * MIN
 const CHIRP = 'sounds/chirp.wav'
 const BUBBLE_GAP: Record<string, number> = { often: 5 * MIN, rare: 15 * MIN }
@@ -79,7 +87,7 @@ const RESTART_MS = 35_000
 // The tool Claude is using, mirrored by a prop in the crab's claw.
 const PROPS: Record<string, Prop> = {
   Read: 'scroll', Grep: 'magnifier', Glob: 'magnifier', Edit: 'hammer', Write: 'hammer', NotebookEdit: 'hammer',
-  Bash: 'keyboard', WebSearch: 'binoculars', WebFetch: 'binoculars', Agent: 'whistle', Task: 'whistle',
+  Bash: 'keyboard', WebSearch: 'binoculars', WebFetch: 'binoculars', Agent: 'rod', Task: 'rod',
 }
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 
@@ -87,7 +95,7 @@ const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const KEY = {
   hidden: 'isHidden', breaksOff: 'areBreaksOff', soundOff: 'isSoundOff', needs: 'needs', name: 'name',
   firstMet: 'firstMet', bubbles: 'bubbles', signsOff: 'areSignsOff', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo',
-  greeted: 'greetedDay', tank: 'isTank', logOff: 'isLogOff',
+  greeted: 'greetedDay', tank: 'isTank', fish: 'fishCaught', logOff: 'isLogOff',
 } as const
 
 const TERMINAL_GLYPH: Record<Mood, string> = {
@@ -103,6 +111,7 @@ const ACT_WORD: Partial<Record<Activity, string>> = {
   sway: 'swaying with the seaweed', sunbathe: 'sunbathing', butterfly: 'chasing a butterfly', seagull: 'ducking from a seagull',
   ride: 'out on its gadget', fish: 'watching a fish', neighbour: 'saying hi to a neighbour', yawn: 'yawning', sneeze: 'sneezing', hiccup: 'hiccuping',
   skywatch: 'watching the sky', dance: 'dancing', build: 'building its sandcastle', tidy: 'tidying up the work pile', friend: 'playing with its friend',
+  cast: 'casting a line', reel: 'reeling a line in',
 }
 
 // git's own options may sit before the subcommand: `git -c user.name=x -C repo --no-pager commit`.
@@ -199,6 +208,10 @@ let frame = 0
 let isPainting = false
 let painter: Timer | null = null
 let ticker: Timer | null = null
+// Only while a line is out.
+let watcher: Timer | null = null
+let isLookDue = false
+let lastCast = -CAST_GAP_MS
 
 export const dayKey = (now: number): string => {
   const d = new Date(now)
@@ -297,10 +310,10 @@ const OVER_A_SIGN: ReadonlySet<ReactionMood> = new Set(['eat', 'play', 'love', '
 const lastSign = new Map<SignKind, number>()
 
 /** Puts news on a sign, or in line for one. False when signs are off: the caller does what it did before. */
-async function holdUp($: EngineInterface, kind: HeldKind, opts: { time?: string; first?: Activity } = {}): Promise<boolean> {
+async function holdUp($: EngineInterface, kind: HeldKind, opts: { time?: string; first?: Activity; isAlways?: boolean } = {}): Promise<boolean> {
   if (await read($, areSignsOff)) return false
   const now = await $.clock.now()
-  if (now - (lastSign.get(kind) ?? -SIGN_GAP_MS) < SIGN_GAP_MS) return true
+  if (!opts.isAlways && now - (lastSign.get(kind) ?? -SIGN_GAP_MS) < SIGN_GAP_MS) return true
   lastSign.set(kind, now)
   const text = signLine(kind, now / 1000, opts.time)
   if (heldSign(await read($, life), now)) await update($, signQueue, q => enqueue(q, { kind, text, at: now }))
@@ -351,7 +364,7 @@ async function traces($: EngineInterface): Promise<{ castle: number; shells: num
  * Starts the next stretch of its life from wherever it stands now, so it never
  * jumps. A "!" from noticing you, or a sign it's holding up, carries over into the new segment.
  */
-async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms: number; sign?: string }; first?: Activity } = {}): Promise<void> {
+async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms: number; sign?: string }; first?: Activity; haul?: CatchKind } = {}): Promise<void> {
   const now = await $.clock.now()
   const cur = await read($, life)
   let p = 0
@@ -376,7 +389,7 @@ async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms:
     weather: (await read($, weather))?.kind ?? 'clear',
     shore: shoreFrac(await read($, contextPercent), new Date(now).getHours() + new Date(now).getMinutes() / 60),
     ride: await wearing($),
-    ...(hold ? { hold } : {}), ...(opts.first ? { first: opts.first } : {}), ...(poof ? { poof } : {}),
+    ...(hold ? { hold } : {}), ...(opts.first ? { first: opts.first } : {}), ...(opts.haul ? { haul: opts.haul } : {}), ...(poof ? { poof } : {}),
   }
   await update($, life, () => seg)
   const pl = planOf(seg)
@@ -433,11 +446,55 @@ async function showProp($: EngineInterface, prop: Prop): Promise<void> {
   await update($, antic, () => next)
   const until = next?.until ?? 0
   $.clock.after(PROP_MS, () => void update($, antic, a => (a && a.until <= until ? null : a)))
-  // Whistling for help: the hermit-crab neighbour pops over, at most once a minute.
-  if (prop === 'whistle') {
-    const seg = await read($, life)
-    if (!(seg?.first === 'neighbour' && now - seg.startAt < MIN)) await startSegment($, { first: 'neighbour' })
+}
+
+// A look at the lines soon, so a burst of spawns is one look.
+function lookAtLines($: EngineInterface): void {
+  if (isLookDue) return
+  isLookDue = true
+  $.clock.after(LINES_MS, () => {
+    isLookDue = false
+    void checkLines($)
+  })
+}
+
+async function checkLines($: EngineInterface): Promise<void> {
+  const before = await read($, rods)
+  const agents = await $.agent.list().catch(() => null)
+  if (!agents) return
+  const { rods: out, hauls } = reconcile(before, agents)
+  if (!sameRods(before, out)) await update($, rods, () => out)
+  if (out.length && !watcher) {
+    watcher = $.clock.every(WATCH_MS, () => {
+      void checkLines($)
+    })
+  } else if (!out.length) {
+    watcher?.cancel()
+    watcher = null
   }
+  const now = await $.clock.now()
+  if (hauls.length) await landHauls($, hauls, out.length)
+  else if (out.some(r => !before.some(b => b.id === r.id)) && now - lastCast >= CAST_GAP_MS) {
+    lastCast = now
+    await startSegment($, { first: 'cast' })
+  }
+}
+
+// It reels in, then says so once the catch has landed. The timer stands apart from the
+// plan, so the news still comes if something cuts the walk to the water short.
+async function landHauls($: EngineInterface, hauls: readonly CatchKind[], left: number): Promise<void> {
+  const fish = hauls.filter(h => h === 'fish').length
+  const kept = await $.store.get(KEY.fish)
+  await $.store.set(KEY.fish, (typeof kept === 'number' ? kept : 0) + fish)
+  if (fish) await saveNeeds($, gain(await currentNeeds($), { fun: 3 }))
+  const haul: CatchKind = fish ? 'fish' : 'boot'
+  await startSegment($, { first: 'reel', haul })
+  const seg = await read($, life)
+  const landing = seg ? (planOf(seg).marks.find(m => m.kind === 'catch')?.t1 ?? 0) : 0
+  $.clock.after(Math.max(1, landing), async () => {
+    const isSigned = await holdUp($, haul, { time: left ? `${left} still out` : 'all in', isAlways: true })
+    if (!isSigned) await say($, haul === 'fish' ? 'caught' : 'lost', true)
+  })
 }
 
 type Geo = { place: string; lat: number; lon: number }
@@ -499,6 +556,7 @@ async function refreshWeather($: EngineInterface): Promise<void> {
 
 async function minuteTick($: EngineInterface): Promise<void> {
   await refreshWeather($)
+  if ((await read($, rods)).length) await checkLines($)
   await checkBreak($)
   await tickNeeds($)
   await maybeShift($)
@@ -791,8 +849,9 @@ async function view($: EngineInterface, isWorking: boolean): Promise<View> {
   const sign = heldSign(seg, now) ?? (await breakSign($, now, seg))
   const plantedNow = await read($, plantedSign)
   const planted = plantedNow && plantedNow.until > now ? plantedNow.text : null
-  const beach: Beach = { ...(sign ? { sign } : {}), ...(planted ? { planted } : {}), ...((await read($, bottleUntil)) > now ? { hasBottle: true } : {}) }
-  const extra = [tiredness === 'fresh' ? '' : tiredness, look.isGrumpy ? 'grumpy' : '', look.isHungry ? 'hungry' : '', sign ? `holding up a sign saying ${sign}` : '', planted ? `beside a sign saying ${planted}` : ''].filter(Boolean)
+  const lines = (await read($, rods)).length
+  const beach: Beach = { ...(sign ? { sign } : {}), ...(planted ? { planted } : {}), ...((await read($, bottleUntil)) > now ? { hasBottle: true } : {}), ...(lines ? { rods: Math.min(MAX_RODS, lines) } : {}) }
+  const extra = [tiredness === 'fresh' ? '' : tiredness, look.isGrumpy ? 'grumpy' : '', look.isHungry ? 'hungry' : '', sign ? `holding up a sign saying ${sign}` : '', planted ? `beside a sign saying ${planted}` : '', lines ? `${lines} fishing ${lines === 1 ? 'line' : 'lines'} out` : ''].filter(Boolean)
   const alt = `${name} the crab, ${costume}, ${MOOD_WORD[mood]}${doing ? `, ${doing}` : ''}${extra.length ? `, ${extra.join(', ')}` : ''}`
   return { now, name, costume, mood, seg, prop, sky, hour, look, n, summary, alt, isDue, beach }
 }
@@ -806,8 +865,8 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await $.command.register({
       name: 'crab',
-      description: 'Crab buddy: feed, play, pet, name, stats, log, theme, tank or strip, breaks, sound, bubbles, signs, costume',
-      argumentHint: '[feed | play | pet | name <name> | stats | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | off | on | restart | today | <costume>]',
+      description: 'Crab buddy: feed, play, pet, name, stats, lines, log, theme, tank or strip, breaks, sound, bubbles, signs, costume',
+      argumentHint: '[feed | play | pet | name <name> | stats | lines | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | off | on | restart | today | <costume>]',
     })
     const now = await $.clock.now()
     const hidden = await readStore($, KEY.hidden, false)
@@ -819,6 +878,8 @@ export const register: Register = (on, options) => {
     await update($, isSoundOff, () => soundOff)
     await update($, areSignsOff, () => signsOff)
     if (await readStore($, KEY.tank, false)) void seatTank($)
+    // A reload lost the timer, and the rods are still out.
+    if ((await read($, rods)).length) await checkLines($)
     const storedMode = await $.store.get(KEY.bubbles)
     const mode = storedMode === 'often' || storedMode === 'rare' || storedMode === 'off' ? storedMode : options.bubbles === 'often' || options.bubbles === 'off' ? String(options.bubbles) : 'rare'
     await update($, bubbleMode, () => mode)
@@ -906,7 +967,13 @@ export const register: Register = (on, options) => {
     if (word === 'stats') {
       const v = await view($, false)
       const tr = await traces($)
-      return { text: `${v.summary} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''} · ${themeAt(v.now)}` }
+      const fish = await $.store.get(KEY.fish)
+      return { text: `${v.summary} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''}${typeof fish === 'number' && fish > 0 ? ` · ${fish} fish` : ''} · ${themeAt(v.now)}` }
+    }
+    if (word === 'lines') {
+      const out = await read($, rods)
+      if (!out.length) return { text: 'No lines in the water.' }
+      return { text: `${out.length} ${out.length === 1 ? 'line' : 'lines'} in the water:\n${out.map(r => `- ${r.description || 'a subagent'}`).join('\n')}` }
     }
     if (word === 'ride') {
       const mode = await desiredMode($)
@@ -953,7 +1020,7 @@ export const register: Register = (on, options) => {
       return { text: value === 'off' ? 'The done chirp is off.' : 'The done chirp is on.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }
@@ -980,8 +1047,17 @@ export const register: Register = (on, options) => {
       if (hour >= 23 || hour < 5) await say($, 'late')
       await checkBreak($)
       await startSegment($)
+    } else {
+      lookAtLines($)
     }
     return next(e)
+  })
+
+  // Each subagent is a rod: a spawn, its first turn and every end are reasons to look at the lines.
+  on('agent.spawn', async ($, e, next) => {
+    const result = await next(e)
+    lookAtLines($)
+    return result
   })
 
   // The main conversation's turns only: subagents finishing do not set it off.
@@ -1010,6 +1086,8 @@ export const register: Register = (on, options) => {
       if (petMood(await currentNeeds($)) === 'grumpy') await say($, 'grumpy')
       if (isOk && isCleanStop) await hintCompact($)
       isCleanStop = false
+    } else {
+      lookAtLines($)
     }
     return next(e)
   })

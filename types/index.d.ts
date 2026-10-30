@@ -23,7 +23,7 @@ export type Pose =
 export type LifeMode = 'idle' | 'work' | 'sleep' | 'stretch'
 
 /** News the crab shows on a sign. */
-export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact'
+export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact' | 'fish' | 'boot'
 
 /** A sign waiting its turn; `at` is when it was asked for. */
 export type QueuedSign = { kind: SignKind; text: string; at: number }
@@ -39,12 +39,20 @@ export type Beach = {
   planted?: string
   /** A bottle at the waterline: a compaction just took the log. */
   hasBottle?: boolean
+  /** Rods planted at the water's edge, one for each subagent out. */
+  rods?: number
 }
+
+/** A running subagent's line in the water. */
+export type Rod = { id: string; description: string }
+
+/** What a line brings in: a fish for a subagent that finished, a boot for one that failed. */
+export type CatchKind = 'fish' | 'boot'
 
 export type Activity =
   | 'stroll' | 'lookAround' | 'gaze' | 'peek' | 'muse' | 'dig' | 'forage' | 'kick' | 'inspect' | 'hide' | 'sway'
   | 'sunbathe' | 'butterfly' | 'seagull' | 'fish' | 'neighbour' | 'yawn' | 'sneeze' | 'hiccup' | 'skywatch' | 'dance'
-  | 'build' | 'tidy' | 'friend' | 'sleep' | 'stretch' | 'hold' | 'ride'
+  | 'build' | 'tidy' | 'friend' | 'sleep' | 'stretch' | 'hold' | 'ride' | 'cast' | 'reel'
 
 /**
  * One stretch of the crab's life: the seed and the inputs its plan is made from,
@@ -61,8 +69,10 @@ export type Segment = {
   width: number
   /** A pose held in place first: a reaction, a care action, noticing you. */
   hold?: { pose: Pose; ms: number; sign?: string }
-  /** An activity to do first (a friend Claude's Agent tool whistled for). */
+  /** An activity to do first (a line to cast or reel in). */
   first?: Activity
+  /** What the line it reels in brings up. */
+  haul?: CatchKind
   /** What it wears: its gadget is that costume's. */
   ride?: Costume
   /** The last segment was cut off mid-ride: a puff of dust covers the gadget going. */
@@ -81,7 +91,7 @@ export type Segment = {
 }
 
 /** A prop in its claw that mirrors the tool Claude is using. */
-export type Prop = 'scroll' | 'magnifier' | 'hammer' | 'keyboard' | 'binoculars' | 'whistle'
+export type Prop = 'scroll' | 'magnifier' | 'hammer' | 'keyboard' | 'binoculars' | 'rod'
 
 export type Antic = { prop: Prop; since: number; until: number } | null
 
@@ -151,6 +161,7 @@ declare module 'claude-code' {
       logbook: Logbook
       plantedSign: PlantedSign
       signQueue: QueuedSign[]
+      rods: Rod[]
       areSignsOff: boolean
       /** The segment in which it reached home to stretch, so the break's sign goes up then. */
       stretchedSeg: number

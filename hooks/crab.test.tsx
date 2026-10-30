@@ -2,8 +2,9 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import type { Segment } from '../types'
-import { RIDES, activityStarts, hasDecor, plan, planOf, rideFits, shoreFrac, spots, trackSpan, whereAt, xOf } from './life'
+import type { Rod, Segment } from '../types'
+import { reconcile, sameRods } from './fishing'
+import { MAX_RODS, RIDES, activityStarts, hasDecor, plan, planOf, rideFits, rodSpots, shoreFrac, spots, trackSpan, whereAt, xOf } from './life'
 
 import { line, signLine, themeLine, themeName } from './lines'
 import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
@@ -1655,12 +1656,12 @@ test('leaving the session any other way keeps the log', async ($, on) => {
 
 const TAG = /<g transform="translate\(0,0.5\)">/
 const heldWords = async ($: Tester, isWorking = false) => /holding up a sign saying ([^,]+)/.exec(await alt($, isWorking))?.[1] ?? null
-const SIGN_KINDS = ['done', 'coffee', 'walk', 'commit', 'pushed', 'pr', 'mr', 'merged', 'green', 'context', 'compact'] as const
+const SIGN_KINDS = ['done', 'coffee', 'walk', 'commit', 'pushed', 'pr', 'mr', 'merged', 'green', 'context', 'compact', 'fish', 'boot'] as const
 
 test('every sign fits a plank and fills its time in', () => {
   for (const kind of SIGN_KINDS) {
     for (let seed = 0; seed < 6; seed++) {
-      const text = signLine(kind, seed, '12m 30s')
+      const text = signLine(kind, seed, kind === 'done' ? '12m 30s' : '2 still out')
       expect(text.length).toBeGreaterThan(0)
       expect(text.length).toBeLessThanOrEqual(22)
       expect(text).not.toContain('{')
@@ -1923,6 +1924,176 @@ test('a plank stays inside a narrow strip wherever the crab stands', () => {
     expect(left).toBeGreaterThanOrEqual(2)
     expect(left + Math.round('clean break: /compact'.length * 4.3 + 8)).toBeLessThanOrEqual(198)
   }
+})
+
+// --- fishing
+
+const agent = (id: string, status: string, over: object = {}) => ({ id, status, type: 'general-purpose', description: `job ${id}`, ...over })
+const rod = (id: string): Rod => ({ id, description: `job ${id}` })
+
+test('the list says what is out and what each rod caught', () => {
+  expect(reconcile([], [agent('a', 'running'), agent('b', 'pending'), agent('c', 'waiting')]).rods.map(r => r.id)).toEqual(['a', 'b', 'c'])
+  expect(reconcile([rod('a')], [agent('a', 'running')]).hauls).toEqual([])
+  expect(reconcile([rod('a')], [agent('a', 'completed')])).toEqual({ rods: [], hauls: ['fish'] })
+  expect(reconcile([rod('a')], [agent('a', 'idle', { name: 'scout' })]).hauls).toEqual(['fish'])
+  expect(reconcile([rod('a'), rod('b')], [agent('a', 'failed'), agent('b', 'killed')]).hauls).toEqual(['boot', 'boot'])
+  expect(reconcile([rod('gone')], []).hauls).toEqual(['fish'])
+})
+
+test('teammates get no rod, and something it never saw running is no catch', () => {
+  expect(reconcile([], [agent('t', 'running', { type: 'teammate' }), agent('u', 'running', { teammateId: 'u@team' })]).rods).toEqual([])
+  expect(reconcile([], [agent('done', 'completed'), agent('lost', 'failed')]).hauls).toEqual([])
+})
+
+test('a changed description counts as a change, and rods follow the tide', () => {
+  expect(sameRods([rod('a')], [rod('a')])).toBe(true)
+  expect(sameRods([rod('a')], [{ id: 'a', description: 'new' }])).toBe(false)
+  expect(sameRods([rod('a')], [])).toBe(false)
+  expect(rodSpots(800, 0.9, 9).length).toBe(MAX_RODS)
+  const far = rodSpots(800, 0.9, 1)[0]
+  const near = rodSpots(800, 0.6, 1)[0]
+  expect(near?.x ?? 0).toBeLessThan(far?.x ?? 0)
+  for (const spot of rodSpots(800, 0.98, 3)) expect(spot.float).toBeLessThan(800)
+})
+
+test('it hurries to the water to cast, and to reel in a fish or a boot', () => {
+  for (const startP of [0, 0.5]) {
+    const cast = plan(seg({ startP, first: 'cast' }))
+    expect(cast.beats[0]?.act).toBe('cast')
+    const reel = plan(seg({ startP, first: 'reel', haul: 'fish' }))
+    const landed = reel.marks.find(m => m.kind === 'catch')
+    expect(landed?.variant).toBe(undefined)
+    expect(landed?.t0 ?? 99_000).toBeLessThan(9000)
+  }
+  expect(plan(seg({ first: 'reel', haul: 'boot' })).marks.find(m => m.kind === 'catch')?.variant).toBe('boot')
+})
+
+function agents(on: On, list: unknown[]) {
+  let looks = 0
+  on('agent.list', () => {
+    looks++
+    return { value: list } as never
+  })
+  return { looks: () => looks }
+}
+const subagentTurn = async ($: Tester, id = 'a') => $.turn.start({ turnId: `t-${id}`, agentId: id } as never)
+// Half-second steps until it holds, for what lands after a walk of any length.
+async function waitFor(clock: { advance: (ms: number) => Promise<void> }, check: () => Promise<boolean>): Promise<boolean> {
+  for (let i = 0; i < 40; i++) {
+    if (await check()) return true
+    await clock.advance(500)
+  }
+  return false
+}
+
+test('a subagent is a rod until it comes home with a fish', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const list = [agent('a', 'running')]
+  const { looks } = agents(on, list)
+  await start($)
+  await $.turn.start({ turnId: 'main' } as never)
+  await subagentTurn($)
+  await clock.advance(600)
+  expect(await alt($)).toMatch(/1 fishing line out/)
+  expect((await band($)).source).toContain('#7A4A26')
+  expect((await crab($, 'lines')).text).toBe('1 line in the water:\n- job a')
+
+  list[0] = agent('a', 'completed')
+  await clock.advance(5100)
+  expect(await alt($)).not.toMatch(/fishing line/)
+  expect(await waitFor(clock, async () => /caught|got one|fish on/.test((await heldWords($)) ?? ''))).toBe(true)
+  expect(await heldWords($)).toMatch(/all in/)
+  expect((await crab($, 'lines')).text).toBe('No lines in the water.')
+  expect((await crab($, 'stats')).text).toMatch(/1 fish/)
+  const settled = looks()
+  await clock.advance(30_000)
+  expect(looks()).toBe(settled)
+})
+
+test('it says how many are still out, and a failed agent brings up a boot', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const list = [agent('a', 'running'), agent('b', 'running')]
+  agents(on, list)
+  await start($)
+  await $.turn.start({ turnId: 'main' } as never)
+  await subagentTurn($)
+  await clock.advance(600)
+  expect(await alt($)).toMatch(/2 fishing lines out/)
+
+  list[0] = agent('a', 'failed')
+  expect(await waitFor(clock, async () => /failed/.test((await heldWords($)) ?? ''))).toBe(true)
+  await clock.advance(8000)
+  list[1] = agent('b', 'completed')
+  expect(await waitFor(clock, async () => /all in/.test((await heldWords($)) ?? ''))).toBe(true)
+  expect((await crab($, 'stats')).text).toMatch(/1 fish/)
+})
+
+test('a burst of spawns is one look, and the watch only runs while a line is out', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const { looks } = agents(on, [])
+  await start($)
+  await subagentTurn($, 'a')
+  await subagentTurn($, 'b')
+  await subagentTurn($, 'c')
+  await clock.advance(600)
+  expect(looks()).toBe(1)
+  await clock.advance(30_000)
+  expect(looks()).toBe(1)
+})
+
+test('teammates stay off the beach, and a list that fails changes nothing', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  agents(on, [agent('t', 'running', { type: 'teammate' })])
+  await start($)
+  await subagentTurn($)
+  await clock.advance(600)
+  expect(await alt($)).not.toMatch(/fishing/)
+})
+
+test('with signs off a catch is a bubble', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const list = [agent('a', 'running')]
+  agents(on, list)
+  await start($)
+  await crab($, 'signs off')
+  await $.turn.start({ turnId: 'main' } as never)
+  await subagentTurn($)
+  await clock.advance(600)
+  list.length = 0
+  expect(await waitFor(clock, async () => /got one!|fish on!|a nice catch/.test((await band($, true)).source))).toBe(true)
+  expect(await heldWords($, true)).toBe(null)
+})
+
+test('the Agent tool puts a rod in its claw, and the neighbour stays home', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  on('tool.call', () => ({ result: 'ok' }) as never)
+  await start($)
+  await $.turn.start({ turnId: 'main' } as never)
+  await $.tool.call({ tool: 'Agent', description: 'x', prompt: 'y' } as never)
+  const { source } = await band($, true)
+  expect(source).toContain('#E8577A')
+  expect(await alt($, true)).not.toMatch(/saying hi to a neighbour/)
+})
+
+test('rods and a catch show on the terminal beach too', () => {
+  const base = { columns: 80, rows: 3, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0, shore: 0.8 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
+  expect(beachPixels({ ...base, beach: { rods: 2 } }).px).not.toEqual(beachPixels(base).px)
+  const reeling = seg({ width: 800, startP: 0.7, shore: 0.8, first: 'reel', haul: 'fish' })
+  const mark = plan(reeling).marks.find(m => m.kind === 'catch')
+  const early = T0 + (mark?.t0 ?? 0) + 0.2 * ((mark?.t1 ?? 0) - (mark?.t0 ?? 0))
+  expect(beachPixels({ ...base, seg: reeling, now: early }).px).toContain(0xF28C3A)
 })
 
 test('the bottle and sign show on the terminal beach too', () => {

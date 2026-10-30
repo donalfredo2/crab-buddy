@@ -9,7 +9,7 @@ const STALE_MS = 30_000
 
 /** How the crab looks while it holds each sign up; the first two bring the plane and the fireworks. */
 export const SIGN_MOOD: Record<Exclude<SignKind, 'coffee' | 'walk' | 'context' | 'compact'>, ReactionMood> = {
-  done: 'wave', commit: 'party', merged: 'party', pushed: 'cheer', pr: 'cheer', mr: 'cheer', green: 'cool',
+  done: 'wave', commit: 'party', merged: 'party', pushed: 'cheer', pr: 'cheer', mr: 'cheer', green: 'cool', fish: 'cheer', boot: 'daze',
 }
 export type HeldKind = keyof typeof SIGN_MOOD
 

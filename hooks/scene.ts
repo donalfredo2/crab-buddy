@@ -4,7 +4,7 @@
 // wall clock, so a redraw picks up the segment where it was instead of starting over.
 
 import type { Beach, Pose, Prop, Segment, TimeOfDay } from '../types'
-import { CRAB_W, MAX_CASTLE, NO_CONTEXT_SHORE, ROOMY, hasDecor, isWalking, planOf, spots, whereAt, xOf } from './life'
+import { CRAB_W, MAX_CASTLE, NO_CONTEXT_SHORE, ROOMY, hasDecor, isWalking, planOf, rodSpots, spots, whereAt, xOf } from './life'
 import type { Plan } from './life'
 import { moonLit } from './sky'
 import type { Sky } from './sky'
@@ -372,7 +372,7 @@ const sea = (width: number, x: number, now: number): string => {
 }
 
 /** The work pile: one block per tool Claude used this turn, coloured by the tool. */
-const BLOCK: Record<string, string> = { scroll: '#E9D6A6', magnifier: '#9FC7E8', hammer: '#B07A45', keyboard: '#8E929A', binoculars: '#5A5853', whistle: '#F5C542', other: '#D9C493' }
+const BLOCK: Record<string, string> = { scroll: '#E9D6A6', magnifier: '#9FC7E8', hammer: '#B07A45', keyboard: '#8E929A', binoculars: '#5A5853', rod: '#F5C542', other: '#D9C493' }
 const workPile = (x0: number, kinds: readonly string[]): string =>
   kinds.slice(0, 15).map((k, i) => {
     const rows = [5, 4, 3, 2, 1]
@@ -389,6 +389,13 @@ const plank = (text: string, height: number): string => {
   const width = plankW(text)
   return `<rect width="${width}" height="${height}" rx="1" fill="#E9D6A6" stroke="#A0703F" stroke-width=".8"/><text x="${width / 2}" y="${height - 2.8}" font-size="6.8" text-anchor="middle" font-family="-apple-system,'SF Pro Text',sans-serif" font-weight="700" fill="#3A3936">${xml(text)}</text>`
 }
+
+/** A rod in the sand for each line out, its float bobbing in the sea. */
+const rodsSvg = (width: number, shore: number, count: number, now: number): string =>
+  rodSpots(width, shore, count).map(({ x, float }, i) => {
+    const tip = GROUND - 13
+    return `<rect x="${x}" y="${tip}" width="1" height="14" fill="#7A4A26" shape-rendering="crispEdges"/><path d="M${x + 0.5} ${tip} Q${r1((x + float) / 2)} ${GROUND - 7} ${float + 1} ${GROUND - 1}" fill="none" stroke="#8E929A" stroke-width=".5"/><g class="btl" style="${wall(now, 3, i)}" shape-rendering="crispEdges"><rect x="${float}" y="${GROUND - 2}" width="2" height="1" fill="#F4F3EE"/><rect x="${float}" y="${GROUND - 1}" width="2" height="1" fill="#E8577A"/></g>`
+  }).join('')
 
 /** A sign in the sand around `x`, its plank kept inside the strip. */
 const plantedSvg = (x: number, text: string, width: number): string => {
@@ -484,6 +491,18 @@ const compile = (pl: Plan, width: number, elapsed: number, shore: number) => {
       const mid = (m.t0 + m.t1) / 2
       markCss(name, [[0, `${hide};transform:translate(${cx - 6}px,${GROUND + 1}px)`], [m.t0 - 1, `${hide};transform:translate(${cx - 6}px,${GROUND + 1}px)`], [m.t0, `opacity:1;transform:translate(${cx - 6}px,${GROUND + 1}px) rotate(-50deg)`], [mid, `opacity:1;transform:translate(${cx}px,${GROUND - 13}px) rotate(0deg)`], [m.t1, `opacity:1;transform:translate(${cx + 6}px,${GROUND + 1}px) rotate(60deg)`], [m.t1 + 1, hide]])
       return `<g class="${name}" opacity="0"><rect x="-3" y="-1" width="5" height="2" fill="#F28C3A"/><rect x="2" y="-1.5" width="1.5" height="3" fill="#F5B731"/><rect x="-2.2" y="-.6" width=".8" height=".8" fill="#1F1E1D"/></g>`
+    }
+    if (m.kind === 'catch') {
+      // Out of the sea in an arc, over the crab's head and onto the sand behind it.
+      const from = Math.min(width - 4, spots(width, shore).sea + 12)
+      const to = Math.max(4, x(m.p0) - 4)
+      const at = (k: number) => `opacity:1;transform:translate(${r1(from + (to - from) * k)}px,${r1(GROUND - 1 - 72 * k * (1 - k))}px) rotate(${Math.round(k * -300)}deg)`
+      const span = m.t1 - m.t0
+      markCss(name, [[0, hide], [m.t0 - 1, hide], ...[0, 0.25, 0.5, 0.75, 1].map((k): [number, string] => [m.t0 + span * k, at(k)]), [m.t1 + 1, hide]])
+      const catchSvg = m.variant === 'boot'
+        ? pixels(['bbb...', 'bbb...', 'bbbbbb', 'dddddd'], { b: '#6B4A2E', d: '#3A3936' }, -3, -2)
+        : `<rect x="-3" y="-1" width="5" height="2" fill="#F28C3A"/><rect x="2" y="-1.5" width="1.5" height="3" fill="#F5B731"/><rect x="-2.2" y="-.6" width=".8" height=".8" fill="#1F1E1D"/>`
+      return `<g class="${name}" opacity="0">${catchSvg}</g>`
     }
     if (m.kind === 'fireworks') {
       markCss(name, [[0, hide], [m.t0, 'opacity:1'], [m.t1 - 400, 'opacity:1'], [m.t1, hide]])
@@ -665,7 +684,7 @@ export const sceneSvg = (s: SceneInput): string => {
   return `<svg xmlns="http://www.w3.org/2000/svg" ${fit}><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
 <g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells)}${footprints(pl, width, elapsed)}
-<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}
+<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
 <g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
 <ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>
 <g class="ly" transform="translate(0,${Math.round(-here.lift)})"><g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}</g>

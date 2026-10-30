@@ -465,8 +465,8 @@ export const propSvg = (prop: Prop): string => {
       return `<g class="pr-tap"><rect x="18" y="19" width="13" height="3.4" rx=".6" fill="#3A3936"/><rect x="19" y="19.7" width="11" height=".7" fill="#BDB6A8"/><rect x="19" y="21" width="11" height=".7" fill="#BDB6A8"/></g>`
     case 'binoculars':
       return `<g><rect x="7.5" y="10" width="5" height="4" fill="#3A3A3C"/><rect x="17.5" y="10" width="5" height="4" fill="#3A3A3C"/><rect x="12.5" y="11" width="5" height="1.4" fill="#3A3A3C"/><rect x="8.5" y="11" width="1.5" height="1.5" fill="#9FD3F5"/><rect x="18.5" y="11" width="1.5" height="1.5" fill="#9FD3F5"/></g>`
-    case 'whistle':
-      return `<g><rect x="23" y="15" width="4" height="2" fill="#F5C542"/><rect x="26.5" y="14.5" width="1.5" height="3" fill="#C99A1E"/>${note(30, 6, 'note')}</g>`
+    case 'rod':
+      return `<g><rect x="25" y="4" width="1.2" height="13" fill="#7A4A26"/><rect x="26" y="3" width="6" height="1" fill="#7A4A26"/><rect x="31.5" y="4" width=".5" height="7" fill="#C9CCD2"/><rect x="31" y="11" width="1.6" height="1.6" fill="#E8577A"/></g>`
   }
 }
 

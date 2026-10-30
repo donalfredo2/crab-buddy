@@ -29,6 +29,15 @@ export const shoreFrac = (percent: number | null, hour: number): number => {
   return Math.max(0.43, Math.min(0.94, NO_CONTEXT_SHORE - fill * 0.47 + tide))
 }
 
+/** The most rods drawn; any more only show in the words. */
+export const MAX_RODS = 3
+
+/** Where each rod stands and its float sits: along the water's edge, so they move with the tide. */
+export const rodSpots = (width: number, shore: number, count: number): { x: number; float: number }[] => {
+  const sea = Math.round(width * shore)
+  return Array.from({ length: Math.min(MAX_RODS, count) }, (_, i) => ({ x: sea - 10 - i * 11, float: Math.min(width - 3, sea + 12 + i * 11) }))
+}
+
 /** Decor unlocked by the shell collection; narrow strips skip it. */
 export const DECOR = { palm: 5, chair: 10, lighthouse: 20 } as const
 export const ROOMY = 500
@@ -73,12 +82,12 @@ const stops = (width: number, shore = NO_CONTEXT_SHORE) => {
 /** `y0` and `y1`: px above its usual height, for a gadget that leaves the ground. */
 export type Beat = { t0: number; t1: number; p0: number; p1: number; face: 1 | -1; pose: Pose; act: Activity; y0?: number; y1?: number }
 
-export type MarkKind = 'butterfly' | 'seagull' | 'fish' | 'neighbour' | 'pebble' | 'hole' | 'castle' | 'shell' | 'pile' | 'fireworks' | 'storm' | 'plane' | 'friend' | 'poof' | 'disco' | 'cannon'
+export type MarkKind = 'butterfly' | 'seagull' | 'fish' | 'neighbour' | 'pebble' | 'hole' | 'castle' | 'shell' | 'pile' | 'fireworks' | 'storm' | 'plane' | 'friend' | 'poof' | 'disco' | 'cannon' | 'catch'
 /** Something in the habitat that moves or appears at a moment of the plan. */
 export type Mark = {
   kind: MarkKind; t0: number; t1: number; p0: number; p1: number; dir: 1 | -1
   /** The friend's visit: when it arrives and when it leaves, and what they do together. */
-  meet?: number; part?: number; variant?: 'dance' | 'sky' | 'chase' | 'gold' | 'muzzle'
+  meet?: number; part?: number; variant?: 'dance' | 'sky' | 'chase' | 'gold' | 'muzzle' | 'boot'
 }
 
 export type LifeMoment = 'muse' | 'aware' | 'butterfly' | 'neighbour' | 'hic' | 'sky' | 'found' | 'built' | 'peek' | 'friend' | 'golden' | 'ride'
@@ -473,6 +482,17 @@ export const plan = (seg: Segment): Plan => {
         gone()
         return
       }
+      case 'cast':
+        stand(1 * S, 'look', a, 1)
+        stand(1 * S, 'cheer', a, 1)
+        return
+      case 'reel': {
+        const isBoot = seg.haul === 'boot'
+        stand(1.2 * S, 'look', a, 1)
+        marks.push({ kind: 'catch', t0: t, t1: t + 1.6 * S, p0: p, p1: p, dir: -1, ...(isBoot ? { variant: 'boot' as const } : {}) })
+        stand(1.6 * S, isBoot ? 'daze' : 'cheer', a, 1)
+        return
+      }
       case 'tidy':
         // Clears the work pile: picks it up and carries it home.
         stand(1 * S, 'build', a, 1)
@@ -494,6 +514,14 @@ export const plan = (seg: Segment): Plan => {
   }
 
   let first: Activity | undefined = seg.first
+  // Lines are errands: it hurries to the water's edge, however far off it is.
+  if (first === 'cast' || first === 'reel') {
+    walkTo(at.limit, first, 'chase', Math.max(70, (Math.abs(at.limit - p) * span) / 6))
+    run(first)
+    done.add(first)
+    last = first
+    first = undefined
+  }
   while (t < target) {
     const gap = (isWork ? 12 + rnd() * 12 : 20 + rnd() * 20) * S
     let a: Activity = 'lookAround'
