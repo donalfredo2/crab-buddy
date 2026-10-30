@@ -1,6 +1,17 @@
-# crab-buddy
+# crab-buddy 🦀
 
-A Claude Code mod: a pixel crab with a life of its own on a little beach above the prompt, in every session.
+A tiny pixel crab that lives on a beach above your Claude Code prompt. It has a life of its own, keeps an eye on what Claude is doing, and keeps you company while you work.
+
+## What it does
+
+- **Lives its own life.** It strolls, digs, builds a sandcastle, collects shells, chases butterflies, and now and then turns to look at you.
+- **Watches Claude work.** It holds a hammer for edits, a scroll for reading and binoculars for the web. Commits get fireworks, failing tests a storm cloud, long tasks a "done!" plane.
+- **Shows your context.** The sea creeps up the beach as the context window fills.
+- **Has a real sky.** Sunrise and sunset, the actual moon phase, seasons, holidays and, if you like, your local weather.
+- **Looks after you.** It nudges you to take a break after a long stretch, and chirps when a long task finishes.
+- **Wants looking after.** Feed it, play with it, pet it. It remembers you across sessions.
+
+A new costume every day, a new beach to match. It's all CSS: no tokens spent.
 
 ## Install
 
