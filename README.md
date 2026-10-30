@@ -2,6 +2,10 @@
 
 A tiny pixel crab that lives on a beach above your Claude Code prompt. It has a life of its own, keeps an eye on what Claude is doing, and keeps you company while you work.
 
+![crab-buddy on its beach: dancing with its friend at midday, finishing a long task at sunset, and in a ghost sheet on Halloween night](docs/screenshot.png)
+
+<sub>Drawn by the mod's own code; in Claude Code it moves.</sub>
+
 ## What it does
 
 - **Lives its own life.** It strolls, digs, builds a sandcastle, collects shells, chases butterflies, and now and then turns to look at you.
