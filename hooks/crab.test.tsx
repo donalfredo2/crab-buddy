@@ -7,10 +7,10 @@ import { activityStarts, hasDecor, plan, planOf, shoreFrac, spots, whereAt, xOf 
 
 import { line, themeLine, themeName } from './lines'
 import { care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
-import { cleanName, costumeAt, dayKey, isClosedByYou, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt } from './register'
+import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, wornAt } from './register'
 import { sceneSvg, timeOfDay } from './scene'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
-import { COSTUMES, costumeOfDay } from './sprites'
+import { COSTUMES, SPECIAL_COSTUMES, costumeOfDay } from './sprites'
 import { beachCells, beachPixels, cellText, decodeCells } from './terminal'
 
 const DAY = 86_400_000
@@ -739,8 +739,100 @@ test("today's theme is the costume's day, or a holiday's", () => {
   expect(themeLine('pirate', null)).toBe("ahoy, it's pirate day!")
   expect(themeLine('chef', 'newyear')).toBe('happy New Year! chef day')
   // Each greeting fits a bubble whole.
-  for (const c of [...COSTUMES, 'ghost', 'santa'] as const) expect(themeLine(c, null).length).toBeLessThanOrEqual(34)
+  for (const c of [...COSTUMES, ...SPECIAL_COSTUMES]) expect(themeLine(c, null).length).toBeLessThanOrEqual(34)
   for (const c of COSTUMES) expect(themeLine(c, 'newyear').length).toBeLessThanOrEqual(34)
+})
+
+test('a pick beats a holiday, a holiday beats the rain, the rain beats the rotation', () => {
+  const day = dayCostume(T0)
+  expect(wornAt(T0)).toBe(day)
+  expect(wornAt(T0, 'cloudy')).toBe(day)
+  expect(wornAt(T0, 'rain')).toBe('raincoat')
+  expect(wornAt(T0, 'storm')).toBe('raincoat')
+  const halloween = new Date(2026, 9, 31, 12).getTime()
+  expect(wornAt(halloween, 'rain')).toBe('ghost')
+  const wiesn = new Date(2026, 8, 25, 12).getTime()
+  expect(wornAt(wiesn, 'storm')).toBe('oktoberfest')
+  // New Year has no costume of its own, so the raincoat still goes on.
+  expect(wornAt(new Date(2026, 11, 31, 12).getTime(), 'rain')).toBe('raincoat')
+})
+
+test('Oktoberfest runs from 20-09 to 05-10', () => {
+  const on = (m: number, d: number) => holiday(new Date(2026, m, d, 12))
+  expect(on(8, 19)).toBe(null)
+  expect(on(8, 20)).toBe('oktoberfest')
+  expect(on(9, 5)).toBe('oktoberfest')
+  expect(on(9, 6)).toBe(null)
+  expect(costumeAt(new Date(2026, 9, 1, 12).getTime())).toBe('oktoberfest')
+  expect(themeAt(new Date(2026, 9, 1, 12).getTime())).toBe('Oktoberfest')
+})
+
+test('rain over the real weather puts the raincoat on', { options: { weatherPlace: 'Lisbon' } }, async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  on('http.fetch', (_, e) => {
+    const text = /geocoding/.test((e as { url: string }).url)
+      ? JSON.stringify({ results: [{ latitude: 48.37, longitude: 10.9 }] })
+      : JSON.stringify({ current: { weather_code: 63, wind_speed_10m: 4 } })
+    return { value: { status: 200, ok: true, headers: {}, text } } as never
+  })
+  await start($)
+  expect(await alt($)).toMatch(/raincoat/)
+  await crab($, 'chef')
+  expect(await alt($)).toMatch(/chef/)
+})
+
+test('every costume draws on every surface, with its beach, inside the size limit', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on, { shells: { count: KING_SHELLS, last: 'x' } })
+  engine(on)
+  await start($)
+  const sky = skyFor(T0)
+  for (const costume of [...COSTUMES, ...SPECIAL_COSTUMES]) {
+    await crab($, costume)
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      if (surface !== 'terminal') expect(String((await ui.find({ type: 'Svg' }))?.props.alt)).toMatch(new RegExp(costume))
+      await ui.unmount()
+    }
+    const big = sceneSvg({ width: 1600, costume, look: {}, timeOfDay: 'day', bubble: null, now: T0 + 1000, prop: null, sky, hour: 12, work: [], seg: { id: 1, seed: 42, startAt: T0, startP: 0.5, startFace: 1, mode: 'idle', width: 1600, castle: 5, shells: 30, food: 60, fun: 60, energy: 60, timeOfDay: 'day' } })
+    expect(big.length).toBeLessThan(131072)
+  }
+})
+
+test('the rotation and special costumes each have a beach or a reason not to', () => {
+  const beach = (costume: (typeof COSTUMES)[number] | (typeof SPECIAL_COSTUMES)[number], width = 900) => {
+    const scene = sceneSvg({ width, costume, look: {}, timeOfDay: 'day', bubble: null, now: T0 + 1000, prop: null, sky: skyFor(T0), hour: 12, work: [], seg: { id: 1, seed: 42, startAt: T0, startP: 0.5, startFace: 1, mode: 'idle', width, castle: 0, shells: 0, food: 60, fun: 60, energy: 60, timeOfDay: 'day' } })
+    return scene.length
+  }
+  for (const c of ['surfer', 'diver', 'viking', 'wizard', 'dj', 'oktoberfest'] as const) expect(beach(c)).toBeGreaterThan(beach('plain'))
+  // A narrow strip has no room for a costume's beach.
+  expect(beach('viking', 400) - beach('plain', 400)).toBeLessThan(beach('viking') - beach('plain'))
+})
+
+test('the crown takes 50 shells', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on, { shells: { count: KING_SHELLS - 1, last: 'x' } })
+  engine(on)
+  await start($)
+  expect(KING_SHELLS).toBe(50)
+  expect(JSON.stringify(await crab($, 'king'))).toMatch(/takes 50 shells\. .* has 49/)
+  expect(await alt($)).not.toMatch(/king/)
+})
+
+test('with 50 shells the crown is yours', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on, { shells: { count: KING_SHELLS, last: 'x' } })
+  engine(on)
+  await start($)
+  expect(JSON.stringify(await crab($, 'king'))).toMatch(/now the king/)
+  expect(await alt($)).toMatch(/king/)
+})
+
+test('no costume shares a name with a /crab word', () => {
+  const words = ['feed', 'play', 'pet', 'name', 'stats', 'theme', 'size', 'tank', 'strip', 'snooze', 'breaks', 'sound', 'bubbles', 'off', 'on', 'today']
+  for (const c of [...COSTUMES, ...SPECIAL_COSTUMES]) expect(words.includes(c)).toBe(false)
 })
 
 test('the strip is drawn for the room beside its three buttons, and makes room for Snooze', () => {

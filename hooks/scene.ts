@@ -299,6 +299,41 @@ const costumeBeach = (costume: Costume, width: number, sea: number, now: number)
       return `<rect x="${a}" y="${g - 14}" width="1" height="14" fill="#8E929A"/><g class="flag">${pixels(['wkwkwk', 'kwkwkw', 'wkwkwk', 'kwkwkw'], { w: '#F8F6F1', k: '#1F1E1D' }, a + 1, g - 14)}</g>${pixels(['wkwkwkwkwkwk', 'kwkwkwkwkwkw'], { w: '#F8F6F1', k: '#1F1E1D' }, a + 6, g + 1)}`
     case 'detective':
       return `<circle cx="${a + 3}" cy="${g - 3}" r="2.5" fill="rgba(169,214,245,.7)" stroke="#3A3A3C" stroke-width="1"/><rect x="${a + 5}" y="${g - 1.5}" width="4" height="1.2" fill="#7A4A26"/>${[14, 22, 30].map((dx, i) => `<g opacity="${0.7 - i * 0.2}">${pixels(['.ww.', 'w..w', '..w.', '....', '..w.'], { w: '#7F77DD' }, a + dx, g - 6)}</g>`).join('')}`
+    case 'surfer': {
+      const board = pixels(['.w.', 'wbw', 'wbw', 'wbw', 'wbw', 'wbw', 'wbw', 'wbw', 'wbw', '.w.'], { w: '#F4F3EE', b: '#378ADD' }, a, g - 10)
+      const wx = Math.round(width * 0.5)
+      const ball = pixels(['.rwb.', 'rrwbb', 'yywww', 'yyggg', '.ygg.'], { r: '#D8433B', w: '#F4F3EE', b: '#378ADD', y: '#F5C542', g: '#4FA36B' }, wx, g - 5)
+      return board + ball
+    }
+    case 'diver': {
+      const fins = pixels(['kkkk.kkkk', '.kk...kk.'], { k: '#F28C3A' }, a, g - 2)
+      const bx = Math.min(width - 8, sea + 10)
+      const buoy = pixels(['..f..', '..f..', '.rwr.', '.wrw.', 'rrrrr'], { f: '#F5C542', r: '#D8433B', w: '#F4F3EE' }, bx, g - 4)
+      return fins + buoy
+    }
+    case 'viking': {
+      const shield = pixels(['.bbbb.', 'bbggbb', 'bggggb', 'bbggbb', '.bbbb.'], { b: '#7A4A26', g: '#F5C542' }, a, g - 5)
+      const wx = Math.round(width * 0.74)
+      const ship = wx + 18 < sea ? pixels(['........m.........', '.....rwrwrwrw.....', '.....rwrwrwrw.....', '.....rwrwrwrw.....', '........m.........', 'h.......m........h', 'hh..............hh', '.hhhhhhhhhhhhhhhh.', '..hhyhhyhhyhhyhh..', '...hhhhhhhhhhhh...'], { m: '#5A3519', r: '#D8433B', w: '#E6E2D6', h: '#6B4423', y: '#F5C542' }, wx, g - 10) : ''
+      return shield + ship
+    }
+    case 'wizard': {
+      const tower = pixels(['s.ss.ss.s', 'sssssssss', 'sssssssss', '.ssssss..', '.ssyyss..', '.ssyyss..', '.ssssss..', '.ssssss..', '.ssssss..', '.ssssss..', '.ssssss..', '.ssssss..', '.ssssss..', 'ssssssss.'], { s: '#8E929A', y: '#F5C542' }, a, g - 14)
+      return tower + `<rect class="spark" x="${a + 11}" y="${g - 13}" width="1" height="1" fill="#F5C542"/><rect class="spark" x="${a + 14}" y="${g - 8}" width="1" height="1" fill="#CECBF6"/>`
+    }
+    case 'dj': {
+      const box = (x: number) => pixels(['kkkkkkk', 'kgggggk', 'kgdddgk', 'kgdddgk', 'kgggggk', 'kkkkkkk', 'kgggggk', 'kgdddgk', 'kgdddgk', 'kkkkkkk'], { k: '#5F5E5A', g: '#888780', d: '#3A3936' }, x, g - 10)
+      const deck = pixels(['kkkkkkkkkkk', 'kaaakkkaaak', 'kkkkkkkkkkk', '.k.......k.'], { k: '#5F5E5A', a: '#D85A30' }, a + 8, g - 4)
+      return box(a) + deck + box(a + 20)
+    }
+    case 'oktoberfest': {
+      const table = pixels(['bbbbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbbbb', '..d............d..', '..d............d..', '..d............d..'], { b: '#A0703F', d: '#6B4423' }, a, g - 5)
+      const stein = pixels(['wwww', 'yyyy', 'yyyy'], { w: '#F4F3EE', y: '#F5B731' }, a + 3, g - 8)
+      const pretzel = pixels(['.bb.bb.', 'b..b..b', '.bbbbb.', '..b.b..'], { b: '#A0703F' }, a + 10, g - 9)
+      const px = Math.round(width * 0.5)
+      const flags = ['#378ADD', '#F4F3EE', '#378ADD', '#F4F3EE', '#378ADD'].map((c, i) => `<rect x="${px + i * 5}" y="${g - 16 + (i % 2)}" width="3" height="4" fill="${c}"/>`).join('')
+      return table + stein + pretzel + `<rect x="${px}" y="${g - 17}" width="25" height=".5" fill="#8E929A"/>` + flags
+    }
     default:
       return ''
   }

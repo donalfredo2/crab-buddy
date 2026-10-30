@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PaneCloseInput, PluginOptions, Register, Timer } from 'claude-code'
 
-import type { Activity, Antic, BreakState, Bubble, LifeMode, Mood, Needs, Pose, Prop, ReactionMood, Segment, Tiredness, WeatherNow } from '../types'
+import type { Activity, Antic, BreakState, Bubble, LifeMode, Mood, Needs, Pose, Prop, ReactionMood, Segment, Tiredness, Weather, WeatherNow } from '../types'
 import { planOf, shoreFrac, whereAt } from './life'
 import type { LifeEvent } from './life'
 import { line, themeLine, themeName } from './lines'
@@ -125,6 +125,9 @@ const numberOption = (options: PluginOptions, name: string, fallback: number): n
 
 const hourOf = (now: number): number => new Date(now).getHours()
 
+/** Shells it takes to earn the crown. */
+export const KING_SHELLS = 50
+
 // Set from the options each time the module loads.
 const cfg = { longMs: 120_000, breakMs: 90 * MIN, place: '' }
 // Module scope is fine: a reload mid-turn only delays the idle check by a turn.
@@ -169,7 +172,13 @@ export const nextShells = (stored: unknown, key: string): Shells | null => {
 export const costumeAt = (now: number): Costume => {
   const d = new Date(now)
   const hol = holiday(d)
-  return hol === 'halloween' ? 'ghost' : hol === 'christmas' ? 'santa' : costumeOfDay(now, d.getTimezoneOffset())
+  return hol === 'halloween' ? 'ghost' : hol === 'christmas' ? 'santa' : hol === 'oktoberfest' ? 'oktoberfest' : costumeOfDay(now, d.getTimezoneOffset())
+}
+
+/** What it wears unless you picked: a holiday's costume stays on in the rain, a daily one gives way to the raincoat. */
+export const wornAt = (now: number, weatherKind?: Weather): Costume => {
+  const day = costumeAt(now)
+  return (weatherKind === 'rain' || weatherKind === 'storm') && (COSTUMES as readonly string[]).includes(day) ? 'raincoat' : day
 }
 
 export const themeAt = (now: number): string => themeName(costumeAt(now), holiday(new Date(now)))
@@ -208,7 +217,7 @@ export const terminalTankRows = (bodyRows: number, placement: 'dock' | 'inline')
   placement === 'dock' ? Math.max(4, Math.min(14, bodyRows - 2)) : 4
 
 async function todays($: EngineInterface): Promise<Costume> {
-  return costumeAt(await $.clock.now())
+  return wornAt(await $.clock.now(), (await read($, weather))?.kind)
 }
 
 async function react($: EngineInterface, mood: ReactionMood, ms = REACT_MS, first?: Activity): Promise<void> {
@@ -296,6 +305,7 @@ async function lifeEvent($: EngineInterface, id: number, ev: LifeEvent): Promise
     const which = ev.isGolden ? KEY.golden : KEY.shells
     const sh = nextShells(await $.store.get(which), key)
     if (sh) await $.store.set(which, sh)
+    if (sh?.count === KING_SHELLS && !ev.isGolden) await $.ui.toast(`${KING_SHELLS} shells! The crown is yours: /crab king`)
   }
 }
 
@@ -415,7 +425,7 @@ async function greet($: EngineInterface): Promise<void> {
   const today = dayKey(now)
   if ((await $.store.get(KEY.greeted)) === today) return
   await $.store.set(KEY.greeted, today)
-  await showBubble($, themeLine(costumeAt(now), holiday(new Date(now))), now, GREET_MS)
+  await showBubble($, themeLine(await todays($), holiday(new Date(now))), now, GREET_MS)
   await update($, lastBubbleAt, () => now)
 }
 
@@ -614,8 +624,8 @@ async function view($: EngineInterface, isWorking: boolean): Promise<View> {
   const doing = (mood === 'wander' || mood === 'work') ? ACT_WORD[whereAt(planOf(seg), now - seg.startAt).act] : undefined
   const choice = await read($, picked)
   const date = new Date(now)
-  const costume: Costume = isCostume(choice) ? choice : costumeAt(now)
   const w = await read($, weather)
+  const costume: Costume = isCostume(choice) ? choice : wornAt(now, w?.kind)
   const sky = skyFor(now, w?.kind ?? 'clear', w?.isWindy ?? false)
   const hour = date.getHours() + date.getMinutes() / 60
   const pct = await read($, contextPercent)
@@ -749,8 +759,10 @@ export const register: Register = (on, options) => {
     if (word && !isCostume(word)) {
       return { text: `Unknown option "${word}". Try: feed, play, pet, name, stats, theme, size, tank, strip, snooze, breaks, sound, bubbles, off, on, today, or a costume (${COSTUMES.join(', ')}).` }
     }
+    const { shells } = await traces($)
+    if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }
     const current = (await read($, picked)) ?? (await todays($))
-    const others = COSTUMES.filter(c => c !== current)
+    const others = [...COSTUMES, ...(shells >= KING_SHELLS ? (['king'] as const) : [])].filter(c => c !== current)
     const choice: Costume = isCostume(word) ? word : (others[Math.floor(Math.random() * others.length)] ?? 'plain')
     await update($, picked, () => choice)
     await update($, isHidden, () => false)

@@ -5,7 +5,7 @@ import type { Weather } from '../types'
 
 export type { Weather }
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter'
-export type Holiday = 'halloween' | 'christmas' | 'newyear' | null
+export type Holiday = 'halloween' | 'christmas' | 'newyear' | 'oktoberfest' | null
 
 /** What the sky is doing; `windy` bends the seaweed and hurries the clouds. */
 export type Sky = { season: Season; holiday: Holiday; moon: number; weather: Weather; isWindy: boolean }
@@ -21,6 +21,7 @@ export const holiday = (d: Date): Holiday => {
   if (m === 9 && day === 31) return 'halloween'
   if (m === 11 && day >= 24 && day <= 26) return 'christmas'
   if ((m === 11 && day === 31) || (m === 0 && day === 1)) return 'newyear'
+  if ((m === 8 && day >= 20) || (m === 9 && day <= 5)) return 'oktoberfest'
   return null
 }
 

@@ -9,10 +9,10 @@ export const CLAY = '#D97757'
 export const INK = '#1F1E1D'
 
 /** The daily rotation. */
-export const COSTUMES = ['astronaut', 'detective', 'engineer', 'chef', 'racer', 'pirate', 'plain'] as const
-/** Worn on holidays only, or picked with /crab. */
-export const HOLIDAY_COSTUMES = ['ghost', 'santa'] as const
-export type Costume = (typeof COSTUMES)[number] | (typeof HOLIDAY_COSTUMES)[number]
+export const COSTUMES = ['astronaut', 'surfer', 'detective', 'viking', 'engineer', 'diver', 'chef', 'wizard', 'racer', 'dj', 'pirate', 'plain'] as const
+/** Outside the rotation: worn on holidays, in the rain or once earned, or picked with /crab. */
+export const SPECIAL_COSTUMES = ['ghost', 'santa', 'oktoberfest', 'raincoat', 'king'] as const
+export type Costume = (typeof COSTUMES)[number] | (typeof SPECIAL_COSTUMES)[number]
 
 const ACCENT: Record<Costume, string> = {
   astronaut: '#7F77DD',
@@ -22,12 +22,20 @@ const ACCENT: Record<Costume, string> = {
   racer: '#1D9E75',
   pirate: '#888780',
   plain: '#888780',
+  surfer: '#378ADD',
+  diver: '#F28C3A',
+  viking: '#8E929A',
+  wizard: '#534AB7',
+  dj: '#D85A30',
   ghost: '#B4B2A9',
   santa: '#D8433B',
+  oktoberfest: '#3B6D11',
+  raincoat: '#F5C542',
+  king: '#F5C542',
 }
 
 export const isCostume = (v: unknown): v is Costume =>
-  typeof v === 'string' && ((COSTUMES as readonly string[]).includes(v) || (HOLIDAY_COSTUMES as readonly string[]).includes(v))
+  typeof v === 'string' && ((COSTUMES as readonly string[]).includes(v) || (SPECIAL_COSTUMES as readonly string[]).includes(v))
 
 // Local calendar day, so the costume changes at midnight where you are.
 export const costumeOfDay = (ms: number, offsetMinutes: number): Costume => {
@@ -85,6 +93,12 @@ const crabBody = (f: Fill, eyes: EyePair, armFront = 0, armCls?: string): void =
   f(21, 22, 2, 4, CLAY, 'lb')
 }
 
+// For a costume drawn over the face: the eyes again, on top of it.
+const eyesOver = (f: Fill, eyes: EyePair): void => {
+  eye(f, 9, typeof eyes === 'string' ? eyes : eyes[0])
+  eye(f, 19, typeof eyes === 'string' ? eyes : eyes[1])
+}
+
 const DRAW: Record<Costume, (f: Fill, t: string, eyes: EyePair) => void> = {
   astronaut: (f, t, eyes) => {
     crabBody(f, eyes)
@@ -130,14 +144,64 @@ const DRAW: Record<Costume, (f: Fill, t: string, eyes: EyePair) => void> = {
     crabBody(f, eyes)
     // A bedsheet ghost: the sheet over the shell, eye holes cut, a wavy hem.
     stamp(f, 6, 6, ['....wwwwwwwwww....', '..wwwwwwwwwwwwww..', '.wwwwwwwwwwwwwwwg.', ...Array(12).fill('wwwwwwwwwwwwwwwwgg'), 'ww.www.wwww.www.wg'], { w: '#F4F3EE', g: '#DAD8D0' })
-    eye(f, 9, typeof eyes === 'string' ? eyes : eyes[0])
-    eye(f, 19, typeof eyes === 'string' ? eyes : eyes[1])
+    eyesOver(f, eyes)
     f(13, 17, 4, 2, '#3A3936')
   },
   santa: (f, t, eyes) => {
     crabBody(f, eyes)
     stamp(f, 6, 2, ['..........rrrrr...', '.......rrrrrrrrr..', '....rrrrrrrrrrrrww', '..rrrrrrrrrrrrr.ww', 'wwwwwwwwwwwwwwww..', 'wwwwwwwwwwwwwwww..'], { r: t, w: '#F4F3EE' })
     f(10, 17, 10, 4, '#F4F3EE'); f(11, 21, 8, 1, '#F4F3EE')
+  },
+  surfer: (f, t, eyes) => {
+    crabBody(f, eyes)
+    // Shades over the eyes, the board under a claw.
+    f(7, 11, 6, 3, INK); f(17, 11, 6, 3, INK); f(13, 12, 4, 1, INK)
+    f(8, 11, 1, 1, '#ffffff'); f(18, 11, 1, 1, '#ffffff')
+    stamp(f, 0, 3, ['..w.', '.wbw', '.wbw', '.wbw', '.wbw', '.wbw', '.wbw', '.wbw', '.wbw', '.wbw', '..w.'], { w: '#F4F3EE', b: t }, 'it')
+  },
+  diver: (f, t, eyes) => {
+    crabBody(f, eyes)
+    f(7, 10, 16, 5, '#2B2A28'); f(8, 11, 14, 3, '#A9D6F5')
+    eyesOver(f, eyes)
+    // The snorkel, and its bubbles while it swims along.
+    f(23, 12, 2, 2, '#2B2A28'); f(24, 4, 2, 9, t); f(24, 3, 4, 2, t)
+    f(27, 0, 1, 1, '#A9D6F5', 'bub'); f(25, 1, 1, 1, '#A9D6F5', 'bub')
+  },
+  viking: (f, t, eyes) => {
+    crabBody(f, eyes)
+    stamp(f, 6, 4, ['ww..............ww', '.ww............ww.', '.ww...ssssss...ww.', '..wwssssssssssww..', '...ssssssssssss...', 'gggggggggggggggggg'], { w: '#F4F3EE', s: t, g: '#F5C542' })
+    f(14, 10, 2, 3, t)
+  },
+  wizard: (f, t, eyes) => {
+    crabBody(f, eyes)
+    stamp(f, 6, 1, ['.........pp.......', '........ppp.......', '.......pppp.......', '......ppppp.......', '.....pppppppp.....', '....pppppppppp....', '....pppppppppp....', '...pppppppppppp...', 'bbbbbbbbbbbbbbbbbb'], { p: t, b: '#26215C' })
+    f(18, 3, 1, 1, '#F5C542', 'star'); f(13, 6, 1, 1, '#F5C542', 'star')
+    // The wand, its tip sparkling as it walks.
+    f(27, 9, 1, 6, '#7A4A26'); f(26, 7, 3, 1, '#F5C542', 'star'); f(27, 6, 1, 3, '#F5C542', 'star')
+  },
+  dj: (f, t, eyes) => {
+    crabBody(f, eyes)
+    stamp(f, 5, 6, ['.....kkkkkkkkkk.....', '...kk..........kk...', '..k..............k..', '.k................k.'], { k: '#3A3936' }, 'ph')
+    f(4, 10, 3, 6, t, 'ph'); f(23, 10, 3, 6, t, 'ph')
+    stamp(f, 26, 2, ['..kk', '..k.', '..k.', 'kkk.', 'kk..'], { k: '#F5C542' }, 'star')
+  },
+  oktoberfest: (f, t, eyes) => {
+    crabBody(f, eyes)
+    stamp(f, 7, 5, ['......gggg......', '.....gggggg.....', '....ggggggggf...', '...gggggggggfw..', '.dddddddddddddd.'], { g: t, d: '#2B2A28', f: '#E8577A', w: '#F4F3EE' })
+    // Braces, and the stein in its claw.
+    f(10, 15, 2, 7, t); f(18, 15, 2, 7, t); f(10, 18, 10, 1, t)
+    stamp(f, 24, 10, ['wwww.', 'yyyyg', 'yyyyg', 'yyyy.'], { w: '#F4F3EE', y: '#F5B731', g: '#B4B2A9' }, 'it')
+  },
+  raincoat: (f, t, eyes) => {
+    crabBody(f, eyes)
+    stamp(f, 6, 6, ['.....yyyyyyyy.....', '...yyyyyyyyyyyy...', '..yyyyyyyyyyyyyy..', '.yyyyyyyyyyyyyyyy.'], { y: t })
+    f(6, 10, 1, 4, t); f(23, 10, 1, 4, t)
+    f(7, 16, 16, 6, t); f(14, 16, 2, 6, '#C99A1E')
+  },
+  king: (f, t, eyes) => {
+    crabBody(f, eyes)
+    stamp(f, 8, 5, ['y...y...y...y.', 'yy.yyy.yyy.yy.', 'yyyyyyyyyyyyy.', 'yryyybyyyryyy.', 'yyyyyyyyyyyyy.'], { y: t, r: '#D8433B', b: '#378ADD' })
+    f(27, 8, 1, 8, t, 'it'); f(26, 6, 3, 2, '#D8433B', 'it')
   },
 }
 
@@ -162,6 +226,12 @@ export const CRAB_CSS = `
 @keyframes wave{50%{transform:skewY(-12deg) scaleX(.85)}}
 .c-pirate.run .it{transform-origin:50% 100%;animation:fence .5s ease-in-out infinite}
 @keyframes fence{50%{transform:rotate(25deg)}}
+.c-surfer.run .it{transform-origin:50% 100%;animation:tilt 1s ease-in-out infinite}
+.c-diver.run .bub{animation:float 1s steps(1) infinite}
+.c-wizard.run .star{animation:blink .5s steps(1) infinite -.25s}
+.c-dj.run .ph{animation:float .5s steps(1) infinite}.c-dj.run .star{animation:blink .5s steps(1) infinite}
+.c-oktoberfest.run .it{transform-origin:0 100%;animation:tilt 1s ease-in-out infinite}
+.c-king.run .it{transform-origin:50% 100%;animation:tilt 1s ease-in-out infinite}
 .eye{transform-box:fill-box;transform-origin:center;animation:wink 4.7s steps(1) infinite}
 @keyframes wink{96%{transform:scaleY(.15)}}
 .shrimp{transform-box:fill-box;transform-origin:0 50%}

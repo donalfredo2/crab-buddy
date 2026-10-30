@@ -52,13 +52,21 @@ const THEME_LINES: Record<Costume, string> = {
   racer: "vroom! it's racer day",
   pirate: "ahoy, it's pirate day!",
   plain: 'just me today: plain day',
+  surfer: "surf's up: surfer day!",
+  diver: "deep breath, it's diver day",
+  viking: "to the longship: viking day!",
+  wizard: "abracadabra: wizard day!",
+  dj: "drop the beat: DJ day!",
   ghost: 'boo! happy Halloween',
   santa: 'ho ho ho, merry Christmas!',
+  oktoberfest: "o'zapft is! it's Oktoberfest",
+  raincoat: 'drip drop, raincoat on',
+  king: 'bow before your king',
 }
 
 /** Today's theme in words: the holiday if there is one, else the costume's day. */
 export const themeName = (costume: Costume, hol: Holiday): string =>
-  hol === 'halloween' ? 'Halloween' : hol === 'christmas' ? 'Christmas' : hol === 'newyear' ? `New Year, ${costume} day` : `${costume} day`
+  hol === 'halloween' ? 'Halloween' : hol === 'christmas' ? 'Christmas' : hol === 'oktoberfest' ? 'Oktoberfest' : hol === 'newyear' ? `New Year, ${costume} day` : `${costume} day`
 
 /** The day's first hello, naming the theme. */
 export const themeLine = (costume: Costume, hol: Holiday): string =>

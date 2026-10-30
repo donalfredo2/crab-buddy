@@ -29,6 +29,7 @@ export type TerminalInput = {
 
 const HAT: Partial<Record<Costume, string>> = {
   astronaut: '#C9CCD2', detective: '#8A5A3B', engineer: '#F5C542', chef: '#FFFFFF', racer: '#1D9E75', pirate: '#2B2A28', santa: '#D8352B',
+  surfer: '#378ADD', diver: '#F28C3A', viking: '#8E929A', wizard: '#534AB7', dj: '#D85A30', oktoberfest: '#3B6D11', raincoat: '#F5C542', king: '#F5C542',
 }
 // Claws up, eyes set in the shell so they show on light and dark terminals alike.
 const STAND = ['d.....d', 'dbebebd', '.bbbbb.', '.d.d.d.']
