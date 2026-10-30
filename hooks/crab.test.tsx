@@ -743,18 +743,64 @@ test("today's theme is the costume's day, or a holiday's", () => {
   for (const c of COSTUMES) expect(themeLine(c, 'newyear').length).toBeLessThanOrEqual(34)
 })
 
-test('the desktop strip fills the row beside its three buttons, and makes room for Snooze', async ($, on) => {
+test('the strip is drawn for the room beside its three buttons, and makes room for Snooze', () => {
   expect(stripWidth(100, false)).toBe(725)
   expect(stripWidth(100, true)).toBe(675)
   expect(stripWidth(0, false)).toBe(725)
   expect(stripWidth(20, false)).toBe(200)
   expect(stripWidth(400, false)).toBe(1600)
+  // VS Code's columns are wider and its buttons larger: 49 columns is a 662 px band.
+  expect(stripWidth(49, false, 'vscode')).toBe(542)
+  expect(stripWidth(49, true, 'vscode')).toBe(472)
+  expect(stripWidth(49, false, 'desktop')).toBe(317)
+})
+
+test('on the image surfaces the strip takes the whole row left of its buttons', async ($, on) => {
   mock.clock(on, { now: T0 })
   mock.store(on)
   engine(on)
   await start($)
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, bodyColumns: 120 } })
-  expect((await ui.find({ type: 'Svg' }))?.props.width).toBe(885)
+  for (const [surface, width] of [['desktop', 885], ['vscode', 1500]] as const) {
+    const ui = await $.ui.mount({ ...BAND, surface, props: { ...BAND.props, bodyColumns: 120 } })
+    const svg = await ui.find({ type: 'Svg' })
+    // No width: the surface sizes the image, and the wide markup stretches to fit.
+    expect(svg?.props.width).toBeUndefined()
+    expect(svg?.props.height).toBe(40)
+    expect(String(svg?.props.source)).toMatch(new RegExp(`<svg [^>]*width="4096" height="40" viewBox="0 0 ${width} 40" preserveAspectRatio="none"`))
+    const boxes = (await ui.findAll({ type: 'Box' })).map(b => b.props)
+    expect(boxes.some(b => b.flexWrap === 'nowrap')).toBe(true)
+    expect(boxes.some(b => b.flexGrow === 1 && b.flexShrink === 1 && b.minWidth === 0)).toBe(true)
+    expect(boxes.some(b => b.flexShrink === 0)).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('a resize redraws the same plan: the crab stays at its place along the beach', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  const placeAt = async (bodyColumns: number) => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'vscode', props: { ...BAND.props, bodyColumns } })
+    const source = String((await ui.find({ type: 'Svg' }))?.props.source)
+    await ui.unmount()
+    const width = Number(/viewBox="0 0 (\d+) 40"/.exec(source)?.[1])
+    const x = Number(/<g class="mv" transform="translate\(([\d.]+),0\)"/.exec(source)?.[1])
+    return { width, p: (x - 26) / (width - 58) }
+  }
+  const narrow = await placeAt(49)
+  const wide = await placeAt(100)
+  expect(wide.width).toBeGreaterThan(narrow.width)
+  expect(Math.abs(wide.p - narrow.p)).toBeLessThan(0.01)
+})
+
+test('/crab size reports what the surface says', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode', viewport: { columns: 49, rows: 40 }, props: { ...BAND.props, bodyColumns: 49 } })
+  expect(JSON.stringify(await crab($, 'size'))).toMatch(/Strip on vscode: 49 columns \(viewport 49\), beach drawn 542 px wide/)
   await ui.unmount()
 })
 
@@ -820,7 +866,8 @@ test('the tank is the same beach, bigger, with more sky above; the strip is unch
   const seg = { id: 1, seed: 7, startAt: T0, startP: 0.4, startFace: 1, mode: 'sleep', width: 176, castle: 2, shells: 3, food: 60, fun: 60, energy: 60, timeOfDay: 'night' } as const
   const strip = sceneSvg({ ...base, width: 700, now: T0, seg: { ...seg, width: 700 }, timeOfDay: 'night', sky: skyFor(T0) })
   expect(strip).toMatch(/viewBox="0 0 700 40"/)
-  const night = sceneSvg({ ...base, width: 176, height: 141, now: T0, seg, timeOfDay: 'night', sky: skyFor(T0) })
+  expect(strip).not.toMatch(/preserveAspectRatio/)
+  const night =sceneSvg({ ...base, width: 176, height: 141, now: T0, seg, timeOfDay: 'night', sky: skyFor(T0) })
   expect(night).toMatch(/height="141" viewBox="0 -101 176 141"/)
   // The moon and stars rise into the extra sky; the sand stays at the bottom.
   const moonY = Number(/<circle cx="160" cy="(-?[\d.]+)"/.exec(night)?.[1])

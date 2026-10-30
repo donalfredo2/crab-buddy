@@ -19,6 +19,8 @@ const HOME_SHELL_X = 14
 const PILE_MAX = 12
 const PRINT_MS = 4000
 const MAX_PRINTS = 150
+// Wider than any slot: a surface draws an Svg with no width "up to the slot".
+const FILL_W = 4096
 
 export type SceneInput = {
   width: number
@@ -37,6 +39,8 @@ export type SceneInput = {
   hour: number
   /** The drawing's height; past SCENE_H it is more sky above the same beach (the tank). */
   height?: number
+  /** Take whatever width the surface's slot has, stretching `width` to it (the strip). */
+  fill?: boolean
 }
 
 export const timeOfDay = (hour: number): TimeOfDay => (hour >= 22 || hour < 6 ? 'night' : hour < 9 ? 'morning' : hour >= 18 ? 'evening' : 'day')
@@ -549,7 +553,9 @@ export const sceneSvg = (s: SceneInput): string => {
   const skyCss = `@keyframes clx{from{transform:translateX(-14px)}to{transform:translateX(${width + 4}px)}}@keyframes bat{0%{transform:translate(-8px,${sy(6)}px)}25%{transform:translate(${Math.round(width * 0.3)}px,${sy(3)}px)}50%{transform:translate(${Math.round(width * 0.55)}px,${sy(9)}px)}75%{transform:translate(${Math.round(width * 0.8)}px,${sy(4)}px)}100%{transform:translate(${width + 8}px,${sy(7)}px)}}`
   const faceNow = here.face === 1 ? '' : ` transform="translate(${CRAB_W},0) scale(-1,1)"`
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 ${top} ${width} ${height}"><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
+  const fit = s.fill ? `width="${FILL_W}" height="${height}" viewBox="0 ${top} ${width} ${height}" preserveAspectRatio="none"` : `width="${width}" height="${height}" viewBox="0 ${top} ${width} ${height}"`
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" ${fit}><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
 <g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells)}${footprints(pl, width, elapsed)}
 <g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}

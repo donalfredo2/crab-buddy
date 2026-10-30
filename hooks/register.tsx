@@ -131,6 +131,8 @@ const cfg = { longMs: 120_000, breakMs: 90 * MIN, place: '' }
 let isTurnRunning = false
 // The strip's last drawn width: a new segment plans its walks for it.
 let lastWidth = 800
+// What the surface last reported for the strip, for /crab size.
+let lastBand: { surface: string; columns: number; viewport?: number; width: number } | null = null
 // Where the surface last seated the tank, for /crab tank to report.
 let tankSeat: { placement: string; columns: number } | null = null
 const TANK = 'crab-tank'
@@ -172,11 +174,19 @@ export const costumeAt = (now: number): Costume => {
 
 export const themeAt = (now: number): string => themeName(costumeAt(now), holiday(new Date(now)))
 
-// Desktop only: the strip fills the row up to its buttons. A cell of the code font is
-// about 8 px. With a 125 px reserve the row had 60 to 120 px spare beside the three
-// buttons, so 75 leaves them room either way; Snooze takes about 50 more.
-export const stripWidth = (bodyColumns: number, isDue: boolean): number =>
-  Math.max(200, Math.min(1600, (bodyColumns || 100) * 8 - (isDue ? 125 : 75)))
+// The strip's own width, in px, on the surfaces that draw it as an image. The image always
+// takes the row's room left of the buttons; this only sets how wide a beach is drawn into
+// it, so a wrong guess stretches the pixels a little and never leaves a gap.
+// Desktop: a cell of the code font is about 8 px. With a 125 px reserve the row had 60 to
+// 120 px spare beside the three buttons, so 75 leaves them room either way; Snooze takes
+// about 50 more. VS Code: a column is the chat font's wide `─`, about 13.5 px, and its
+// native buttons are larger.
+const ROOM = { desktop: { cell: 8, buttons: 75, snooze: 50 }, vscode: { cell: 13.5, buttons: 120, snooze: 70 } }
+
+export const stripWidth = (bodyColumns: number, isDue: boolean, surface?: string): number => {
+  const room = surface === 'vscode' ? ROOM.vscode : ROOM.desktop
+  return Math.max(200, Math.min(1600, Math.round((bodyColumns || 100) * room.cell) - room.buttons - (isDue ? room.snooze : 0)))
+}
 
 /**
  * The tank: the same beach drawn bigger (2x in a 352 px dock by default; 1x to 2.5x
@@ -547,8 +557,8 @@ type View = {
   isDue: boolean
 }
 
-const sceneOf = (v: View, b: Bubble, work: readonly string[], width: number, height?: number): string =>
-  sceneSvg({ width, height, costume: v.costume, look: v.look, timeOfDay: timeOfDay(hourOf(v.now)), bubble: b && b.until > v.now ? b.text : null, now: v.now, seg: v.seg, prop: v.prop, sky: v.sky, hour: v.hour, work })
+const sceneOf = (v: View, b: Bubble, work: readonly string[], width: number, fit: { height?: number; fill?: boolean } = {}): string =>
+  sceneSvg({ width, ...fit, costume: v.costume, look: v.look, timeOfDay: timeOfDay(hourOf(v.now)), bubble: b && b.until > v.now ? b.text : null, now: v.now, seg: v.seg, prop: v.prop, sky: v.sky, hour: v.hour, work })
 
 async function beachFor($: EngineInterface, v: View, size: { columns: number; rows: number }): Promise<string> {
   const b = await read($, bubble)
@@ -630,7 +640,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'crab',
       description: 'Crab buddy: feed, play, pet, name, stats, theme, tank or strip, breaks, sound, bubbles, costume',
-      argumentHint: '[feed | play | pet | name <name> | stats | theme | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | off | on | today | <costume>]',
+      argumentHint: '[feed | play | pet | name <name> | stats | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | off | on | today | <costume>]',
     })
     const now = await $.clock.now()
     const hidden = await readStore($, KEY.hidden, false)
@@ -721,6 +731,10 @@ export const register: Register = (on, options) => {
       await snooze($)
       return { text: 'Break reminder snoozed for 30 minutes.' }
     }
+    if (word === 'size') {
+      if (!lastBand) return { text: "The strip hasn't been drawn yet." }
+      return { text: `Strip on ${lastBand.surface}: ${lastBand.columns} columns (viewport ${lastBand.viewport ?? 'unknown'}), beach drawn ${lastBand.width} px wide.` }
+    }
     if (word === 'bubbles') {
       if (value !== 'often' && value !== 'rare' && value !== 'off') return { text: 'Use /crab bubbles often, rare or off.' }
       await setBubbles($, value)
@@ -733,7 +747,7 @@ export const register: Register = (on, options) => {
       return { text: value === 'off' ? 'The done chirp is off.' : 'The done chirp is on.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, name, stats, theme, tank, strip, snooze, breaks, sound, bubbles, off, on, today, or a costume (${COSTUMES.join(', ')}).` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, name, stats, theme, size, tank, strip, snooze, breaks, sound, bubbles, off, on, today, or a costume (${COSTUMES.join(', ')}).` }
     }
     const current = (await read($, picked)) ?? (await todays($))
     const others = COSTUMES.filter(c => c !== current)
@@ -851,16 +865,20 @@ export const register: Register = (on, options) => {
 
     if (e.surface !== 'terminal' && 'Svg' in ui) {
       const { Svg } = ui
-      const width = stripWidth(e.props.bodyColumns, v.isDue)
+      const width = stripWidth(e.props.bodyColumns, v.isDue, e.surface)
       lastWidth = width
+      lastBand = { surface: e.surface, columns: e.props.bodyColumns, viewport: e.viewport?.columns, width }
       // A plain image, not the hover-capable frame: that frame paints a solid box behind the crab.
-      const scene = sceneOf(v, b, await read($, turnWork), width)
+      const scene = sceneOf(v, b, await read($, turnWork), width, { fill: true })
+      // No wrapping: a row wraps by default, and the image starts out wider than any row.
       return (
         <Box flexDirection="column">
           {above}
-          <Box flexDirection="row" alignItems="flex-end" gap={1}>
-            <Svg source={scene} alt={v.alt} width={width} height={SCENE_H} />
-            <Box flexDirection="row" gap={1}>
+          <Box flexDirection="row" flexWrap="nowrap" alignItems="flex-end" gap={1}>
+            <Box flexGrow={1} flexShrink={1} minWidth={0}>
+              <Svg source={scene} alt={v.alt} height={SCENE_H} />
+            </Box>
+            <Box flexDirection="row" flexShrink={0} gap={1}>
               {buttons}
             </Box>
           </Box>
@@ -872,6 +890,7 @@ export const register: Register = (on, options) => {
       const { Raster } = ui
       const size = { columns: terminalColumns(e.props.bodyColumns, v.isDue), rows: 3 }
       lastWidth = stripWidth(e.props.bodyColumns, v.isDue)
+      lastBand = { surface: e.surface, columns: e.props.bodyColumns, viewport: e.viewport?.columns, width: lastWidth }
       rasters.set(e.requestId, size)
       startPainting($)
       return (
@@ -929,7 +948,7 @@ export const register: Register = (on, options) => {
       lastWidth = t.sceneWidth
       return (
         <Box flexDirection="column" gap={1}>
-          <Svg source={sceneOf(v, b, await read($, turnWork), t.sceneWidth, t.sceneHeight)} alt={v.alt} width={t.width} height={t.height} />
+          <Svg source={sceneOf(v, b, await read($, turnWork), t.sceneWidth, { height: t.sceneHeight })} alt={v.alt} width={t.width} height={t.height} />
           <Box flexDirection="row" justifyContent="center" gap={1}>
             {buttons}
           </Box>

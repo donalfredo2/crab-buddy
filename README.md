@@ -40,7 +40,7 @@ Then start a new session. To get updates automatically, open `/plugin`, go to Ma
 
 ## The strip
 
-The crab has a little beach: sand with its home shell, a pile of the shells it has found, its sandcastle, a pebble, swaying seaweed, a tide pool and the sea at the right end. Everything above the sand is transparent.
+The crab has a little beach: sand with its home shell, a pile of the shells it has found, its sandcastle, a pebble, swaying seaweed, a tide pool and the sea at the right end. Everything above the sand is transparent. On the desktop and in VS Code the beach fills the row up to its buttons and follows the window as you resize it.
 
 **The tank:** `/crab tank` moves the whole beach into a pane of its own, drawn twice as big with a tall sky above it, the care buttons underneath and nothing left above the prompt. Docked beside the chat it is nearly square. `/crab strip`, or closing the pane, brings it back. The choice is kept across sessions; if the app can't show the pane, the crab stays above the prompt.
 
@@ -95,6 +95,7 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab name <name>`: give it a name (up to 16 characters)
 - `/crab stats`: session time, turns, tool calls, context, needs, shells and today's theme
 - `/crab theme`: today's theme, and the costume you picked if it differs
+- `/crab size`: what this surface reports for the strip, handy if it looks stretched
 - `/crab bubbles often|rare|off`, `/crab breaks on|off`, `/crab sound on|off`
 - `/crab snooze`: snooze the break reminder for 30 minutes
 - `/crab`, `/crab <costume>`, `/crab today`: costumes
