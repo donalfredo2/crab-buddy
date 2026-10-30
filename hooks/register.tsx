@@ -1,15 +1,17 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PaneCloseInput, PluginOptions, Register, Timer } from 'claude-code'
 
-import type { Activity, Antic, BreakState, Bubble, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, Tiredness, Weather, WeatherNow } from '../types'
+import type { Activity, Antic, Beach, BreakState, Bubble, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, SignKind, Tiredness, Weather, WeatherNow } from '../types'
 import { planOf, rideFits, shoreFrac, whereAt } from './life'
 import type { LifeEvent } from './life'
-import { line, themeLine, themeName } from './lines'
+import { line, signLine, themeLine, themeName } from './lines'
 import type { Moment } from './lines'
 import { care, cooldownLeft, freshNeeds, gain, isHungry, isSleepy, petMood, rest, tick } from './pet'
 import type { Care } from './pet'
 import { EMPTY_LOG, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { SCENE_H, sceneSvg, timeOfDay } from './scene'
+import { SIGN_MOOD, breakKind, enqueue, heldSign, nextInQueue } from './signs'
+import type { HeldKind } from './signs'
 import { WINDY_KMH, holiday, skyFor, weatherOf } from './sky'
 import type { Sky } from './sky'
 import { CLAY, COSTUMES, costumeOfDay, isCostume } from './sprites'
@@ -24,8 +26,12 @@ const contextPercent = atom({ plugin: 'crab-buddy', key: 'contextPercent' } as c
 const contextWarned = atom({ plugin: 'crab-buddy', key: 'contextWarned' } as const, false)
 const contextHinted = atom({ plugin: 'crab-buddy', key: 'contextHinted' } as const, false)
 const logbook = atom({ plugin: 'crab-buddy', key: 'logbook' } as const, EMPTY_LOG)
-const isSignUp = atom({ plugin: 'crab-buddy', key: 'isSignUp' } as const, false)
-const isBottleUp = atom({ plugin: 'crab-buddy', key: 'isBottleUp' } as const, false)
+// Each an end time, not a flag: a reload drops the timer that would have cleared it.
+const plantedSign = atom({ plugin: 'crab-buddy', key: 'plantedSign' } as const, null)
+const bottleUntil = atom({ plugin: 'crab-buddy', key: 'bottleUntil' } as const, 0)
+const signQueue = atom({ plugin: 'crab-buddy', key: 'signQueue' } as const, [])
+const areSignsOff = atom({ plugin: 'crab-buddy', key: 'areSignsOff' } as const, false)
+const stretchedSeg = atom({ plugin: 'crab-buddy', key: 'stretchedSeg' } as const, 0)
 const breaks = atom({ plugin: 'crab-buddy', key: 'breaks' } as const, { streakStart: 0, lastActive: 0, snoozedUntil: 0, toastedFor: 0 })
 const areBreaksOff = atom({ plugin: 'crab-buddy', key: 'areBreaksOff' } as const, false)
 const isSoundOff = atom({ plugin: 'crab-buddy', key: 'isSoundOff' } as const, false)
@@ -56,6 +62,10 @@ const CONTEXT_WARN = 85
 /** From here a clean stop gets the good moment sign. */
 const COMPACT_HINT = 60
 const SIGN_MS = 2 * MIN
+const CONTEXT_SIGN_MS = 10 * MIN
+const HELD_SIGN_MS = 7000
+/** The same news again this soon (a subagent's burst of commits) is not news. */
+const SIGN_GAP_MS = 20_000
 const BOTTLE_MS = 5 * MIN
 const CHIRP = 'sounds/chirp.wav'
 const BUBBLE_GAP: Record<string, number> = { often: 5 * MIN, rare: 15 * MIN }
@@ -76,7 +86,7 @@ const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 // $.store keys: choices made with /crab and the pet itself outlive the session.
 const KEY = {
   hidden: 'isHidden', breaksOff: 'areBreaksOff', soundOff: 'isSoundOff', needs: 'needs', name: 'name',
-  firstMet: 'firstMet', bubbles: 'bubbles', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo',
+  firstMet: 'firstMet', bubbles: 'bubbles', signsOff: 'areSignsOff', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo',
   greeted: 'greetedDay', tank: 'isTank', logOff: 'isLogOff',
 } as const
 
@@ -97,6 +107,14 @@ const ACT_WORD: Partial<Record<Activity, string>> = {
 
 // git's own options may sit before the subcommand: `git -c user.name=x -C repo --no-pager commit`.
 const COMMIT = /\bgit(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+commit\b/
+const PUSH = /\bgit(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+push\b/
+const MERGED = /\b(?:gh\s+pr|glab\s+mr)\s+merge\b/
+const PR_OPEN = /\bgh\s+pr\s+create\b/
+const MR_OPEN = /\bglab\s+mr\s+create\b/
+// The same moves through a connected tool, whichever host it talks to.
+const PR_TOOL = /^mcp__.*create_pull_?request/i
+const MR_TOOL = /^mcp__.*create_merge_?request/i
+const MERGE_TOOL = /^mcp__.*merge_(?:pull|merge)_?request/i
 // `claude"?` also catches a quoted path to the binary: `"/…/claude" plugin test`.
 const TEST = /\b(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|pytest|vitest|jest|go\s+test|cargo\s+test|claude"?\s+plugin\s+test|xcodebuild\s+test)\b/
 const BUILD = /\b(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build|xcodebuild|cargo\s+build|go\s+build|tsc)\b/
@@ -108,6 +126,19 @@ export const reactionTo = (command: string, isError: boolean): ReactionMood | nu
   if (BUILD.test(command)) return isError ? null : 'cool'
   return null
 }
+
+/** The news in a finished shell command: the furthest step wins, so `commit && push` is one sign. */
+export const newsOf = (command: string, isError: boolean): HeldKind | null => {
+  if (isError) return null
+  if (MERGED.test(command)) return 'merged'
+  if (PR_OPEN.test(command)) return 'pr'
+  if (MR_OPEN.test(command)) return 'mr'
+  if (PUSH.test(command)) return 'pushed'
+  return COMMIT.test(command) ? 'commit' : null
+}
+
+export const toolNewsOf = (tool: string): HeldKind | null =>
+  MERGE_TOOL.test(tool) ? 'merged' : PR_TOOL.test(tool) ? 'pr' : MR_TOOL.test(tool) ? 'mr' : null
 
 /** What a finished shell command adds to the log. A failed commit is no commit. */
 export const logShell = (log: Logbook, command: string, isError: boolean): Logbook => {
@@ -167,6 +198,7 @@ const rasters = new Map<string, { columns: number; rows: number }>()
 let frame = 0
 let isPainting = false
 let painter: Timer | null = null
+let ticker: Timer | null = null
 
 export const dayKey = (now: number): string => {
   const d = new Date(now)
@@ -248,13 +280,52 @@ async function wearing($: EngineInterface): Promise<Costume> {
   return isCostume(choice) ? choice : todays($)
 }
 
-async function react($: EngineInterface, mood: ReactionMood, ms = REACT_MS, first?: Activity): Promise<void> {
-  const until = (await $.clock.now()) + ms
+async function react($: EngineInterface, mood: ReactionMood, ms = REACT_MS, first?: Activity, sign?: string): Promise<void> {
+  const now = await $.clock.now()
+  // Your own care and bad news go first; anything else lets a sign finish.
+  if (!sign && !OVER_A_SIGN.has(mood) && heldSign(await read($, life), now)) return
+  const until = now + ms
   await update($, reaction, () => ({ mood, until }))
   $.clock.after(ms, () => {
     void update($, reaction, r => (r && r.until <= until ? null : r))
   })
-  await startSegment($, { hold: { pose: mood, ms }, ...(first ? { first } : {}) })
+  await startSegment($, { hold: { pose: mood, ms, ...(sign ? { sign } : {}) }, ...(first ? { first } : {}) })
+}
+
+const OVER_A_SIGN: ReadonlySet<ReactionMood> = new Set(['eat', 'play', 'love', 'nervous'])
+// When each kind last went up. A reload forgets it, which at worst repeats one sign.
+const lastSign = new Map<SignKind, number>()
+
+/** Puts news on a sign, or in line for one. False when signs are off: the caller does what it did before. */
+async function holdUp($: EngineInterface, kind: HeldKind, opts: { time?: string; first?: Activity } = {}): Promise<boolean> {
+  if (await read($, areSignsOff)) return false
+  const now = await $.clock.now()
+  if (now - (lastSign.get(kind) ?? -SIGN_GAP_MS) < SIGN_GAP_MS) return true
+  lastSign.set(kind, now)
+  const text = signLine(kind, now / 1000, opts.time)
+  if (heldSign(await read($, life), now)) await update($, signQueue, q => enqueue(q, { kind, text, at: now }))
+  else await raiseSign($, kind, text, opts.first)
+  return true
+}
+
+async function raiseSign($: EngineInterface, kind: HeldKind, text: string, first?: Activity): Promise<void> {
+  await react($, SIGN_MOOD[kind], HELD_SIGN_MS, first, text)
+  $.clock.after(HELD_SIGN_MS, () => void nextSign($))
+}
+
+async function nextSign($: EngineInterface): Promise<void> {
+  const { next, rest } = nextInQueue(await read($, signQueue), await $.clock.now())
+  await update($, signQueue, () => rest)
+  if (next) await raiseSign($, next.kind as HeldKind, next.text)
+}
+
+async function plantSign($: EngineInterface, kind: SignKind, ms: number): Promise<void> {
+  const now = await $.clock.now()
+  const until = now + ms
+  await update($, plantedSign, () => ({ text: signLine(kind, now / 1000), until }))
+  $.clock.after(ms, () => {
+    void update($, plantedSign, p => (p && p.until <= until ? null : p))
+  })
 }
 
 // What it should be doing now: the break reminder, working with Claude, its own life, or asleep.
@@ -278,9 +349,9 @@ async function traces($: EngineInterface): Promise<{ castle: number; shells: num
 
 /**
  * Starts the next stretch of its life from wherever it stands now, so it never
- * jumps. A "!" from noticing you carries over into the new segment.
+ * jumps. A "!" from noticing you, or a sign it's holding up, carries over into the new segment.
  */
-async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms: number }; first?: Activity } = {}): Promise<void> {
+async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms: number; sign?: string }; first?: Activity } = {}): Promise<void> {
   const now = await $.clock.now()
   const cur = await read($, life)
   let p = 0
@@ -293,7 +364,7 @@ async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms:
     face = here.face
     poof = here.pose === 'ride'
     const left = cur.hold ? cur.startAt + cur.hold.ms - now : 0
-    if (!hold && cur.hold?.pose === 'notice' && left > 0) hold = { pose: 'notice', ms: left }
+    if (!hold && cur.hold && (cur.hold.pose === 'notice' || cur.hold.sign) && left > 0) hold = { ...cur.hold, ms: left }
   }
   const n = await currentNeeds($)
   const tr = await traces($)
@@ -325,6 +396,10 @@ async function lifeEvent($: EngineInterface, id: number, ev: LifeEvent): Promise
   if (ev.kind === 'say' && ev.moment) return say($, ev.moment === 'ride' ? `ride-${seg.ride ?? 'plain'}` : ev.moment)
   if (ev.kind === 'tidy') {
     await update($, turnWork, () => [])
+    return
+  }
+  if (ev.kind === 'rest') {
+    await update($, stretchedSeg, () => seg.id)
     return
   }
   const now = await $.clock.now()
@@ -435,9 +510,18 @@ async function say($: EngineInterface, moment: Moment, isAsked = false, time?: s
   if (mode === 'off') return
   const now = await $.clock.now()
   if (!isAsked && now - (await read($, lastBubbleAt)) < (BUBBLE_GAP[mode] ?? 15 * MIN)) return
+  if (!isAsked && (heldSign(await read($, life), now) || (await breakSign($, now, await read($, life))))) return
   await showBubble($, line(moment, now / 1000, { name: await read($, petName), time }), now, BUBBLE_MS)
   // Only unprompted lines count toward the quiet time: answering you never uses it up.
   if (!isAsked) await update($, lastBubbleAt, () => now)
+}
+
+// The break's sign, once it has reached home to stretch.
+async function breakSign($: EngineInterface, now: number, seg: Segment | null): Promise<string | null> {
+  const b = await read($, breaks)
+  if ((await read($, areSignsOff)) || (await read($, areBreaksOff)) || !isBreakDue(b, now, cfg.breakMs)) return null
+  if (seg?.mode !== 'stretch' || (await read($, stretchedSeg)) !== seg.id) return null
+  return signLine(breakKind(b.streakStart, now, cfg.breakMs), b.streakStart / 1000)
 }
 
 async function showBubble($: EngineInterface, text: string, now: number, ms: number): Promise<void> {
@@ -509,10 +593,11 @@ async function checkBreak($: EngineInterface): Promise<void> {
     return
   }
   if (!isBreakDue(b, now, cfg.breakMs)) return
-  const dueAt = Math.max(b.streakStart + cfg.breakMs, b.snoozedUntil)
+  const kind = breakKind(b.streakStart, now, cfg.breakMs)
+  const dueAt = Math.max(b.streakStart + (kind === 'walk' ? 2 : 1) * cfg.breakMs, b.snoozedUntil)
   if (b.toastedFor >= dueAt) return
   await update($, breaks, prev => ({ ...prev, toastedFor: now }))
-  $.ui.toast(`${fmtDuration(now - b.streakStart)} in. Stretch break? (/crab snooze for 30 min)`)
+  $.ui.toast(`${fmtDuration(now - b.streakStart)} in. ${kind === 'walk' ? 'Time for a walk' : 'Stretch break'}? (/crab snooze for 30 min)`)
 }
 
 async function snooze($: EngineInterface): Promise<void> {
@@ -536,7 +621,8 @@ async function refreshContext($: EngineInterface): Promise<void> {
     await update($, contextHinted, () => false)
   } else if (percent >= CONTEXT_WARN && !(await read($, contextWarned))) {
     await update($, contextWarned, () => true)
-    $.ui.toast(`Context is ${Math.round(percent)}% full. A fresh session soon would help.`)
+    if (await read($, areSignsOff)) $.ui.toast(`Context is ${Math.round(percent)}% full. A fresh session soon would help.`)
+    else await plantSign($, 'context', CONTEXT_SIGN_MS)
   }
 }
 
@@ -545,11 +631,8 @@ async function hintCompact($: EngineInterface): Promise<void> {
   const percent = await read($, contextPercent)
   if (percent === null || percent < COMPACT_HINT || (await read($, contextHinted))) return
   await update($, contextHinted, () => true)
-  await update($, isSignUp, () => true)
-  $.clock.after(SIGN_MS, () => {
-    void update($, isSignUp, () => false)
-  })
-  await say($, 'compact', true)
+  if (await read($, areSignsOff)) await say($, 'compact', true)
+  else await plantSign($, 'compact', SIGN_MS)
 }
 
 // The note for the summarizer, or nothing if the bottle is off or a read fails.
@@ -618,31 +701,31 @@ type View = {
   summary: string
   alt: string
   isDue: boolean
-  hasSign: boolean
-  hasBottle: boolean
+  beach: Beach
 }
 
 // A new image makes the surface swap it and every animation pick up again, so a redraw
 // that changes nothing you can see keeps the one it has. Not for long: if the surface
 // drew it afresh, its clock would be running late.
 const SCENE_KEEP_MS = 20_000
-const scenes = new Map<'band' | 'tank', { key: string; at: number; source: string }>()
+// By surface too: two surfaces asking in turn would otherwise miss every time.
+const scenes = new Map<string, { key: string; at: number; source: string }>()
 
-const sceneOf = (site: 'band' | 'tank', v: View, b: Bubble, work: readonly string[], width: number, fit: { height?: number; fill?: boolean } = {}): string => {
+const sceneOf = (site: 'band' | 'tank', surface: string, v: View, b: Bubble, work: readonly string[], width: number, fit: { height?: number; fill?: boolean } = {}): string => {
   const words = b && b.until > v.now ? b.text : null
   // A held pose ending counts: with Reduce Motion on, only a new image takes it away.
   const isHolding = !!v.seg.hold && v.now < v.seg.startAt + v.seg.hold.ms
-  const key = JSON.stringify([v.seg.id, v.seg.startAt, isHolding, width, fit, v.costume, v.look, words, v.prop, work, v.sky.weather, v.sky.isWindy, v.hasSign, v.hasBottle])
-  const kept = scenes.get(site)
+  const key = JSON.stringify([v.seg.id, v.seg.startAt, isHolding, width, fit, v.costume, v.look, words, v.prop, work, v.sky.weather, v.sky.isWindy, v.beach])
+  const kept = scenes.get(`${site}:${surface}`)
   if (kept?.key === key && v.now >= kept.at && v.now - kept.at < SCENE_KEEP_MS) return kept.source
-  const source = sceneSvg({ width, ...fit, costume: v.costume, look: v.look, timeOfDay: timeOfDay(hourOf(v.now)), bubble: words, now: v.now, seg: v.seg, prop: v.prop, sky: v.sky, hour: v.hour, work, hasSign: v.hasSign, hasBottle: v.hasBottle })
-  scenes.set(site, { key, at: v.now, source })
+  const source = sceneSvg({ width, ...fit, costume: v.costume, look: v.look, timeOfDay: timeOfDay(hourOf(v.now)), bubble: words, now: v.now, seg: v.seg, prop: v.prop, sky: v.sky, hour: v.hour, work, beach: v.beach })
+  scenes.set(`${site}:${surface}`, { key, at: v.now, source })
   return source
 }
 
 async function beachFor($: EngineInterface, v: View, size: { columns: number; rows: number }): Promise<string> {
   const b = await read($, bubble)
-  return beachCells({ ...size, now: v.now, seg: v.seg, costume: v.costume, timeOfDay: timeOfDay(hourOf(v.now)), sky: v.sky, bubble: b && b.until > v.now ? b.text : null, hasSign: v.hasSign, hasBottle: v.hasBottle })
+  return beachCells({ ...size, now: v.now, seg: v.seg, costume: v.costume, timeOfDay: timeOfDay(hourOf(v.now)), sky: v.sky, bubble: b && b.until > v.now ? b.text : null, beach: v.beach })
 }
 
 // The repaint timer runs only while a terminal beach is drawn somewhere.
@@ -705,11 +788,13 @@ async function view($: EngineInterface, isWorking: boolean): Promise<View> {
   const s = await read($, stats)
   const name = await read($, petName)
   const summary = `${fmtDuration(now - (s.startedAt || now))} · ${s.turns} turns · ${s.toolCalls} tool calls${pct === null ? '' : ` · context ${Math.round(pct)}%`}`
-  const hasSign = await read($, isSignUp)
-  const hasBottle = await read($, isBottleUp)
-  const extra = [tiredness === 'fresh' ? '' : tiredness, look.isGrumpy ? 'grumpy' : '', look.isHungry ? 'hungry' : '', hasSign ? 'beside a sign saying this is a good moment to compact' : ''].filter(Boolean)
+  const sign = heldSign(seg, now) ?? (await breakSign($, now, seg))
+  const plantedNow = await read($, plantedSign)
+  const planted = plantedNow && plantedNow.until > now ? plantedNow.text : null
+  const beach: Beach = { ...(sign ? { sign } : {}), ...(planted ? { planted } : {}), ...((await read($, bottleUntil)) > now ? { hasBottle: true } : {}) }
+  const extra = [tiredness === 'fresh' ? '' : tiredness, look.isGrumpy ? 'grumpy' : '', look.isHungry ? 'hungry' : '', sign ? `holding up a sign saying ${sign}` : '', planted ? `beside a sign saying ${planted}` : ''].filter(Boolean)
   const alt = `${name} the crab, ${costume}, ${MOOD_WORD[mood]}${doing ? `, ${doing}` : ''}${extra.length ? `, ${extra.join(', ')}` : ''}`
-  return { now, name, costume, mood, seg, prop, sky, hour, look, n, summary, alt, isDue, hasSign, hasBottle }
+  return { now, name, costume, mood, seg, prop, sky, hour, look, n, summary, alt, isDue, beach }
 }
 
 export const register: Register = (on, options) => {
@@ -721,16 +806,18 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await $.command.register({
       name: 'crab',
-      description: 'Crab buddy: feed, play, pet, name, stats, log, theme, tank or strip, breaks, sound, bubbles, costume',
-      argumentHint: '[feed | play | pet | name <name> | stats | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | off | on | restart | today | <costume>]',
+      description: 'Crab buddy: feed, play, pet, name, stats, log, theme, tank or strip, breaks, sound, bubbles, signs, costume',
+      argumentHint: '[feed | play | pet | name <name> | stats | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | off | on | restart | today | <costume>]',
     })
     const now = await $.clock.now()
     const hidden = await readStore($, KEY.hidden, false)
     const breaksOff = await readStore($, KEY.breaksOff, cfg.breakMs === 0)
     const soundOff = await readStore($, KEY.soundOff, options.sound === 'off')
+    const signsOff = await readStore($, KEY.signsOff, options.signs === 'off')
     await update($, isHidden, () => hidden)
     await update($, areBreaksOff, () => breaksOff)
     await update($, isSoundOff, () => soundOff)
+    await update($, areSignsOff, () => signsOff)
     if (await readStore($, KEY.tank, false)) void seatTank($)
     const storedMode = await $.store.get(KEY.bubbles)
     const mode = storedMode === 'often' || storedMode === 'rare' || storedMode === 'off' ? storedMode : options.bubbles === 'often' || options.bubbles === 'off' ? String(options.bubbles) : 'rare'
@@ -754,7 +841,8 @@ export const register: Register = (on, options) => {
     if (timeOfDay(hourOf(now)) === 'morning') await say($, 'morning')
     void refreshWeather($)
     await startSegment($)
-    $.clock.every(MIN, () => {
+    ticker?.cancel()
+    ticker = $.clock.every(MIN, () => {
       void minuteTick($)
     })
 
@@ -848,6 +936,16 @@ export const register: Register = (on, options) => {
       await setBubbles($, value)
       return { text: `Speech bubbles: ${value}.` }
     }
+    if (word === 'signs') {
+      if (value !== 'on' && value !== 'off') return { text: 'Use /crab signs on or /crab signs off.' }
+      await update($, areSignsOff, () => value === 'off')
+      await $.store.set(KEY.signsOff, value === 'off')
+      if (value === 'off') {
+        await update($, plantedSign, () => null)
+        await update($, signQueue, () => [])
+      }
+      return { text: value === 'off' ? 'No more signs: bubbles and toasts carry the news.' : 'Signs are back.' }
+    }
     if (word === 'breaks' || word === 'sound') {
       if (value !== 'on' && value !== 'off') return { text: `Use /crab ${word} on or /crab ${word} off.` }
       await setFlag($, word, value === 'on')
@@ -855,7 +953,7 @@ export const register: Register = (on, options) => {
       return { text: value === 'off' ? 'The done chirp is off.' : 'The done chirp is on.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }
@@ -899,8 +997,10 @@ export const register: Register = (on, options) => {
       await refreshContext($)
       const tidy = (await read($, turnWork)).length ? 'tidy' : undefined
       if (isOk && cfg.longMs > 0 && e.durationMs >= cfg.longMs) {
-        await react($, 'wave', WAVE_MS, tidy)
-        await say($, 'long', false, fmtDuration(e.durationMs))
+        if (!(await holdUp($, 'done', { time: fmtDuration(e.durationMs), ...(tidy ? { first: tidy } : {}) }))) {
+          await react($, 'wave', WAVE_MS, tidy)
+          await say($, 'long', false, fmtDuration(e.durationMs))
+        }
         $.ui.toast(`Done after ${fmtDuration(e.durationMs)}.`)
         if (!(await read($, isSoundOff))) void $.audio.play({ asset: CHIRP }, { gain: 0.5 }).catch(() => undefined)
       } else {
@@ -917,23 +1017,39 @@ export const register: Register = (on, options) => {
   // The bottle: the log joins whatever the summarizer was told, and never replaces it.
   on('session.compact', async ($, e, next) => {
     const note = e.agentId ? '' : await bottleNote($)
-    if (!note) return next(e)
-    const result = await next({ ...e, instructions: e.instructions ? `${e.instructions}\n\n${note}` : note })
+    const result = await next(note ? { ...e, instructions: e.instructions ? `${e.instructions}\n\n${note}` : note } : e)
     // A precompute only prepares one: nothing has been compacted yet.
-    if (e.trigger !== 'precompute' && result.skip === undefined) {
-      await update($, isSignUp, () => false)
-      await update($, isBottleUp, () => true)
+    const isCompacted = !e.agentId && e.trigger !== 'precompute' && result.skip === undefined
+    if (isCompacted) await update($, plantedSign, () => null)
+    if (isCompacted && note) {
+      const until = (await $.clock.now()) + BOTTLE_MS
+      await update($, bottleUntil, () => until)
       $.clock.after(BOTTLE_MS, () => {
-        void update($, isBottleUp, () => false)
+        void update($, bottleUntil, u => (u <= until ? 0 : u))
       })
       await say($, 'bottle', true)
     }
     return result
   })
 
+  // /clear starts a new conversation in the same process, and no session.start says so.
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') {
+      await update($, logbook, () => EMPTY_LOG)
+      await update($, plantedSign, () => null)
+      await update($, signQueue, () => [])
+      await update($, bottleUntil, () => 0)
+      await update($, turnWork, () => [])
+      await update($, contextWarned, () => false)
+      await update($, contextHinted, () => false)
+    }
+    return next(e)
+  })
+
   // You sent a message: it stops, a "!" pops up, and it turns toward you. The day's first also gets today's theme.
   on('prompt.submit', async ($, e, next) => {
     if (!e.isMeta && !e.command) {
+      await update($, signQueue, () => [])
       await startSegment($, { hold: { pose: 'notice', ms: NOTICE_MS } })
       await greet($)
     }
@@ -958,15 +1074,25 @@ export const register: Register = (on, options) => {
       }
       return result
     }
-    if (e.tool !== 'Bash') return next(e)
+    if (e.tool !== 'Bash') {
+      const news = toolNewsOf(e.tool)
+      if (!news) return next(e)
+      const result = await next(e)
+      if (result.deny === undefined && result.isError !== true) await holdUp($, news)
+      return result
+    }
     const result = await next(e)
     if (result.deny === undefined) {
       const command = String((e as { command?: unknown }).command ?? '')
-      await update($, logbook, l => logShell(l, command, result.isError === true))
-      const mood = reactionTo(command, result.isError === true)
+      const isError = result.isError === true
+      const wasRed = (await read($, logbook)).test === 'failed'
+      await update($, logbook, l => logShell(l, command, isError))
+      const mood = reactionTo(command, isError)
       if (mood && !e.agentId) isCleanStop = mood !== 'nervous'
+      const news = newsOf(command, isError) ?? (TEST.test(command) && !isError && wasRed ? 'green' : null)
+      const isSigned = news ? await holdUp($, news) : false
       if (mood) {
-        await react($, mood)
+        if (!isSigned) await react($, mood)
         if (mood === 'party') {
           await saveNeeds($, gain(await currentNeeds($), { fun: 10 }))
           await say($, 'commit')
@@ -1011,7 +1137,7 @@ export const register: Register = (on, options) => {
       lastWidth = width
       lastBand = { surface: e.surface, columns: e.props.bodyColumns, viewport: e.viewport?.columns, width }
       // A plain image, not the hover-capable frame: that frame paints a solid box behind the crab.
-      const scene = sceneOf('band', v, b, await read($, turnWork), width, { fill: true })
+      const scene = sceneOf('band', e.surface, v, b, await read($, turnWork), width, { fill: true })
       // No wrapping: a row wraps by default, and the image starts out wider than any row.
       return (
         <Box flexDirection="column">
@@ -1090,7 +1216,7 @@ export const register: Register = (on, options) => {
       lastWidth = t.sceneWidth
       return (
         <Box flexDirection="column" gap={1}>
-          <Svg source={sceneOf('tank', v, b, await read($, turnWork), t.sceneWidth, { height: t.sceneHeight })} alt={v.alt} width={t.width} height={t.height} />
+          <Svg source={sceneOf('tank', e.surface, v, b, await read($, turnWork), t.sceneWidth, { height: t.sceneHeight })} alt={v.alt} width={t.width} height={t.height} />
           <Box flexDirection="row" justifyContent="center" gap={1}>
             {buttons}
           </Box>

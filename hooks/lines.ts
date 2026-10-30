@@ -1,5 +1,6 @@
 // What the crab says. Canned lines, no tokens; `{name}` and `{time}` are filled in.
 
+import type { SignKind } from '../types'
 import type { Holiday } from './sky'
 import type { Costume } from './sprites'
 
@@ -63,6 +64,26 @@ export const line = (moment: Moment, seed: number, vars: { name: string; time?: 
   const pool = LINES[moment]
   const text = pool[Math.abs(Math.floor(seed)) % pool.length] ?? pool[0] ?? ''
   return text.replace('{name}', vars.name).replace('{time}', vars.time ?? '')
+}
+
+// What fits on a plank: 22 characters at most, so a costume's width never decides it.
+const SIGNS: Record<SignKind, readonly string[]> = {
+  done: ['done! {time}', 'all done, {time}', 'ta-da! {time}'],
+  coffee: ['coffee time?', 'coffee break?', 'espresso, maybe?'],
+  walk: ['time for a walk', 'go touch some sand', 'legs need a walk'],
+  commit: ['committed!', 'into the history books', 'saved for ever'],
+  pushed: ['pushed!', 'up it goes', 'off to the remote'],
+  pr: ['PR is open!', 'PR sent', 'PR out to sea'],
+  mr: ['MR is open!', 'MR sent', 'MR out to sea'],
+  merged: ['merged!', "it's in!", 'merged, party time'],
+  green: ['green again!', 'back to green', 'phew, all green'],
+  context: ['tide at 85%', 'the sea is rising', 'high tide: /compact'],
+  compact: ['good moment: /compact', 'clean break: /compact', 'tide is high: /compact'],
+}
+
+export const signLine = (kind: SignKind, seed: number, time = ''): string => {
+  const pool = SIGNS[kind]
+  return (pool[Math.abs(Math.floor(seed)) % pool.length] ?? pool[0] ?? '').replace('{time}', time)
 }
 
 const THEME_LINES: Record<Costume, string> = {

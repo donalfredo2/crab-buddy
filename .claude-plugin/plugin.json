@@ -1,7 +1,7 @@
 {
   "name": "crab-buddy",
-  "version": "0.13.0",
-  "description": "A pixel crab with a life of its own on a little beach above the prompt: real sky, seasons and weather, a sea that shows your context, costume beaches, unlockable decor, a friend, tool-mirroring props, big moments for commits and tests, needs you care for and break reminders.",
+  "version": "0.14.0",
+  "description": "A pixel crab with a life of its own on a little beach above the prompt: real sky, seasons and weather, a sea that shows your context, costume beaches, unlockable decor, a friend, tool-mirroring props, big moments for commits and tests, signs it holds up for news, needs you care for and break reminders.",
   "author": {
     "name": "Andy"
   },
@@ -50,6 +50,16 @@
       "title": "Weather place",
       "description": "A city whose real weather shows on the beach (rain, snow, wind). Its name and coordinates go to open-meteo.com once an hour. Empty: no weather is fetched.",
       "default": ""
+    },
+    "signs": {
+      "type": "string",
+      "title": "Signs",
+      "description": "The crab holds up signs for news: a task done, a coffee break, a walk, commits, pushes, PRs and MRs. Off: bubbles and toasts carry it.",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
     }
   }
 }

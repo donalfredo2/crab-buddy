@@ -22,6 +22,25 @@ export type Pose =
 
 export type LifeMode = 'idle' | 'work' | 'sleep' | 'stretch'
 
+/** News the crab shows on a sign. */
+export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact'
+
+/** A sign waiting its turn; `at` is when it was asked for. */
+export type QueuedSign = { kind: SignKind; text: string; at: number }
+
+/** A sign in the sand, standing until `until`. */
+export type PlantedSign = { text: string; until: number } | null
+
+/** What is on the beach besides the crab's own life. */
+export type Beach = {
+  /** Words the crab is holding up. */
+  sign?: string
+  /** Words on a sign in the sand. */
+  planted?: string
+  /** A bottle at the waterline: a compaction just took the log. */
+  hasBottle?: boolean
+}
+
 export type Activity =
   | 'stroll' | 'lookAround' | 'gaze' | 'peek' | 'muse' | 'dig' | 'forage' | 'kick' | 'inspect' | 'hide' | 'sway'
   | 'sunbathe' | 'butterfly' | 'seagull' | 'fish' | 'neighbour' | 'yawn' | 'sneeze' | 'hiccup' | 'skywatch' | 'dance'
@@ -41,7 +60,7 @@ export type Segment = {
   /** The strip's width when the segment began; walking times are worked out from it. */
   width: number
   /** A pose held in place first: a reaction, a care action, noticing you. */
-  hold?: { pose: Pose; ms: number }
+  hold?: { pose: Pose; ms: number; sign?: string }
   /** An activity to do first (a friend Claude's Agent tool whistled for). */
   first?: Activity
   /** What it wears: its gadget is that costume's. */
@@ -130,10 +149,13 @@ declare module 'claude-code' {
       /** The good moment to compact was already signed at this fill. */
       contextHinted: boolean
       logbook: Logbook
-      /** The sign saying it's a good moment to compact is up. */
-      isSignUp: boolean
-      /** A bottle lies at the waterline after a compaction. */
-      isBottleUp: boolean
+      plantedSign: PlantedSign
+      signQueue: QueuedSign[]
+      areSignsOff: boolean
+      /** The segment in which it reached home to stretch, so the break's sign goes up then. */
+      stretchedSeg: number
+      /** A bottle lies at the waterline after a compaction until then, ms since the epoch. */
+      bottleUntil: number
       breaks: BreakState
       areBreaksOff: boolean
       isSoundOff: boolean

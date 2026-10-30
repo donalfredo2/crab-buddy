@@ -5,11 +5,12 @@ import type { On } from 'claude-code'
 import type { Segment } from '../types'
 import { RIDES, activityStarts, hasDecor, plan, planOf, rideFits, shoreFrac, spots, trackSpan, whereAt, xOf } from './life'
 
-import { line, themeLine, themeName } from './lines'
+import { line, signLine, themeLine, themeName } from './lines'
 import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
-import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, wornAt } from './register'
+import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, newsOf, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, toolNewsOf, wornAt } from './register'
 import { sceneSvg, timeOfDay } from './scene'
+import { breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
 import { COSTUMES, SPECIAL_COSTUMES, costumeOfDay } from './sprites'
 import { beachCells, beachPixels, cellText, decodeCells } from './terminal'
@@ -612,7 +613,23 @@ test('the crab tires as context fills, and warns once near the top', async ($, o
   await $.turn.complete({ ...TURN, reason: 'answer' })
   expect(await alt($)).toMatch(/sweaty/)
   await $.turn.complete({ ...TURN, reason: 'answer' })
-  expect(toasts.filter(t => /Context is/.test(t))).toEqual(['Context is 90% full. A fresh session soon would help.'])
+  expect(await alt($)).toMatch(/beside a sign saying/)
+  expect(toasts.filter(t => /Context is/.test(t))).toEqual([])
+})
+
+test('with signs off the context warning is a toast again', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx = { percent: 90 as number | null }
+  const { toasts } = engine(on, ctx)
+  await start($)
+  await crab($, 'signs off')
+  ctx.percent = 20
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  ctx.percent = 90
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await alt($)).not.toMatch(/sign/)
+  expect(toasts).toEqual(['Context is 90% full. A fresh session soon would help.'])
 })
 
 test('the care buttons feed, play and pet on every surface, with cooldowns', async ($, on) => {
@@ -652,6 +669,7 @@ test('it can be named, and unprompted bubbles are rate limited', async ($, on) =
   engine(on)
   on('tool.call', () => ({ result: { stdout: 'ok', stderr: '', interrupted: false }, isError: false }) as never)
   await start($)
+  await crab($, 'signs off')
 
   await crab($, 'name Pinchy')
   expect(await alt($)).toMatch(/^Pinchy the crab/)
@@ -1580,9 +1598,336 @@ test('no sign below 60%, after a later edit, or on a failing test', async ($, on
   expect(await hasSign()).toBe(false)
 })
 
+test('/clear starts the log, sign and bottle afresh', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx = { percent: 70 as number | null }
+  engine(on, ctx)
+  shell(on)
+  summarizer(on)
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  await start($)
+  await edit($, '/repo/src/left.ts')
+  await run($, 'git commit -m "done"')
+  await edit($, '/repo/src/next.ts')
+  await run($, 'git commit -m "more"')
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await alt($)).toMatch(/beside a sign/)
+  await compact($)
+  await edit($, '/repo/src/kept.ts')
+
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+  expect(await alt($)).not.toMatch(/beside a sign/)
+  expect((await band($)).source).not.toContain('class="btl"')
+  expect((await crab($, 'log')).text).toContain('Nothing logged yet.')
+})
+
+test('the sign and bottle go on time even if a reload lost their timers', async ($, on) => {
+  // A clock whose waits never come due, as after a reload.
+  let now = T0
+  on('clock.now', () => ({ value: now }) as never)
+  on('clock.after', () => new Promise(() => undefined) as never)
+  on('clock.every', () => new Promise(() => undefined) as never)
+  mock.store(on)
+  engine(on, { percent: 70 })
+  shell(on)
+  await start($)
+  await run($, 'git commit -m "done"')
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await alt($)).toMatch(/beside a sign/)
+  now += 2 * MIN + 1000
+  expect(await alt($)).not.toMatch(/beside a sign/)
+})
+
+test('leaving the session any other way keeps the log', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  await start($)
+  await edit($, '/repo/src/left.ts')
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
+  expect((await crab($, 'log')).text).toContain('left.ts')
+})
+
+// --- signs
+
+const TAG = /<g transform="translate\(0,0.5\)">/
+const heldWords = async ($: Tester, isWorking = false) => /holding up a sign saying ([^,]+)/.exec(await alt($, isWorking))?.[1] ?? null
+const SIGN_KINDS = ['done', 'coffee', 'walk', 'commit', 'pushed', 'pr', 'mr', 'merged', 'green', 'context', 'compact'] as const
+
+test('every sign fits a plank and fills its time in', () => {
+  for (const kind of SIGN_KINDS) {
+    for (let seed = 0; seed < 6; seed++) {
+      const text = signLine(kind, seed, '12m 30s')
+      expect(text.length).toBeGreaterThan(0)
+      expect(text.length).toBeLessThanOrEqual(22)
+      expect(text).not.toContain('{')
+    }
+  }
+})
+
+test('the furthest step in a command is the news', () => {
+  expect(newsOf('git commit -m x', false)).toBe('commit')
+  expect(newsOf('git add . && git commit -m x && git push', false)).toBe('pushed')
+  expect(newsOf('git -C repo push origin main', false)).toBe('pushed')
+  expect(newsOf('gh pr create --fill', false)).toBe('pr')
+  expect(newsOf('glab mr create --fill', false)).toBe('mr')
+  expect(newsOf('git push && gh pr create', false)).toBe('pr')
+  expect(newsOf('gh pr merge 12 --squash', false)).toBe('merged')
+  expect(newsOf('glab mr merge 12', false)).toBe('merged')
+  expect(newsOf('git push', true)).toBe(null)
+  expect(newsOf('git status', false)).toBe(null)
+  expect(toolNewsOf('mcp__host__create_pull_request')).toBe('pr')
+  expect(toolNewsOf('mcp__host__create_merge_request')).toBe('mr')
+  expect(toolNewsOf('mcp__host__merge_pull_request')).toBe('merged')
+  expect(toolNewsOf('mcp__host__merge_merge_request')).toBe('merged')
+  expect(toolNewsOf('mcp__host__get_pull_request')).toBe(null)
+})
+
+test('the queue keeps one of a kind, three at most, and drops old news', () => {
+  const sign = (kind: 'pushed' | 'commit' | 'green' | 'pr', at: number) => ({ kind, text: kind, at })
+  let q = enqueue([], sign('commit', 1))
+  q = enqueue(q, sign('pushed', 2))
+  q = enqueue(q, sign('commit', 3))
+  expect(q.map(s => s.kind)).toEqual(['pushed', 'commit'])
+  q = enqueue(enqueue(q, sign('green', 4)), sign('pr', 5))
+  expect(q.map(s => s.kind)).toEqual(['commit', 'green', 'pr'])
+  expect(nextInQueue(q, 10).next?.kind).toBe('commit')
+  expect(nextInQueue(q, 10).rest.length).toBe(2)
+  expect(nextInQueue(q, 60_000).next).toBe(null)
+})
+
+test('a held sign lasts as long as its hold, and a long streak earns a walk', () => {
+  const held = seg({ hold: { pose: 'cheer', ms: 7000, sign: 'pushed!' } })
+  expect(heldSign(held, T0 + 6999)).toBe('pushed!')
+  expect(heldSign(held, T0 + 7000)).toBe(null)
+  expect(heldSign(seg(), T0)).toBe(null)
+  expect(breakKind(0, 90 * MIN, 90 * MIN)).toBe('coffee')
+  expect(breakKind(0, 180 * MIN, 90 * MIN)).toBe('walk')
+})
+
+test('news goes up on a sign the crab holds, then comes down', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  await start($)
+  await run($, 'git commit -m "x"')
+  expect(await heldWords($)).toBeTruthy()
+  expect((await band($)).source).toMatch(TAG)
+  expect((await band($)).source).toMatch(/class="fw"/)
+  await clock.advance(7100)
+  expect(await heldWords($)).toBe(null)
+  expect((await band($)).source).not.toMatch(TAG)
+})
+
+test('a finished turn lets the sign finish, and a long one says how long', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const { toasts, sounds } = engine(on)
+  shell(on)
+  await start($)
+  await run($, 'git push')
+  const words = await heldWords($)
+  expect(words).toBeTruthy()
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await heldWords($)).toBe(words)
+  await clock.advance(30_000)
+  await $.turn.complete({ ...TURN, reason: 'answer', durationMs: 150_000 })
+  expect(await heldWords($)).toMatch(/2m 30s/)
+  expect((await band($)).source).toMatch(/done!<\/text>/)
+  expect(toasts).toEqual(['Done after 2m 30s.'])
+  expect(sounds.length).toBe(1)
+})
+
+test('news arriving during a sign waits its turn, and your message clears the line', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  await start($)
+  await run($, 'git commit -m "x"')
+  const first = await heldWords($)
+  await run($, 'gh pr create')
+  expect(await heldWords($)).toBe(first)
+  await clock.advance(7100)
+  expect(await heldWords($)).toMatch(/PR/)
+  await clock.advance(7100)
+  expect(await heldWords($)).toBe(null)
+
+  await clock.advance(30_000)
+  await run($, 'git commit -m "y"')
+  await run($, 'gh pr merge 3')
+  await $.prompt.submit({ text: 'hi', isMeta: false } as never)
+  expect(await heldWords($)).toBe(null)
+  await clock.advance(7100)
+  expect(await heldWords($)).toBe(null)
+})
+
+test('the same news twice in a burst is one sign', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  await start($)
+  await run($, 'git commit -m "a"')
+  await run($, 'git commit -m "b"')
+  await clock.advance(7100)
+  expect(await heldWords($)).toBe(null)
+  await clock.advance(20_000)
+  await run($, 'git commit -m "c"')
+  expect(await heldWords($)).toBeTruthy()
+})
+
+test('green again only after a failure, and a failure shows over a sign', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  let isRed = false
+  on('tool.call', () => ({ result: { stdout: 'ok', stderr: '', interrupted: false }, isError: isRed }) as never)
+  await start($)
+  await run($, 'npm test')
+  expect(await heldWords($)).toBe(null)
+  await clock.advance(5000)
+  await run($, 'git commit -m "x"')
+  expect(await heldWords($)).toBeTruthy()
+  isRed = true
+  await run($, 'npm test')
+  expect(await alt($)).toMatch(/nervous/)
+  expect(await heldWords($)).toBe(null)
+  await clock.advance(5000)
+  isRed = false
+  await run($, 'npm test')
+  expect(await heldWords($)).toMatch(/green/)
+})
+
+test('a connected tool opening a PR shows too, and a failed one does not', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  let isError = true
+  on('tool.call', () => ({ result: 'ok', isError }) as never)
+  await start($)
+  await $.tool.call({ tool: 'mcp__host__create_pull_request' } as never)
+  expect(await heldWords($)).toBe(null)
+  isError = false
+  await $.tool.call({ tool: 'mcp__host__create_pull_request' } as never)
+  expect(await heldWords($)).toMatch(/PR/)
+})
+
+test('your care gets its answer while a sign is up', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  await start($)
+  await run($, 'git commit -m "x"')
+  await crab($, 'pet')
+  const { source } = await band($)
+  expect(source).toMatch(/class="bubble"/)
+  expect(source).not.toMatch(TAG)
+})
+
+test('with signs off, news stays bubbles and the old reactions', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  await start($)
+  expect((await crab($, 'signs')).text).toMatch(/on or \/crab signs off/)
+  await crab($, 'signs off')
+  await run($, 'git commit -m "x"')
+  expect(await heldWords($)).toBe(null)
+  expect(await alt($)).toMatch(/partying/)
+  expect((await band($)).source).toMatch(/class="bubble"/)
+})
+
+test('bubbles off leaves signs on, and the choice outlives the session', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  shell(on)
+  await start($)
+  await crab($, 'bubbles off')
+  await run($, 'git commit -m "x"')
+  expect(await heldWords($)).toBeTruthy()
+  await crab($, 'signs off')
+  await clock.advance(7100)
+  await start($)
+  await run($, 'git push')
+  expect(await heldWords($)).toBe(null)
+})
+
+test('coffee when the break is due and a walk later, once it is home', async ($, on) => {
+  const clock = mock.clock(on, { now: at(9) })
+  mock.store(on)
+  const { toasts } = engine(on)
+  await start($)
+  await $.turn.start({ turnId: 't1' } as never)
+  for (let i = 0; i < 18; i++) {
+    await clock.advance(5 * MIN)
+    await $.turn.complete({ ...TURN, reason: 'answer' })
+    await $.turn.start({ turnId: 't1' } as never)
+  }
+  await clock.advance(MIN)
+  await clock.advance(MIN)
+  expect(await heldWords($)).toMatch(/coffee|espresso/)
+  expect(toasts.filter(t => /Stretch break/.test(t)).length).toBe(1)
+  for (let i = 0; i < 18; i++) {
+    await clock.advance(5 * MIN)
+    await $.turn.complete({ ...TURN, reason: 'answer' })
+    await $.turn.start({ turnId: 't1' } as never)
+  }
+  await clock.advance(MIN)
+  await clock.advance(MIN)
+  expect(await heldWords($)).toMatch(/walk/)
+  expect(toasts.filter(t => /Time for a walk/.test(t)).length).toBe(1)
+  await crab($, 'snooze')
+  expect(await heldWords($)).toBe(null)
+})
+
+test('a compaction takes the planted sign down, with or without a log', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on, { percent: 90 })
+  summarizer(on)
+  await start($)
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await alt($)).toMatch(/beside a sign saying/)
+  await compact($)
+  expect(await alt($)).not.toMatch(/beside a sign/)
+})
+
+test('signs show on every drawn beach, the words on a plank', () => {
+  const base = { columns: 80, rows: 3, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
+  const cells = decodeCells(beachCells({ ...base, beach: { sign: 'pushed!' } }))
+  const text = Array.from({ length: cells.length / 3 }, (_, i) => String.fromCodePoint(cells[i * 3] ?? 32)).join('')
+  expect(text).toContain('pushed!')
+  const planted = decodeCells(beachCells({ ...base, beach: { planted: 'tide at 85%' } }))
+  expect(Array.from({ length: planted.length / 3 }, (_, i) => String.fromCodePoint(planted[i * 3] ?? 32)).join('')).toContain('tide at 85%')
+  const svg = { width: 800, costume: 'plain' as const, look: {}, timeOfDay: 'day' as const, bubble: null, now: T0, seg: seg(), prop: null, sky: skyFor(T0), work: [], hour: 12 }
+  expect(sceneSvg({ ...svg, beach: { sign: 'a & b' } })).toContain('a &amp; b')
+  expect(sceneSvg({ ...svg, beach: { planted: 'tide at 85%' } })).toContain('tide at 85%')
+  expect(sceneSvg({ ...svg, bubble: 'hi', beach: { sign: 'hidden' } })).not.toContain('hidden')
+})
+
+test('a plank stays inside a narrow strip wherever the crab stands', () => {
+  const svg = { width: 200, costume: 'plain' as const, look: {}, timeOfDay: 'day' as const, bubble: null, now: T0, sky: skyFor(T0), prop: null, work: [], hour: 12, beach: { sign: 'clean break: /compact' } }
+  for (const startP of [0, 0.5, 1]) {
+    const source = sceneSvg({ ...svg, seg: seg({ width: 200, startP, hold: { pose: 'cheer', ms: 7000, sign: 'x' } }) })
+    const crabX = Number(/class="mv" transform="translate\((-?[\d.]+),0\)"/.exec(source)?.[1])
+    const tx = Number(/<g transform="translate\((-?[\d.]+),-13\)"><rect x=/.exec(source)?.[1])
+    const left = crabX + tx
+    expect(left).toBeGreaterThanOrEqual(2)
+    expect(left + Math.round('clean break: /compact'.length * 4.3 + 8)).toBeLessThanOrEqual(198)
+  }
+})
+
 test('the bottle and sign show on the terminal beach too', () => {
   const base = { columns: 80, rows: 3, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
   const plain = beachPixels(base).px
-  expect(beachPixels({ ...base, hasBottle: true }).px).not.toEqual(plain)
-  expect(beachPixels({ ...base, hasSign: true }).px).not.toEqual(plain)
+  expect(beachPixels({ ...base, beach: { hasBottle: true } }).px).not.toEqual(plain)
+  expect(beachPixels({ ...base, beach: { planted: 'clean break: /compact' } }).px).not.toEqual(plain)
 })

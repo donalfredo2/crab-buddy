@@ -3,7 +3,7 @@
 // scaled to the terminal's width, so the crab does what it does on the desktop.
 // Empty cells keep the terminal's own colours, so it stays see-through.
 
-import type { Segment, TimeOfDay } from '../types'
+import type { Beach, Segment, TimeOfDay } from '../types'
 import { CRAB_W, NO_CONTEXT_SHORE, isWalking, planOf, whereAt, xOf } from './life'
 import { moonLit } from './sky'
 import type { Sky } from './sky'
@@ -15,6 +15,8 @@ const NONE = 0x01000000
 const UPPER = 0x2580
 const LOWER = 0x2584
 const hex = (c: string): number => parseInt(c.slice(1), 16)
+const PLANK = hex('#E9D6A6')
+const PLANK_INK = hex('#3A3936')
 
 export type TerminalInput = {
   columns: number
@@ -25,8 +27,7 @@ export type TerminalInput = {
   timeOfDay: TimeOfDay
   sky: Sky
   bubble: string | null
-  hasSign?: boolean
-  hasBottle?: boolean
+  beach?: Beach
 }
 
 const HAT: Partial<Record<Costume, string>> = {
@@ -70,6 +71,10 @@ const GADGET_INK: Record<string, string> = {
 /** A speech bubble as cells: one character each, so only narrow ones, and no emoji. */
 export const cellText = (text: string): string =>
   [...text.replace(/♥/g, '<3')].filter(c => (c.codePointAt(0) ?? 0) < 0x2100 && c !== '️').join('').replace(/\s+/g, ' ').trim()
+
+/** Where words beside the crab's head start: right of it when there's room, else left. */
+const wordsAt = (crabX: number, length: number, W: number): number =>
+  crabX + 9 + length <= W ? crabX + 9 : Math.max(0, crabX - length - 2)
 
 /** The pixels of the beach, `columns` wide and `rows * 2` tall, NONE where empty, and where the crab is. */
 export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } => {
@@ -147,13 +152,13 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
     put(x, G - 2, '#2E8A57')
     put(x, G - 3, '#F5C542')
   }
-  if (t.hasSign) {
+  if (t.beach?.planted) {
     const x = Math.round(W * 0.38)
     put(x, G - 1, '#A0703F')
     put(x, G - 2, '#A0703F')
-    for (const dx of [-1, 0, 1]) put(x + dx, G - 3, '#E9D6A6')
+    put(x, G - 3, '#A0703F')
   }
-  if (t.hasBottle) {
+  if (t.beach?.hasBottle) {
     put(shore - 4, G - 1, '#6FB98F')
     put(shore - 3, G - 1, '#6FB98F')
     put(shore - 2, G - 1, '#A0703F')
@@ -192,6 +197,9 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   })
   if (hat && isNap) for (const dx of [2, 3, 4]) put(x0 + dx, G - 3, hat)
   if (isNap && G >= 5 && sec % 2) put(x0 + (here.face === 1 ? 6 : 0), G - 5, '#C9CCD2')
+  // The pole of the sign it holds up, on the side the words go.
+  const held = t.beach?.sign && !t.bubble ? cellText(t.beach.sign) : ''
+  if (held) for (let y = G - 3; y <= G; y++) put(wordsAt(x0, held.length, W) - 1, y, '#A0703F')
 
   // Rain and snow fall in front of everything.
   if (sky.weather === 'rain' || sky.weather === 'storm' || sky.weather === 'snow') {
@@ -251,15 +259,19 @@ export const beachCells = (t: TerminalInput): string => {
       else words.set([UPPER, top, bottom], i)
     }
   }
-  const text = t.bubble ? cellText(t.bubble) : ''
-  if (text) {
-    // The row of the crab's head, beside it: right of it when there's room, else left.
-    const start = crabX + 9 + text.length <= W ? crabX + 9 : Math.max(0, crabX - text.length - 2)
-    const row = Math.max(0, R - 3)
-    // A clear cell either side, so a cloud or star never runs into the words.
+  // A clear cell either side, so a cloud or star never runs into the words.
+  const write = (text: string, start: number, row: number, fg: number, bg: number) => {
     ;[' ', ...text, ' '].slice(0, W - start + 1).forEach((ch, k) => {
-      if (start + k - 1 >= 0) words.set([ch.codePointAt(0) ?? 0x20, NONE, NONE], (row * W + start + k - 1) * 3)
+      if (start + k - 1 >= 0) words.set([ch.codePointAt(0) ?? 0x20, fg, bg], (row * W + start + k - 1) * 3)
     })
   }
+  // The row of the crab's head.
+  const row = Math.max(0, R - 3)
+  const planted = t.beach?.planted ? cellText(t.beach.planted) : ''
+  if (planted) write(planted, Math.max(1, Math.min(W - planted.length - 1, Math.round(W * 0.38) - Math.floor(planted.length / 2))), row, PLANK_INK, PLANK)
+  const text = t.bubble ? cellText(t.bubble) : ''
+  const held = !text && t.beach?.sign ? cellText(t.beach.sign) : ''
+  if (text) write(text, wordsAt(crabX, text.length, W), row, NONE, NONE)
+  if (held) write(held, wordsAt(crabX, held.length, W), row, PLANK_INK, PLANK)
   return toBase64(new Uint8Array(words.buffer))
 }

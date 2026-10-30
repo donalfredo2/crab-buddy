@@ -12,6 +12,7 @@ A tiny pixel crab that lives on a beach above your Claude Code prompt. It has a 
 - **Watches Claude work.** It holds a hammer for edits, a scroll for reading and binoculars for the web. Commits get fireworks, failing tests a storm cloud, long tasks a "done!" plane.
 - **Shows your context.** The sea creeps up the beach as the context window fills.
 - **Has a real sky.** Sunrise and sunset, the actual moon phase, seasons, holidays and, if you like, your local weather.
+- **Holds up signs.** Task done, commit pushed, PR merged, coffee time: it stops, faces you and raises a plank.
 - **Looks after you.** It nudges you to take a break after a long stretch, and chirps when a long task finishes.
 - **Wants looking after.** Feed it, play with it, pet it. It remembers you across sessions.
 - **Keeps a logbook.** It writes down the state of your work and passes it to the summary when the context gets compacted.
@@ -83,10 +84,10 @@ Food and Fun fade 5 points an hour, counted only while a session is open. When t
 
 ## What it tells you
 
-- **Long task done**: a turn of 2 minutes or more ends with a wave, a toast and a short chirp.
-- **Context filling up**: half-lidded and slower from 50%, sweating from 80%, and one toast at 85%.
+- **Long task done**: a turn of 2 minutes or more ends with a wave, a sign, a toast and a short chirp.
+- **Context filling up**: half-lidded and slower from 50%, sweating from 80%, and a sign in the sand at 85%.
 - **Commits, tests, builds**: confetti, sunglasses, or a nervous shiver. Results are never changed.
-- **Breaks**: after 90 minutes of continuous work it stretches and suggests a break; Snooze adds 30 minutes.
+- **Breaks**: after 90 minutes of continuous work it stretches and holds up a coffee sign, and twice that earns a walk; Snooze adds 30 minutes.
 - **Speech bubbles**: short canned lines at moments that matter, at most one unprompted line every 15 minutes (`rare`) or 5 (`often`). Your own care actions always get a reply.
 
 ## The logbook
@@ -95,6 +96,16 @@ The crab logs the session's work as it happens: files changed since the last com
 
 - **The bottle:** before each compaction the log goes to the summarizer, as a note of up to 600 characters asking it to keep those facts. A bottle then washes up at the waterline. This is the one thing the mod adds to what Claude reads, so it costs a few tokens and it's disclosed here. It's on by default, and `/crab log off` turns it off. The summarizer can still leave things out, so it improves the odds and guarantees nothing.
 - **The good moment sign:** when a turn ends on a commit or passing tests with the context at 60% or more, the crab plants a sign. The work is at a clean break, so it's a good moment to `/compact`. It shows once, and again once the context has dropped below 50% and filled back up.
+
+## Signs
+
+News goes on a plank, one sign at a time, about 7 seconds each. Bubbles are the crab chatting; signs are for you.
+
+- **Held up:** task done, with how long it took. Committed, pushed, PR or MR opened, merged. Green again, when tests pass after a failure. Plain test passes get no sign.
+- **Coffee, then a walk:** held up from home while the break is due.
+- **Planted in the sand:** the good moment to `/compact`, and the sea reaching 85%. They stay up for a while, and the crab carries on.
+
+Signs wait in line if several arrive together, and your message clears the line. Your care actions always get their answer. It sees `git`, `gh` and `glab` commands, and connected tools that create or merge a PR or MR. `/crab signs off` goes back to bubbles and toasts; `/crab bubbles off` leaves signs on.
 
 ## Buttons and commands
 
@@ -107,7 +118,7 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab log`: what's in the logbook; `/crab log on|off` turns the bottle on or off
 - `/crab theme`: today's theme, and the costume you picked if it differs
 - `/crab size`: what this surface reports for the strip, handy if it looks stretched
-- `/crab bubbles often|rare|off`, `/crab breaks on|off`, `/crab sound on|off`
+- `/crab bubbles often|rare|off`, `/crab signs on|off`, `/crab breaks on|off`, `/crab sound on|off`
 - `/crab snooze`: snooze the break reminder for 30 minutes
 - `/crab`, `/crab <costume>`, `/crab today`: costumes
 - `/crab tank` / `/crab strip`: move it into its tank pane or back above the prompt; `/crab tank` again says where the pane sits
@@ -116,7 +127,7 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 
 ## Settings
 
-`longTaskSeconds` (120), `breakMinutes` (90), `sound` (`on`), `bubbles` (`rare`) and `weatherPlace` (empty) can be changed with `/plugin configure crab-buddy@crab-buddy`; 0 turns a timer off.
+`longTaskSeconds` (120), `breakMinutes` (90), `sound` (`on`), `bubbles` (`rare`), `signs` (`on`) and `weatherPlace` (empty) can be changed with `/plugin configure crab-buddy@crab-buddy`; 0 turns a timer off.
 
 `weatherPlace` is a city name. When it is set, the place's name and coordinates go to [Open-Meteo](https://open-meteo.com) (free, no key) once an hour, shared by all open sessions. Left empty, nothing is fetched and the sky stays clear.
 

@@ -116,7 +116,7 @@ export const rideFits = (seg: Segment): boolean => {
   if (kind === 'sub') return seg.width - spots(seg.width, seg.shore).sea >= SUB_W
   return pxs === 0 || trackSpan(seg.width) >= MIN_TRACK
 }
-export type LifeEvent = { t: number; kind: 'build' | 'shell' | 'tidy' | 'say'; moment?: LifeMoment; isGolden?: boolean }
+export type LifeEvent = { t: number; kind: 'build' | 'shell' | 'tidy' | 'say' | 'rest'; moment?: LifeMoment; isGolden?: boolean }
 
 export type Plan = { beats: Beat[]; marks: Mark[]; events: LifeEvent[]; duration: number; endP: number; endFace: 1 | -1 }
 
@@ -252,7 +252,10 @@ export const plan = (seg: Segment): Plan => {
   if (seg.mode === 'sleep' || seg.mode === 'stretch') {
     walkTo(at.home)
     if (seg.mode === 'sleep') stand(10 * 60 * S, 'nap', 'sleep', -1)
-    else stand(10 * 60 * S, 'stretch', 'stretch', 1)
+    else {
+      events.push({ t, kind: 'rest' })
+      stand(10 * 60 * S, 'stretch', 'stretch', 1)
+    }
     return { beats, marks, events, duration: t, endP: p, endFace: face }
   }
 

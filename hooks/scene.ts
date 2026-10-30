@@ -3,7 +3,7 @@
 // plan. Everything above the sand is transparent. All motion is CSS keyed to the
 // wall clock, so a redraw picks up the segment where it was instead of starting over.
 
-import type { Pose, Prop, Segment, TimeOfDay } from '../types'
+import type { Beach, Pose, Prop, Segment, TimeOfDay } from '../types'
 import { CRAB_W, MAX_CASTLE, NO_CONTEXT_SHORE, ROOMY, hasDecor, isWalking, planOf, spots, whereAt, xOf } from './life'
 import type { Plan } from './life'
 import { moonLit } from './sky'
@@ -41,10 +41,8 @@ export type SceneInput = {
   height?: number
   /** Take whatever width the surface's slot has, stretching `width` to it (the strip). */
   fill?: boolean
-  /** A sign in the sand: a good moment to compact. */
-  hasSign?: boolean
-  /** A bottle at the waterline: a compaction just took the log. */
-  hasBottle?: boolean
+  /** What is on the beach besides the crab's own life. */
+  beach?: Beach
 }
 
 export const timeOfDay = (hour: number): TimeOfDay => (hour >= 22 || hour < 6 ? 'night' : hour < 9 ? 'morning' : hour >= 18 ? 'evening' : 'day')
@@ -384,8 +382,23 @@ const workPile = (x0: number, kinds: readonly string[]): string =>
     return `<rect x="${r1(x0 + r * 1.6 + j * 3.2)}" y="${GROUND - 2 - r * 2}" width="3" height="2" fill="${BLOCK[k] ?? BLOCK.other}"/>`
   }).join('')
 
-const signSvg = (x: number): string =>
-  `<g shape-rendering="crispEdges"><rect x="${x + 6}" y="${GROUND - 7}" width="2" height="8" fill="#A0703F"/><rect x="${x}" y="${GROUND - 14}" width="14" height="8" fill="#E9D6A6"/><rect x="${x}" y="${GROUND - 7}" width="14" height="1" fill="#A0703F"/><rect x="${x + 2}" y="${GROUND - 12}" width="10" height="1" fill="#5A5853"/><rect x="${x + 2}" y="${GROUND - 10}" width="7" height="1" fill="#5A5853"/></g>`
+const plankW = (text: string): number => Math.round(text.length * 4.3 + 8)
+
+/** Words on a plank, its top left at 0,0. */
+const plank = (text: string, height: number): string => {
+  const width = plankW(text)
+  return `<rect width="${width}" height="${height}" rx="1" fill="#E9D6A6" stroke="#A0703F" stroke-width=".8"/><text x="${width / 2}" y="${height - 2.8}" font-size="6.8" text-anchor="middle" font-family="-apple-system,'SF Pro Text',sans-serif" font-weight="700" fill="#3A3936">${xml(text)}</text>`
+}
+
+/** A sign in the sand around `x`, its plank kept inside the strip. */
+const plantedSvg = (x: number, text: string, width: number): string => {
+  const left = Math.max(2, Math.min(width - plankW(text) - 2, x - plankW(text) / 2))
+  return `<g><rect x="${x - 1}" y="${GROUND - 9}" width="2" height="10" fill="#A0703F" shape-rendering="crispEdges"/><g transform="translate(${left},${GROUND - 20})">${plank(text, 11)}</g></g>`
+}
+
+/** The sign it holds up: a plank where the bubble would be, on a pole down to its claws. */
+const heldSvg = (text: string, poleX: number): string =>
+  `<rect x="${poleX - 0.75}" y="11" width="1.5" height="9" fill="#A0703F" shape-rendering="crispEdges"/><g transform="translate(0,0.5)">${plank(text, 11)}</g>`
 
 const bottleSvg = (x: number, now: number): string =>
   `<g class="btl" style="${wall(now, 3)}" shape-rendering="crispEdges"><rect x="${x}" y="${GROUND - 3}" width="6" height="3" fill="#6FB98F"/><rect x="${x + 1}" y="${GROUND - 2}" width="3" height="1" fill="#F4F3EE"/><rect x="${x + 6}" y="${GROUND - 2}" width="2" height="1" fill="#6FB98F"/><rect x="${x + 8}" y="${GROUND - 2}" width="1" height="1" fill="#A0703F"/></g>`
@@ -629,6 +642,9 @@ export const sceneSvg = (s: SceneInput): string => {
   const bubble = s.bubble ? bubbleSvg(s.bubble) : null
   const xNow = Math.round(xOf(here.p, width))
   const bubbleX = bubble ? Math.max(2 - xNow, Math.min(0, width - 2 - bubble.width - xNow)) : 0
+  // It stands still to hold a sign up, so the plank is placed once, inside the strip. A bubble answering you goes first.
+  const signWords = !bubble && s.beach?.sign ? s.beach.sign : null
+  const signX = signWords ? Math.max(2 - xNow, Math.min(CRAB_W / 2 - plankW(signWords) / 2, width - 2 - plankW(signWords) - xNow)) : 0
 
   const layers = poses.map((pose, i) => {
     const look = { ...s.look, hasNightcap: s.timeOfDay === 'night' && pose === 'nap', isDark: s.timeOfDay === 'night' || s.timeOfDay === 'evening' }
@@ -649,11 +665,11 @@ export const sceneSvg = (s: SceneInput): string => {
   return `<svg xmlns="http://www.w3.org/2000/svg" ${fit}><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
 <g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells)}${footprints(pl, width, elapsed)}
-<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}${s.hasSign ? signSvg(Math.round(width * 0.38)) : ''}${s.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}
+<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}
 <g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
 <ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>
 <g class="ly" transform="translate(0,${Math.round(-here.lift)})"><g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}</g>
-${bubble ? `<g transform="translate(${r1(bubbleX)},-${CRAB_Y})">${bubble.svg}</g>` : ''}</g></g>
+${bubble ? `<g transform="translate(${r1(bubbleX)},-${CRAB_Y})">${bubble.svg}</g>` : ''}${signWords ? `<g transform="translate(${r1(signX)},-${CRAB_Y})">${heldSvg(signWords, CRAB_W / 2 - signX)}</g>` : ''}</g></g>
 ${skyFront(width, s.timeOfDay, s.sky, s.now, top)}</g>
 </svg>`
 }
