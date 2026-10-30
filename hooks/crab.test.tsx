@@ -346,15 +346,18 @@ test('big moments get a set piece across the strip', () => {
 test('shells unlock decor, each costume has its beach, and a friend visits', () => {
   expect(hasDecor('palm', 4, 900)).toBe(false)
   expect(hasDecor('palm', 5, 900)).toBe(true)
-  expect(hasDecor('lighthouse', 25, 400)).toBe(false)
+  expect(hasDecor('house', 25, 400)).toBe(false)
+  expect(hasDecor('house', 19, 900)).toBe(false)
   const draw = (o: { costume?: 'pirate' | 'astronaut' | 'plain'; shells?: number; width?: number; timeOfDay?: 'day' | 'night'; first?: 'friend' }) =>
     sceneSvg({ width: o.width ?? 900, costume: o.costume ?? 'plain', look: {}, timeOfDay: o.timeOfDay ?? 'day', bubble: null, now: T0 + 1000, prop: null, sky: skyFor(T0), hour: 12, work: [],
       seg: seg({ width: o.width ?? 900, shells: o.shells ?? 0, timeOfDay: o.timeOfDay ?? 'day', ...(o.first ? { first: o.first } : {}) }) })
   const rich = draw({ shells: 25, timeOfDay: 'night' })
   expect(rich).toMatch(/#3E9E5A/)
-  expect(rich).toMatch(/#D8433B/)
-  expect(rich).toMatch(/class="beam"/)
-  expect(draw({ shells: 25, width: 400 })).not.toMatch(/#3E9E5A|class="beam"/)
+  expect(rich).toMatch(/#C8553D/)
+  expect(rich).toMatch(/fill="#F5D96A"/)
+  expect(rich).not.toMatch(/beam/)
+  expect(draw({ shells: 25 })).toMatch(/fill="#A9D6F5"/)
+  expect(draw({ shells: 25, width: 400 })).not.toMatch(/#3E9E5A|#C8553D/)
   expect(draw({ costume: 'pirate' })).toMatch(/#E6E2D6/)
   expect(draw({ costume: 'astronaut' })).toMatch(/class="crater"/)
   expect(draw({ costume: 'plain' })).not.toMatch(/class="crater"|#E6E2D6/)

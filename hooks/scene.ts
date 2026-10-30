@@ -243,8 +243,6 @@ const skyFront = (width: number, tod: TimeOfDay, sky: Sky, now: number, top = 0)
 const SKY_CSS = `
 .crater{fill:#C9B27E}@media (prefers-color-scheme: dark){.crater{fill:#4A4234}}
 .smoke{opacity:0;animation:rise 2.4s ease-out infinite}
-.beam{opacity:.3;animation:beam 6s ease-in-out infinite}
-@keyframes beam{0%,100%{transform:scaleX(1)}50%{transform:scaleX(-.6)}}
 .palm{animation:sway 4s ease-in-out infinite}
 .scloud{fill:#8E929A;opacity:.9}.srain{fill:#7EB6E0;animation:srn .45s linear infinite}
 @keyframes srn{from{transform:translateY(0);opacity:1}to{transform:translateY(12px);opacity:0}}
@@ -347,10 +345,10 @@ const unlocked = (width: number, tod: TimeOfDay, shells: number, sea: number): s
   const at = spots(width)
   const g = GROUND
   const out: string[] = []
-  if (hasDecor('lighthouse', shells, width)) {
-    const x = at.lighthouse
-    out.push(pixels(['..kkkk..', '.kkkkkk.', '.yyyyyy.', 'kkkkkkkk', '.rrrrrr.', '.wwwwww.', '.rrrrrr.', '.wwwwww.', '.rrrrrr.', '.wwwwww.', '.rrrrrr.', '.wwwwww.', '.rrrrrr.', '.wwwwww.', '.rrrrrr.', 'gggggggg'], { k: '#3A3936', y: '#F5D96A', r: '#D8433B', w: '#F4F3EE', g: '#8E929A' }, x - 4, g - 16))
-    if (tod === 'night' || tod === 'evening') out.push(`<polygon class="beam" points="${x},${g - 14} ${x + 70},${g - 21} ${x + 70},${g - 7}" fill="#FFF3B0" style="transform-origin:${x}px ${g - 14}px"/>`)
+  if (hasDecor('house', shells, width)) {
+    // Someone's home after dark: the window glows, and nothing moves.
+    const pane = tod === 'night' || tod === 'evening' ? '#F5D96A' : '#A9D6F5'
+    out.push(pixels(['.......rrr.......', '.....rrrrrrr.....', '...rrrrrrrrrrr...', '.rrrrrrrrrrrrrrr.', '..wwwwwwwwwwwww..', '..wwwwwwwdddwww..', '..wlllwwdddddww..', '..wlllwwdddddww..', '..wlllwwdddddww..', '..wwwwwwdddddww..', '..wwwwwwdddddww..', '..wwwwwwdddddww..', '.ggggggggggggggg.'], { r: '#C8553D', w: '#F0E2C4', d: '#8A5A2B', l: pane, g: '#8E929A' }, at.house - 8, g - 13))
   }
   if (hasDecor('palm', shells, width)) {
     const x = at.palm

@@ -39,7 +39,7 @@ export const rodSpots = (width: number, shore: number, count: number): { x: numb
 }
 
 /** Decor unlocked by the shell collection; narrow strips skip it. */
-export const DECOR = { palm: 5, chair: 10, lighthouse: 20 } as const
+export const DECOR = { palm: 5, chair: 10, house: 20 } as const
 export const ROOMY = 500
 export const hasDecor = (what: keyof typeof DECOR, shells: number, width: number): boolean => width >= ROOMY && shells >= DECOR[what]
 
@@ -55,7 +55,7 @@ export const spots = (width: number, shore = NO_CONTEXT_SHORE) => {
     pile: castle + 14,
     palm: Math.round(width * 0.22),
     chair: Math.round(width * 0.52),
-    lighthouse: Math.max(40, Math.round(width * 0.07)),
+    house: Math.max(40, Math.round(width * 0.07)),
     hasChair: Math.round(width * 0.52) + 12 < sea,
     hasPool: pool + 18 < sea,
     hasSeaweed: seaweed + 10 < sea,

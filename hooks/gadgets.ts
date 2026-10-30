@@ -642,7 +642,7 @@ const art = ([x, y, rows, cls]: Art): string => {
   return cls ? `<g class="${cls}">${rects}</g>` : rects
 }
 
-/** The car's headlights after dark: a fan of light from the nose, like the lighthouse's. */
+/** The car's headlights after dark: a fan of light from the nose. */
 const BEAM = '<polygon points="40,20 98,10 98,28" fill="#FFF3B0" opacity=".3"/>'
 
 export const gadgetOf = (costume: Costume, isDark = false): Gadget => {
