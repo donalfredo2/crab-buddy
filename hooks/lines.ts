@@ -79,7 +79,7 @@ const SIGNS: Record<SignKind, readonly string[]> = {
   mr: ['MR is open!', 'MR sent', 'MR out to sea'],
   merged: ['merged!', "it's in!", 'merged, party time'],
   green: ['green again!', 'back to green', 'phew, all green'],
-  context: ['tide at 85%', 'the sea is rising', 'high tide: /compact'],
+  context: ['high tide soon', 'the sea is rising', 'high tide: /compact'],
   compact: ['good moment: /compact', 'clean break: /compact', 'tide is high: /compact'],
   fish: ['caught! {time}', 'got one! {time}', 'fish on! {time}'],
   boot: ['old boot: it failed', 'a boot! it failed', 'no fish: it failed'],

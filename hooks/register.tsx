@@ -1,11 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PaneCloseInput, PluginOptions, Register, Timer } from 'claude-code'
 
-import type { Activity, Antic, Beach, BreakState, Bubble, CatchKind, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, SignKind, Tiredness, Weather, WeatherNow } from '../types'
+import type { Activity, Antic, Beach, BreakState, Bubble, CatchKind, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, SignKind, TideLines, Tiredness, Weather, WeatherNow } from '../types'
 import { reconcile, sameRods } from './fishing'
 import { FRESH_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, whereCrabIs } from './roam'
 import type { BeachRecord } from './roam'
-import { MAX_RODS, planOf, rideFits, shoreFrac, whereAt } from './life'
+import { MARK_TIDE, MAX_RODS, planOf, rideFits, shoreFrac, tideOf, whereAt } from './life'
 import type { LifeEvent } from './life'
 import { line, signLine, themeLine, themeName } from './lines'
 import type { Moment } from './lines'
@@ -25,7 +25,8 @@ const reaction = atom({ plugin: 'crab-buddy', key: 'reaction' } as const, null)
 const picked = atom({ plugin: 'crab-buddy', key: 'costume' } as const, null)
 const isHidden = atom({ plugin: 'crab-buddy', key: 'isHidden' } as const, false)
 const stats = atom({ plugin: 'crab-buddy', key: 'stats' } as const, { startedAt: 0, turns: 0, toolCalls: 0 })
-const contextPercent = atom({ plugin: 'crab-buddy', key: 'contextPercent' } as const, null)
+const tide = atom({ plugin: 'crab-buddy', key: 'tide' } as const, null)
+const tideLines = atom({ plugin: 'crab-buddy', key: 'tideLines' } as const, null)
 const contextWarned = atom({ plugin: 'crab-buddy', key: 'contextWarned' } as const, false)
 const contextHinted = atom({ plugin: 'crab-buddy', key: 'contextHinted' } as const, false)
 const logbook = atom({ plugin: 'crab-buddy', key: 'logbook' } as const, EMPTY_LOG)
@@ -65,9 +66,14 @@ const GREET_MS = 8000
 const IDLE_MS = 15 * MIN
 const AWAKE_MS = 10 * MIN
 const SNOOZE_MS = 30 * MIN
-const CONTEXT_WARN = 85
-/** From here a clean stop gets the good moment sign. */
-const COMPACT_HINT = 60
+const TIDE_SWEATY = 0.85
+const TIDE_WARN = 0.9
+/** Under this the warnings are ready to show again. */
+const TIDE_REARM = 0.4
+/** The engine compacts a conversation this big left idle for about 54 minutes. */
+const IDLE_MARK = 200_000
+/** The engine won't let its minimum go lower than this. */
+const IDLE_FLOOR = 100_000
 const SIGN_MS = 2 * MIN
 const CONTEXT_SIGN_MS = 10 * MIN
 const HELD_SIGN_MS = 7000
@@ -166,8 +172,10 @@ export const logShell = (log: Logbook, command: string, isError: boolean): Logbo
   return COMMIT.test(command) && !isError ? logCommit(next, commitTitle(command)) : next
 }
 
-export const tirednessOf = (percent: number | null): Tiredness =>
-  percent === null ? 'fresh' : percent >= 80 ? 'sweaty' : percent >= 50 ? 'tired' : 'fresh'
+export const tirednessOf = (level: number | null): Tiredness =>
+  level === null ? 'fresh' : level >= TIDE_SWEATY ? 'sweaty' : level >= MARK_TIDE ? 'tired' : 'fresh'
+
+export const fmtTokens = (tokens: number): string => `${Math.round(tokens / 1000)}k`
 
 export const fmtDuration = (ms: number): string => {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -403,7 +411,7 @@ async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms:
     mode: await desiredMode($), width: lastWidth, castle: tr.castle, shells: tr.shells, golden: tr.golden,
     food: n.food, fun: n.fun, energy: n.energy, timeOfDay: timeOfDay(hourOf(now)),
     weather: (await read($, weather))?.kind ?? 'clear',
-    shore: shoreFrac(await read($, contextPercent), new Date(now).getHours() + new Date(now).getMinutes() / 60),
+    shore: shoreFrac((await read($, tide))?.level ?? null, new Date(now).getHours() + new Date(now).getMinutes() / 60),
     ride: await wearing($),
     ...(hold ? { hold } : {}), ...(opts.first ? { first: opts.first } : {}), ...(opts.haul ? { haul: opts.haul } : {}), ...(opts.isLeaving ? { isLeaving: true } : {}), ...(poof ? { poof } : {}),
   }
@@ -790,30 +798,46 @@ async function snooze($: EngineInterface): Promise<void> {
   await maybeShift($)
 }
 
-// The context window's fill; the plain call is free. Warns once per session near the top.
+// Where compactions come for this window. The summary is counted locally and sends nothing.
+async function linesFor($: EngineInterface, window: number): Promise<NonNullable<TideLines>> {
+  const known = await read($, tideLines)
+  if (known?.window === window) return known
+  const counted = (await $.session.usage({ breakdown: 'summary' }).catch(() => null))?.context.breakdown
+  const isIdleOff = counted?.isAutoCompactEnabled === false || (await $.settings.read({ key: 'idleCompaction' }).catch(() => undefined)) === false
+  const minimum = Number(await $.env.get('CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS').catch(() => undefined))
+  const lines = { window, full: counted?.autoCompactThreshold ?? window, idleMark: isIdleOff ? null : minimum > 0 ? Math.max(IDLE_FLOOR, minimum) : IDLE_MARK }
+  await update($, tideLines, () => lines)
+  return lines
+}
+
+// The context as a tide; the plain call is free. Warns once per session near the top.
 async function refreshContext($: EngineInterface): Promise<void> {
-  let percent: number | null = null
-  try {
-    percent = (await $.session.usage()).context.percent ?? null
-  } catch {
+  const usage = await $.session.usage().catch(() => null)
+  if (!usage) return
+  const { tokens, percent, window } = usage.context
+  if (tokens === undefined) {
+    await update($, tide, () => null)
     return
   }
-  await update($, contextPercent, () => percent)
-  if (percent === null) return
-  if (percent < 50) {
+  const lines = await linesFor($, window)
+  // Idle compaction needs the one-hour cache. Limit windows are our stand-in for a subscription that has it.
+  const mark = usage.rateLimits.length ? lines.idleMark : null
+  const level = tideOf(tokens, lines.full, mark)
+  await update($, tide, t => (t?.tokens === tokens && t.mark === mark ? t : { tokens, level, mark }))
+  if (level < TIDE_REARM) {
     await update($, contextWarned, () => false)
     await update($, contextHinted, () => false)
-  } else if (percent >= CONTEXT_WARN && !(await read($, contextWarned))) {
+  } else if (level >= TIDE_WARN && !(await read($, contextWarned))) {
     await update($, contextWarned, () => true)
-    if (await read($, areSignsOff)) $.ui.toast(`Context is ${Math.round(percent)}% full. A fresh session soon would help.`)
+    if (await read($, areSignsOff)) $.ui.toast(`Context is ${Math.round(percent ?? 0)}% full. A fresh session soon would help.`)
     else await plantSign($, 'context', CONTEXT_SIGN_MS)
   }
 }
 
 // /compact has to wait for the turn to end, so this runs then. Once per fill.
 async function hintCompact($: EngineInterface): Promise<void> {
-  const percent = await read($, contextPercent)
-  if (percent === null || percent < COMPACT_HINT || (await read($, contextHinted))) return
+  const level = (await read($, tide))?.level ?? null
+  if (level === null || level < MARK_TIDE || (await read($, contextHinted))) return
   await update($, contextHinted, () => true)
   if (await read($, areSignsOff)) await say($, 'compact', true)
   else await plantSign($, 'compact', SIGN_MS)
@@ -969,13 +993,14 @@ async function view($: EngineInterface, isWorking: boolean): Promise<View> {
   const costume: Costume = isCostume(choice) ? choice : wornAt(now, w?.kind)
   const sky = skyFor(now, w?.kind ?? 'clear', w?.isWindy ?? false)
   const hour = date.getHours() + date.getMinutes() / 60
-  const pct = await read($, contextPercent)
-  const ctxTired = tirednessOf(pct)
+  const water = await read($, tide)
+  const ctxTired = tirednessOf(water?.level ?? null)
   const tiredness: Tiredness = ctxTired === 'fresh' && isSleepy(n) ? 'tired' : ctxTired
   const look: CrabLook = { tiredness, isGrumpy: petMood(n) === 'grumpy', isHungry: isHungry(n), hasNightcap: tod === 'night' && mood === 'nap' }
   const s = await read($, stats)
   const name = await read($, petName)
-  const summary = `${fmtDuration(now - (s.startedAt || now))} · ${s.turns} turns · ${s.toolCalls} tool calls${pct === null ? '' : ` · context ${Math.round(pct)}%`}`
+  const isPastMark = !!water && water.mark !== null && water.tokens >= water.mark
+  const summary = `${fmtDuration(now - (s.startedAt || now))} · ${s.turns} turns · ${s.toolCalls} tool calls${water ? ` · context ${fmtTokens(water.tokens)}${isPastMark ? ', past the mark' : ''}` : ''}`
   const heldNow = heldSign(seg, now) ?? (await breakSign($, now, seg))
   const sign = away ? null : heldNow
   const plantedNow = await read($, plantedSign)
@@ -983,7 +1008,7 @@ async function view($: EngineInterface, isWorking: boolean): Promise<View> {
   // With no crab to hold it, news stands in the sand; otherwise the sand says where it went.
   const planted = (away ? heldNow : null) ?? (plantedNow && plantedNow.until > now ? plantedNow.text : null) ?? (signsOn ? (away ?? (await read($, roamNote))) : null)
   const lines = (await read($, rods)).length
-  const beach: Beach = { ...(sign ? { sign } : {}), ...(planted ? { planted } : {}), ...((await read($, bottleUntil)) > now ? { hasBottle: true } : {}), ...(lines ? { rods: Math.min(MAX_RODS, lines) } : {}) }
+  const beach: Beach = { ...(sign ? { sign } : {}), ...(planted ? { planted } : {}), ...((await read($, bottleUntil)) > now ? { hasBottle: true } : {}), ...(lines ? { rods: Math.min(MAX_RODS, lines) } : {}), ...(typeof water?.mark === 'number' ? { hasMark: true } : {}) }
   const extra = [tiredness === 'fresh' ? '' : tiredness, look.isGrumpy ? 'grumpy' : '', look.isHungry ? 'hungry' : '', sign ? `holding up a sign saying ${sign}` : '', planted ? `beside a sign saying ${planted}` : '', lines ? `${lines} fishing ${lines === 1 ? 'line' : 'lines'} out` : ''].filter(Boolean)
   const alt = away
     ? `${name}'s beach, empty: ${name} is ${away}${planted && planted !== away ? `, a sign saying ${planted}` : ''}${lines ? `, ${lines} fishing ${lines === 1 ? 'line' : 'lines'} out` : ''}`
@@ -1248,6 +1273,12 @@ export const register: Register = (on, options) => {
     } else {
       lookAtLines($)
     }
+    return next(e)
+  })
+
+  // Fires during a turn too, so a long turn raises the tide; the sea shows it from the next segment.
+  on('session.measure', async ($, e, next) => {
+    await refreshContext($)
     return next(e)
   })
 

@@ -6,7 +6,7 @@ import type { Rod, Segment } from '../types'
 import { reconcile, sameRods } from './fishing'
 import { ACTIVE_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, whereCrabIs } from './roam'
 import type { BeachRecord } from './roam'
-import { MAX_RODS, RIDES, activityStarts, hasDecor, plan, planOf, rideFits, rodSpots, shoreFrac, spots, trackSpan, whereAt, xOf } from './life'
+import { MARK_SHORE, MARK_TIDE, MAX_RODS, RIDES, activityStarts, hasDecor, plan, planOf, rideFits, rodSpots, shoreFrac, spots, tideOf, trackSpan, whereAt, xOf } from './life'
 
 import { line, signLine, themeLine, themeName } from './lines'
 import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
@@ -43,7 +43,7 @@ const TURN = { answer: 'hi', durationMs: 1000, isAborted: false, turnId: 't1' } 
 
 // Stands for the engine beneath the plugin, recording toasts and sounds.
 // A blit is denied unless a test says a terminal beach stays mounted, as after an unmount.
-function engine(on: On, ctx: { percent: number | null; isPlaced?: boolean; isBlitOk?: boolean } = { percent: null }) {
+function engine(on: On, ctx: { percent: number | null; isPlaced?: boolean; isBlitOk?: boolean; full?: number; isOnPlan?: boolean; idleSetting?: boolean } = { percent: null }) {
   const isPlaced = ctx.isPlaced ?? true
   const toasts: string[] = []
   const sounds: unknown[] = []
@@ -55,7 +55,18 @@ function engine(on: On, ctx: { percent: number | null; isPlaced?: boolean; isBli
   on('turn.complete', () => ({ text: '' }))
   on('command.run', () => ({ text: '' }))
   on('prompt.submit', (_, e) => ({ text: e.text }) as never)
-  on('session.usage', () => ({ value: { startedAt: T0, context: { window: 1_000_000, percent: ctx.percent ?? undefined }, rateLimits: [] } }) as never)
+  on('session.usage', (_, e) => ({
+    value: {
+      startedAt: T0,
+      context: {
+        window: 1_000_000,
+        ...(ctx.percent === null ? {} : { percent: ctx.percent, tokens: ctx.percent * 10_000 }),
+        ...((e as { breakdown?: string }).breakdown && ctx.full ? { breakdown: { autoCompactThreshold: ctx.full, isAutoCompactEnabled: true } } : {}),
+      },
+      rateLimits: ctx.isOnPlan ? [{ kind: 'five_hour', percentUsed: 18 }] : [],
+    },
+  }) as never)
+  on('settings.read', () => ({ value: { idleCompaction: ctx.idleSetting } }) as never)
   on('ui.toast', (_, e) => {
     toasts.push(e.text)
     return { value: undefined }
@@ -315,9 +326,10 @@ test('the sky draws weather, seasons and holidays, staying small', () => {
 
 test('the sea creeps up the beach as the context fills, and the crab stays on the sand', () => {
   expect(Math.abs(shoreFrac(null, 0) - 0.92)).toBeLessThan(0.03)
-  expect(Math.abs(shoreFrac(85, 0) - 0.45)).toBeLessThan(0.03)
-  expect(shoreFrac(100, 0)).toBe(shoreFrac(85, 0))
-  expect(shoreFrac(50, 0)).toBeLessThan(shoreFrac(10, 0))
+  expect(Math.abs(shoreFrac(1, 0) - 0.45)).toBeLessThan(0.03)
+  expect(shoreFrac(2, 0)).toBe(shoreFrac(1, 0))
+  expect(shoreFrac(0.5, 0)).toBeLessThan(shoreFrac(0.1, 0))
+  expect(Math.abs(shoreFrac(MARK_TIDE, 0) - MARK_SHORE)).toBeLessThan(0.03)
   for (const seed of SEEDS) {
     const shore = 0.5
     const pl = plan(seg({ seed, shore, startP: 0.95 }))
@@ -603,6 +615,75 @@ test('a subagent finishing does not make it cheer or wave', async ($, on) => {
   expect(toasts).toEqual([])
 })
 
+test('the tide takes half the beach to the mark, then the rest to the line where it compacts', () => {
+  expect(tideOf(0, 967_000, 200_000)).toBe(0)
+  expect(tideOf(100_000, 967_000, 200_000)).toBe(0.25)
+  expect(tideOf(200_000, 967_000, 200_000)).toBe(MARK_TIDE)
+  expect(tideOf(583_500, 967_000, 200_000)).toBe(0.75)
+  expect(tideOf(967_000, 967_000, 200_000)).toBe(1)
+  expect(tideOf(1_200_000, 967_000, 200_000)).toBe(1)
+})
+
+test('with no mark, or one past the line, the tide runs straight', () => {
+  expect(tideOf(483_500, 967_000, null)).toBe(0.5)
+  expect(tideOf(83_500, 167_000, 200_000)).toBe(0.5)
+  expect(tideOf(5, 0, null)).toBe(1)
+})
+
+test('on a plan the mark shows, the crab tires there, and /crab stats says so', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx = { percent: 19 as number | null, full: 967_000, isOnPlan: true }
+  engine(on, ctx)
+  await start($)
+  expect((await band($)).source).toContain('#4C8A5B')
+  expect(await alt($)).not.toMatch(/tired/)
+  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 190k · food/)
+
+  ctx.percent = 38
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await alt($)).toMatch(/tired/)
+  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 380k, past the mark · food/)
+  ctx.percent = 96.7
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect(await alt($)).toMatch(/sweaty/)
+  expect(await alt($)).toMatch(/beside a sign saying/)
+})
+
+test('no mark off a plan or with idle compaction off', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx = { percent: 30 as number | null, full: 967_000, isOnPlan: false, idleSetting: undefined as boolean | undefined }
+  engine(on, ctx)
+  await start($)
+  expect((await band($)).source).not.toContain('#4C8A5B')
+  expect(await alt($)).not.toMatch(/tired/)
+  ctx.isOnPlan = true
+  await $.turn.complete({ ...TURN, reason: 'answer' })
+  expect((await band($)).source).toContain('#4C8A5B')
+})
+
+test('with idle compaction off in the settings there is no mark, even on a plan', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on, { percent: 30, full: 967_000, isOnPlan: true, idleSetting: false })
+  await start($)
+  expect((await band($)).source).not.toContain('#4C8A5B')
+  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 300k · food/)
+})
+
+test('a measurement during a turn raises the tide', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx = { percent: 10 as number | null, full: 967_000, isOnPlan: true }
+  engine(on, ctx)
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  await start($)
+  ctx.percent = 40
+  await $.session.measure({ context: { window: 1_000_000 }, rateLimits: [], changed: ['context'] })
+  expect(await alt($)).toMatch(/tired/)
+})
+
 test('the crab tires as context fills, and warns once near the top', async ($, on) => {
   mock.clock(on, { now: T0 })
   mock.store(on)
@@ -708,7 +789,7 @@ test('no info or home buttons; /crab stats still reports the session', async ($,
     expect(await ui.find({ key: 'crab-feed' })).toBeDefined()
     await ui.unmount()
   }
-  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/1 turns · 1 tool calls · context 37% · food \d+/)
+  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/1 turns · 1 tool calls · context 370k · food \d+/)
   expect(JSON.stringify(await crab($, 'home'))).toMatch(/Unknown option/)
 })
 
@@ -1548,7 +1629,7 @@ test('a precompute gets the note, but nothing has washed up yet', async ($, on) 
   expect((await band($)).source).not.toMatch(/class="btl"/)
 })
 
-test('a clean stop past 60% plants the sign once, and it re-arms when the context drops', async ($, on) => {
+test('a clean stop past the mark plants the sign once, and it re-arms when the context drops', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const ctx = { percent: 70 as number | null }
@@ -1575,10 +1656,10 @@ test('a clean stop past 60% plants the sign once, and it re-arms when the contex
   expect(await hasSign()).toBe(true)
 })
 
-test('no sign below 60%, after a later edit, or on a failing test', async ($, on) => {
+test('no sign below the mark, after a later edit, or on a failing test', async ($, on) => {
   mock.clock(on, { now: T0 })
   mock.store(on)
-  const ctx = { percent: 59 as number | null }
+  const ctx = { percent: 49 as number | null }
   engine(on, ctx)
   shell(on)
   await start($)
@@ -1911,11 +1992,11 @@ test('signs show on every drawn beach, the words on a plank', () => {
   const cells = decodeCells(beachCells({ ...base, beach: { sign: 'pushed!' } }))
   const text = Array.from({ length: cells.length / 3 }, (_, i) => String.fromCodePoint(cells[i * 3] ?? 32)).join('')
   expect(text).toContain('pushed!')
-  const planted = decodeCells(beachCells({ ...base, beach: { planted: 'tide at 85%' } }))
-  expect(Array.from({ length: planted.length / 3 }, (_, i) => String.fromCodePoint(planted[i * 3] ?? 32)).join('')).toContain('tide at 85%')
+  const planted = decodeCells(beachCells({ ...base, beach: { planted: 'high tide soon' } }))
+  expect(Array.from({ length: planted.length / 3 }, (_, i) => String.fromCodePoint(planted[i * 3] ?? 32)).join('')).toContain('high tide soon')
   const svg = { width: 800, costume: 'plain' as const, look: {}, timeOfDay: 'day' as const, bubble: null, now: T0, seg: seg(), prop: null, sky: skyFor(T0), work: [], hour: 12 }
   expect(sceneSvg({ ...svg, beach: { sign: 'a & b' } })).toContain('a &amp; b')
-  expect(sceneSvg({ ...svg, beach: { planted: 'tide at 85%' } })).toContain('tide at 85%')
+  expect(sceneSvg({ ...svg, beach: { planted: 'high tide soon' } })).toContain('high tide soon')
   expect(sceneSvg({ ...svg, bubble: 'hi', beach: { sign: 'hidden' } })).not.toContain('hidden')
 })
 
@@ -2324,5 +2405,6 @@ test('the bottle and sign show on the terminal beach too', () => {
   const base = { columns: 80, rows: 3, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
   const plain = beachPixels(base).px
   expect(beachPixels({ ...base, beach: { hasBottle: true } }).px).not.toEqual(plain)
+  expect(beachPixels({ ...base, beach: { hasMark: true } }).px).not.toEqual(plain)
   expect(beachPixels({ ...base, beach: { planted: 'clean break: /compact' } }).px).not.toEqual(plain)
 })

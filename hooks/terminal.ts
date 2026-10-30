@@ -4,7 +4,7 @@
 // Empty cells keep the terminal's own colours, so it stays see-through.
 
 import type { Beach, Segment, TimeOfDay } from '../types'
-import { CRAB_W, MAX_RODS, NO_CONTEXT_SHORE, isWalking, planOf, whereAt, xOf } from './life'
+import { CRAB_W, MARK_SHORE, MAX_RODS, NO_CONTEXT_SHORE, isWalking, planOf, whereAt, xOf } from './life'
 import { moonLit } from './sky'
 import type { Sky } from './sky'
 import { CLAY } from './sprites'
@@ -124,6 +124,11 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   for (let x = 0; x < W; x++) put(x, G, x < shore ? '#D9C08A' : x === shore ? '#FFFFFF' : '#4FA3CC')
   for (let x = shore + 2; x < W; x++) put(x, G - 1, '#8FCFE6')
   const onSand = (x: number) => x < shore - 1
+  if (t.beach?.hasMark) {
+    put(Math.round(W * MARK_SHORE) - 1, G - 1, '#4C8A5B')
+    put(Math.round(W * MARK_SHORE), G - 1, '#F4F3EE')
+    put(Math.round(W * MARK_SHORE) + 1, G - 1, '#4C8A5B')
+  }
 
   // Home shell, the pile of shells it found, castle, pebble, seaweed.
   put(1, G - 1, '#F2B8A0')

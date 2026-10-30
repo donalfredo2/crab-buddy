@@ -41,7 +41,15 @@ export type Beach = {
   hasBottle?: boolean
   /** Rods planted at the water's edge, one for each subagent out. */
   rods?: number
+  /** The wrack on the sand: past it, a long break can compact. */
+  hasMark?: boolean
 }
+
+/** The context as a tide. `level` runs 0 to 1, see tideOf; `mark` is null where there is none. */
+export type Tide = { tokens: number; level: number; mark: number | null } | null
+
+/** Where compactions come, read once for a window: the engine's line, and the idle one if it's on. */
+export type TideLines = { window: number; full: number; idleMark: number | null } | null
 
 /** A running subagent's line in the water. */
 export type Rod = { id: string; description: string }
@@ -112,7 +120,7 @@ export type Needs = {
 /** A speech bubble; `until` is ms since the epoch. */
 export type Bubble = { text: string; until: number } | null
 
-/** How full the context window is: under 50%, 50-80%, 80% and up. */
+/** How high the tide is: below the mark, past it, near the top. */
 export type Tiredness = 'fresh' | 'tired' | 'sweaty'
 
 /** A short reaction; `until` is ms since the epoch. */
@@ -154,8 +162,9 @@ declare module 'claude-code' {
       costume: string | null
       isHidden: boolean
       stats: Stats
-      /** The context window's fill, 0-100; null when unknown. */
-      contextPercent: number | null
+      /** The context as a tide; null when unknown, as just after a compaction. */
+      tide: Tide
+      tideLines: TideLines
       /** The context fill already warned about this session. */
       contextWarned: boolean
       /** The good moment to compact was already signed at this fill. */

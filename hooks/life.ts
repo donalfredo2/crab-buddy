@@ -18,15 +18,31 @@ export const xOf = (p: number, width: number): number => TRACK_MIN + clamp01(p) 
 const pOf = (x: number, width: number): number => clamp01((x - TRACK_MIN) / trackSpan(width))
 
 export const NO_CONTEXT_SHORE = 0.92
+// How far up the beach the sea comes, as a fraction of the width.
+const SEA_RUN = 0.47
+/** A tide at the mark: the first half of the sea's run is the way there. */
+export const MARK_TIDE = 0.5
+/** Where the mark lies on the sand. */
+export const MARK_SHORE = NO_CONTEXT_SHORE - SEA_RUN * MARK_TIDE
+
+/**
+ * How full the tide is, 0 to 1. `full` is where the engine compacts; `mark` is where a
+ * long break can compact, and it takes half the beach, because that's where real
+ * sessions spend their time. No mark, or one past `full`: a straight run.
+ */
+export const tideOf = (tokens: number, full: number, mark: number | null): number => {
+  if (mark === null || mark >= full) return clamp01(tokens / Math.max(1, full))
+  if (tokens < mark) return (MARK_TIDE * tokens) / Math.max(1, mark)
+  return MARK_TIDE + (1 - MARK_TIDE) * clamp01((tokens - mark) / (full - mark))
+}
 
 /**
  * Where the sea starts, as a fraction of the width: far out with a fresh context,
- * creeping up the beach to just past the castle at 85%, with a small tide on top.
+ * creeping up the beach to just past the castle at a full tide, with a small tide on top.
  */
-export const shoreFrac = (percent: number | null, hour: number): number => {
-  const fill = Math.max(0, Math.min(85, percent ?? 0)) / 85
+export const shoreFrac = (level: number | null, hour: number): number => {
   const tide = 0.02 * Math.sin((2 * Math.PI * hour) / 12.42)
-  return Math.max(0.43, Math.min(0.94, NO_CONTEXT_SHORE - fill * 0.47 + tide))
+  return Math.max(0.43, Math.min(0.94, NO_CONTEXT_SHORE - clamp01(level ?? 0) * SEA_RUN + tide))
 }
 
 /** The most rods drawn; any more only show in the words. */

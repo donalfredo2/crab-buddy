@@ -10,7 +10,7 @@ A tiny pixel crab that lives on a beach above your Claude Code prompt. It has a 
 
 - **Lives its own life.** It strolls, digs, builds a sandcastle, collects shells, chases butterflies, and now and then turns to look at you.
 - **Watches Claude work.** It holds a hammer for edits, a scroll for reading and binoculars for the web. Commits get fireworks, failing tests a storm cloud, long tasks a "done!" plane.
-- **Shows your context.** The sea creeps up the beach as the context window fills.
+- **Shows your context.** The sea creeps up the beach as the context fills, toward where Claude really compacts.
 - **Has a real sky.** Sunrise and sunset, the actual moon phase, seasons, holidays and, if you like, your local weather.
 - **Goes between your windows, if you like.** One crab for all your sessions: it follows you and runs to a window that finishes.
 - **Goes fishing.** Every subagent is a rod on the shore: a fish when it finishes, an old boot when it fails.
@@ -51,7 +51,7 @@ The crab has a little beach: sand with its home shell, a pile of the shells it h
 - **Sky:** a sun by day, a sunset glow from 18:00, drifting clouds, and at night stars, shooting stars and the moon in its real phase. Fireflies come out on warm nights and the tide pool glows.
 - **Seasons and holidays:** leaves blow by in autumn and snow lies in winter. On Halloween it wears a ghost sheet among pumpkins and a bat, at Christmas a Santa hat beside a tiny tree, and at New Year there are fireworks.
 - **Weather:** with a place set (see Settings), the real local weather shows: rain (it carries a tiny umbrella), snow, storms with the odd flash, fog, and wind that bends the seaweed.
-- **The sea shows your context:** the shoreline creeps up the beach as the context window fills, to just past the castle at 85%, with a small tide on top.
+- **The sea shows your context:** the shoreline creeps up the beach as the context fills, to just past the castle at the point Claude compacts, with a small tide on top. See [The tide](#the-tide).
 - **Each costume has its beach:** a treasure chest and shipwreck for the pirate, craters and the Earth for the astronaut, a BBQ for the chef, cones and a crane for the engineer, a surfboard and beach ball for the surfer, fins and a buoy for the diver, a longship for the viking, a tower for the wizard, speakers and decks for the DJ, a beer table and flags for Oktoberfest, a finish flag for the racer, a magnifier and question marks for the detective.
 - **Each costume has its gadget:** every so often it takes it out, about every 11 minutes, and `/crab ride` sends it off right away. A low sports car for the racer (headlights on after dark), a longship for the viking, a digger for the engineer, a food cart for the chef, a skateboard when it's plain, a newspaper to hide behind for the detective, a barrel to balance on at Oktoberfest, a paper boat in the rain, a sedan chair carried by two friends for the king, a broom for the wizard, a sleigh for Santa, a pumpkin lantern for the ghost, a rocket for the astronaut, a wave for the surfer, a mini-sub for the diver, decks and a disco ball for the DJ, a cannon for the pirate.
 - **Shells unlock decor:** a palm tree at 5, a deck chair and umbrella at 10 (it sunbathes there), a little house at 20, its window lit after dark. Very rarely it finds a golden shell.
@@ -87,7 +87,7 @@ Food and Fun fade 5 points an hour, counted only while a session is open. When t
 ## What it tells you
 
 - **Long task done**: a turn of 2 minutes or more ends with a wave, a sign, a toast and a short chirp.
-- **Context filling up**: half-lidded and slower from 50%, sweating from 80%, and a sign in the sand at 85%.
+- **Context filling up**: half-lidded and slower past the mark, sweating near the top, and a sign in the sand just before Claude would compact.
 - **Commits, tests, builds**: confetti, sunglasses, or a nervous shiver. Results are never changed.
 - **Breaks**: after 90 minutes of continuous work it stretches and holds up a coffee sign, and twice that earns a walk; Snooze adds 30 minutes.
 - **Speech bubbles**: short canned lines at moments that matter, at most one unprompted line every 15 minutes (`rare`) or 5 (`often`). Your own care actions always get a reply.
@@ -97,7 +97,20 @@ Food and Fun fade 5 points an hour, counted only while a session is open. When t
 The crab logs the session's work as it happens: files changed since the last commit, including by subagents, the last test and build results, and recent commits. Keeping the log costs nothing. `/crab log` shows it.
 
 - **The bottle:** before each compaction the log goes to the summarizer, as a note of up to 600 characters asking it to keep those facts. A bottle then washes up at the waterline. This is the one thing the mod adds to what Claude reads, so it costs a few tokens and it's disclosed here. It's on by default, and `/crab log off` turns it off. The summarizer can still leave things out, so it improves the odds and guarantees nothing.
-- **The good moment sign:** when a turn ends on a commit or passing tests with the context at 60% or more, the crab plants a sign. The work is at a clean break, so it's a good moment to `/compact`. It shows once, and again once the context has dropped below 50% and filled back up.
+- **The good moment sign:** when a turn ends on a commit or passing tests with the tide past the mark, the crab plants a sign. The work is at a clean break, so it's a good moment to `/compact`. It shows once, and again once the sea has gone well back and come in again.
+
+## The tide
+
+The sea measures against where Claude really compacts, read from Claude Code itself, not a fixed percentage. On a large context window two lines matter:
+
+- **The top of the beach** is where Claude compacts on its own, close to the end of the window.
+- **The mark**, a line of seaweed and shell on the sand, sits at 200k tokens. Claude Code compacts a conversation that size or bigger once it has been idle for about 54 minutes, before its prompt cache expires. So past the mark, a long break can bring a compaction with it.
+
+The way to the mark takes up half the beach, because that's where most long sessions spend their time. Once the sea passes it, the mark still shows through the water.
+
+To pick the moment yourself, `/compact` at the good moment sign before you step away. To turn idle compaction off, set `"idleCompaction": false` in your Claude Code settings; the mark goes too, from your next session. Without it, coming back after an hour makes Claude re-read the whole conversation, which costs more of your usage. `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` moves the minimum, and the mark follows it.
+
+The mark only shows on a subscription: that's the crab's stand-in for the one-hour cache idle compaction needs, so it can be wrong. Without one, or with a small context window, the sea runs in a straight line to the top.
 
 ## One crab, many beaches
 
@@ -123,7 +136,7 @@ News goes on a plank, one sign at a time, about 7 seconds each. Bubbles are the 
 
 - **Held up:** task done, with how long it took. Committed, pushed, PR or MR opened, merged. Green again, when tests pass after a failure. Plain test passes get no sign.
 - **Coffee, then a walk:** held up from home while the break is due.
-- **Planted in the sand:** the good moment to `/compact`, and the sea reaching 85%. They stay up for a while, and the crab carries on.
+- **Planted in the sand:** the good moment to `/compact`, and the sea nearly at the top. They stay up for a while, and the crab carries on.
 
 Signs wait in line if several arrive together, and your message clears the line. Your care actions always get their answer. It sees `git`, `gh` and `glab` commands, and connected tools that create or merge a PR or MR. `/crab signs off` goes back to bubbles and toasts; `/crab bubbles off` leaves signs on.
 

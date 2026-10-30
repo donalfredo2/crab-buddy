@@ -4,7 +4,7 @@
 // wall clock, so a redraw picks up the segment where it was instead of starting over.
 
 import type { Beach, Pose, Prop, Segment, TimeOfDay } from '../types'
-import { CRAB_W, MAX_CASTLE, NO_CONTEXT_SHORE, ROOMY, hasDecor, isWalking, planOf, rodSpots, spots, whereAt, xOf } from './life'
+import { CRAB_W, MARK_SHORE, MAX_CASTLE, NO_CONTEXT_SHORE, ROOMY, hasDecor, isWalking, planOf, rodSpots, spots, whereAt, xOf } from './life'
 import type { Plan } from './life'
 import { moonLit } from './sky'
 import type { Sky } from './sky'
@@ -408,7 +408,14 @@ const heldSvg = (text: string, poleX: number): string =>
 const bottleSvg = (x: number, now: number): string =>
   `<g class="btl" style="${wall(now, 3)}" shape-rendering="crispEdges"><rect x="${x}" y="${GROUND - 3}" width="6" height="3" fill="#6FB98F"/><rect x="${x + 1}" y="${GROUND - 2}" width="3" height="1" fill="#F4F3EE"/><rect x="${x + 6}" y="${GROUND - 2}" width="2" height="1" fill="#6FB98F"/><rect x="${x + 8}" y="${GROUND - 2}" width="1" height="1" fill="#A0703F"/></g>`
 
-const habitat = (width: number, tod: TimeOfDay, sky: Sky, shore: number, now: number, costume: Costume, shells: number): string => {
+// The wrack the last high tide left: past it, a long break can compact. It lies still,
+// and over the sea too, so a covered mark still reads as passed.
+const wrackSvg = (width: number): string => {
+  const x = Math.round(width * MARK_SHORE)
+  return `<g shape-rendering="crispEdges"><rect x="${x - 9}" y="${GROUND - 1}" width="6" height="2" fill="#4C8A5B"/><rect x="${x - 6}" y="${GROUND - 2}" width="2" height="1" fill="#6FB98F"/><rect x="${x - 2}" y="${GROUND - 1}" width="3" height="2" fill="#F4F3EE"/><rect x="${x + 2}" y="${GROUND - 1}" width="7" height="2" fill="#4C8A5B"/><rect x="${x + 5}" y="${GROUND - 2}" width="2" height="1" fill="#6FB98F"/></g>`
+}
+
+const habitat = (width: number, tod: TimeOfDay, sky: Sky, shore: number, now: number, costume: Costume, shells: number, hasMark: boolean): string => {
   const at = spots(width, shore)
   const pebbles = [0.18, 0.53, 0.72, 0.96].map((p, i) => `<ellipse class="peb" cx="${Math.round(width * p)}" cy="${GROUND + 1.2}" rx="${1.6 + (i % 2)}" ry="1.1"/>`).join('')
   const weed = [0, 4, 8]
@@ -418,7 +425,7 @@ const habitat = (width: number, tod: TimeOfDay, sky: Sky, shore: number, now: nu
   const pool = !at.hasPool ? '' : `${glow}<ellipse class="pool" cx="${at.pool}" cy="${GROUND + 2}" rx="14" ry="2.2"/><rect class="shim" x="${at.pool - 6}" y="${GROUND + 1.4}" width="4" height=".6" fill="#fff" opacity=".7"/><rect class="shim tw2" x="${at.pool + 3}" y="${GROUND + 2.4}" width="3" height=".6" fill="#fff" opacity=".6"/>`
   const snowy = sky.season === 'winter' || sky.weather === 'snow'
   const snow = snowy ? `<rect class="snowl" x="0" y="${GROUND - 0.8}" width="${width}" height="2" rx="1"/>${Array.from({ length: Math.floor(width / 60) }, (_, i) => `<ellipse class="snowl" cx="${i * 60 + 23}" cy="${GROUND - 0.6}" rx="5" ry="1.4"/>`).join('')}` : ''
-  return `<rect class="sand" x="0" y="${GROUND}" width="${width}" height="${SCENE_H - GROUND}" rx="2"/><rect class="sand2" x="0" y="${GROUND}" width="${width}" height="1"/>${snow}${pool}${pebbles}${weed}${sea(width, at.sea, now)}${holidayDecor(width, tod, sky)}${sky.holiday ? '' : costumeBeach(costume, width, at.sea, now)}${unlocked(width, tod, shells, at.sea)}`
+  return `<rect class="sand" x="0" y="${GROUND}" width="${width}" height="${SCENE_H - GROUND}" rx="2"/><rect class="sand2" x="0" y="${GROUND}" width="${width}" height="1"/>${snow}${pool}${pebbles}${weed}${sea(width, at.sea, now)}${hasMark ? wrackSvg(width) : ''}${holidayDecor(width, tod, sky)}${sky.holiday ? '' : costumeBeach(costume, width, at.sea, now)}${unlocked(width, tod, shells, at.sea)}`
 }
 
 const bubbleSvg = (text: string): { svg: string; width: number } => {
@@ -682,7 +689,7 @@ export const sceneSvg = (s: SceneInput): string => {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" ${fit}><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
-<g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells)}${footprints(pl, width, elapsed)}
+<g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells, !!s.beach?.hasMark)}${footprints(pl, width, elapsed)}
 <g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
 <g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
 ${isGone ? '' : `<ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>`}
