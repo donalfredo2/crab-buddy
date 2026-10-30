@@ -7,6 +7,7 @@ export type Moment =
   | 'long' | 'commit' | 'testsFail' | 'testsPass' | 'hungry' | 'sleepy' | 'morning' | 'late'
   | 'fed' | 'played' | 'petted' | 'full' | 'tired' | 'pettedAgain' | 'named' | 'grumpy'
   | 'muse' | 'aware' | 'butterfly' | 'neighbour' | 'hic' | 'sky' | 'found' | 'built' | 'peek' | 'friend' | 'golden'
+  | `ride-${Costume}`
 
 const LINES: Record<Moment, readonly string[]> = {
   long: ['phew, {time}!', 'that was a big one', 'done! {time} well spent', 'ta-da, all done'],
@@ -36,6 +37,23 @@ const LINES: Record<Moment, readonly string[]> = {
   peek: ['what do these do?', 'buttons…', 'shall I press one?'],
   friend: ['buddy!', 'you came!', 'best friends'],
   golden: ['a GOLDEN shell!', 'jackpot!', 'so shiny!!'],
+  'ride-racer': ['vroom!', 'pit stop? never', 'new lap record'],
+  'ride-viking': ['row, row, row', 'to Valhalla!', 'land ho… oh, it is land'],
+  'ride-engineer': ['digging it', 'mind the bucket', 'structurally sound'],
+  'ride-chef': ['fresh shrimp!', 'hot food, coming through', 'order up!'],
+  'ride-plain': ['kickflip!', 'wheee', 'look, no claws'],
+  'ride-detective': ['nothing to see here', 'just reading…', 'I see everything'],
+  'ride-oktoberfest': ['steady… steady…', 'prost!', 'whoa, barrel'],
+  'ride-raincoat': ['smooth sailing', 'paper holds… for now', 'ahoy, puddle'],
+  'ride-king': ['to the throne!', 'onward, loyal subjects', 'carry on'],
+  'ride-wizard': ['up, up!', 'no brakes on this broom', 'abraca-zoom'],
+  'ride-santa': ['ho ho ho!', 'on we go!', 'gifts for everyone'],
+  'ride-ghost': ['boooo', 'just passing through', 'wooOOOooo'],
+  'ride-astronaut': ['liftoff!', '3, 2, 1…', 'see you up there'],
+  'ride-surfer': ['cowabunga!', 'surf is up', 'hang ten, all ten'],
+  'ride-diver': ['periscope up', 'dive, dive!', 'all quiet down here'],
+  'ride-dj': ['drop the beat', 'this one is for the shells', 'hands in the air, claws too'],
+  'ride-pirate': ['fire!', 'BOOM', 'warning shot, matey'],
 }
 
 export const line = (moment: Moment, seed: number, vars: { name: string; time?: string }): string => {

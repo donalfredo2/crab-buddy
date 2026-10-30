@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PaneCloseInput, PluginOptions, Register, Timer } from 'claude-code'
 
 import type { Activity, Antic, BreakState, Bubble, LifeMode, Mood, Needs, Pose, Prop, ReactionMood, Segment, Tiredness, Weather, WeatherNow } from '../types'
-import { planOf, shoreFrac, whereAt } from './life'
+import { planOf, rideFits, shoreFrac, whereAt } from './life'
 import type { LifeEvent } from './life'
 import { line, themeLine, themeName } from './lines'
 import type { Moment } from './lines'
@@ -79,7 +79,7 @@ const ACT_WORD: Partial<Record<Activity, string>> = {
   lookAround: 'looking around', gaze: 'looking at you', peek: 'peeking at the buttons', muse: 'thinking', dig: 'digging',
   forage: 'looking for shells', kick: 'kicking a pebble', inspect: 'checking its shell', hide: 'hiding in a shell',
   sway: 'swaying with the seaweed', sunbathe: 'sunbathing', butterfly: 'chasing a butterfly', seagull: 'ducking from a seagull',
-  fish: 'watching a fish', neighbour: 'saying hi to a neighbour', yawn: 'yawning', sneeze: 'sneezing', hiccup: 'hiccuping',
+  ride: 'out on its gadget', fish: 'watching a fish', neighbour: 'saying hi to a neighbour', yawn: 'yawning', sneeze: 'sneezing', hiccup: 'hiccuping',
   skywatch: 'watching the sky', dance: 'dancing', build: 'building its sandcastle', tidy: 'tidying up the work pile', friend: 'playing with its friend',
 }
 
@@ -220,6 +220,12 @@ async function todays($: EngineInterface): Promise<Costume> {
   return wornAt(await $.clock.now(), (await read($, weather))?.kind)
 }
 
+/** What it has on: the one you picked, else today's. */
+async function wearing($: EngineInterface): Promise<Costume> {
+  const choice = await read($, picked)
+  return isCostume(choice) ? choice : todays($)
+}
+
 async function react($: EngineInterface, mood: ReactionMood, ms = REACT_MS, first?: Activity): Promise<void> {
   const until = (await $.clock.now()) + ms
   await update($, reaction, () => ({ mood, until }))
@@ -258,10 +264,12 @@ async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms:
   let p = 0
   let face: 1 | -1 = 1
   let hold = opts.hold
+  let poof = false
   if (cur) {
     const here = whereAt(planOf(cur), now - cur.startAt)
     p = here.p
     face = here.face
+    poof = here.pose === 'ride'
     const left = cur.hold ? cur.startAt + cur.hold.ms - now : 0
     if (!hold && cur.hold?.pose === 'notice' && left > 0) hold = { pose: 'notice', ms: left }
   }
@@ -274,7 +282,8 @@ async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms:
     food: n.food, fun: n.fun, energy: n.energy, timeOfDay: timeOfDay(hourOf(now)),
     weather: (await read($, weather))?.kind ?? 'clear',
     shore: shoreFrac(await read($, contextPercent), new Date(now).getHours() + new Date(now).getMinutes() / 60),
-    ...(hold ? { hold } : {}), ...(opts.first ? { first: opts.first } : {}),
+    ride: await wearing($),
+    ...(hold ? { hold } : {}), ...(opts.first ? { first: opts.first } : {}), ...(poof ? { poof } : {}),
   }
   await update($, life, () => seg)
   const pl = planOf(seg)
@@ -291,7 +300,7 @@ async function nextSegment($: EngineInterface, id: number): Promise<void> {
 async function lifeEvent($: EngineInterface, id: number, ev: LifeEvent): Promise<void> {
   const seg = await read($, life)
   if (!seg || seg.id !== id) return
-  if (ev.kind === 'say' && ev.moment) return say($, ev.moment)
+  if (ev.kind === 'say' && ev.moment) return say($, ev.moment === 'ride' ? `ride-${seg.ride ?? 'plain'}` : ev.moment)
   if (ev.kind === 'tidy') {
     await update($, turnWork, () => [])
     return
@@ -723,12 +732,21 @@ export const register: Register = (on, options) => {
     }
     if (word === 'today') {
       await update($, picked, () => null)
+      await startSegment($)
       return { text: `Back to today's costume: ${await todays($)}.` }
     }
     if (word === 'stats') {
       const v = await view($, false)
       const tr = await traces($)
       return { text: `${v.summary} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''} · ${themeAt(v.now)}` }
+    }
+    if (word === 'ride') {
+      const mode = await desiredMode($)
+      const name = await read($, petName)
+      if (mode === 'sleep' || mode === 'stretch') return { text: `${name} is ${mode === 'sleep' ? 'asleep' : 'stretching'}. It'll ride later.` }
+      await startSegment($, { first: 'ride' })
+      const seg = await read($, life)
+      return { text: seg && rideFits(seg) ? `${name} is off on its gadget.` : `There isn't room for the gadget on this strip.` }
     }
     if (word === 'theme') {
       const now = await $.clock.now()
@@ -757,7 +775,7 @@ export const register: Register = (on, options) => {
       return { text: value === 'off' ? 'The done chirp is off.' : 'The done chirp is on.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, name, stats, theme, size, tank, strip, snooze, breaks, sound, bubbles, off, on, today, or a costume (${COSTUMES.join(', ')}).` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, theme, size, tank, strip, snooze, breaks, sound, bubbles, off, on, today, or a costume (${COSTUMES.join(', ')}).` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }
@@ -767,6 +785,7 @@ export const register: Register = (on, options) => {
     await update($, picked, () => choice)
     await update($, isHidden, () => false)
     await $.store.set(KEY.hidden, false)
+    await startSegment($)
     return { text: `Crab buddy is now the ${choice} for this session.` }
   })
 

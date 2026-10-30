@@ -3,16 +3,17 @@
 // Changes: eyes that shut, droop, look around and go dizzy; moods, care poses, the
 // poses of its own life, tool props, a nightcap and hearts.
 
-import type { Pose, Prop, Tiredness } from '../types'
+import type { Costume, Pose, Prop, Tiredness } from '../types'
+import { gadgetOf } from './gadgets'
 
 export const CLAY = '#D97757'
 export const INK = '#1F1E1D'
 
 /** The daily rotation. */
-export const COSTUMES = ['astronaut', 'surfer', 'detective', 'viking', 'engineer', 'diver', 'chef', 'wizard', 'racer', 'dj', 'pirate', 'plain'] as const
+export const COSTUMES = ['astronaut', 'surfer', 'detective', 'viking', 'engineer', 'diver', 'chef', 'wizard', 'racer', 'dj', 'pirate', 'plain'] as const satisfies readonly Costume[]
 /** Outside the rotation: worn on holidays, in the rain or once earned, or picked with /crab. */
-export const SPECIAL_COSTUMES = ['ghost', 'santa', 'oktoberfest', 'raincoat', 'king'] as const
-export type Costume = (typeof COSTUMES)[number] | (typeof SPECIAL_COSTUMES)[number]
+export const SPECIAL_COSTUMES = ['ghost', 'santa', 'oktoberfest', 'raincoat', 'king'] as const satisfies readonly Costume[]
+export type { Costume }
 
 const ACCENT: Record<Costume, string> = {
   astronaut: '#7F77DD',
@@ -302,6 +303,15 @@ export const CRAB_CSS = `
 .pr-scan{animation:scan 1s steps(1) infinite}
 .pr-tap rect+rect{animation:blink .3s steps(1) infinite}
 .umb{animation:bob 1.1s steps(1) infinite}
+.dust{animation:dst .5s ease-out infinite}.dust2{animation-delay:-.25s}
+@keyframes dst{0%{opacity:.9;transform:translate(0,0)}100%{opacity:0;transform:translate(-7px,-3px)}}
+.oar{transform-box:fill-box;transform-origin:50% 0;animation:oar 1.2s ease-in-out infinite}
+@keyframes oar{50%{transform:rotate(24deg)}}
+.boom{transform-box:fill-box;transform-origin:0 100%;animation:boom 2.4s ease-in-out infinite}
+@keyframes boom{50%{transform:rotate(9deg)}}
+.flame{transform-box:fill-box;transform-origin:50% 0;animation:flm .16s steps(2) infinite}
+@keyframes flm{50%{transform:scaleY(.6)}}
+.sunk{opacity:.6}
 `
 
 export type CrabLook = {
@@ -309,6 +319,8 @@ export type CrabLook = {
   isGrumpy?: boolean
   isHungry?: boolean
   hasNightcap?: boolean
+  /** Evening or night: the car's headlights are on. */
+  isDark?: boolean
 }
 
 const HEART = ['.r.r.', 'rrrrr', '.rrr.', '..r..']
@@ -391,9 +403,15 @@ export const crab = (costume: Costume, pose: Pose, look: CrabLook = {}): string 
     f(25, 11, 4, 2, '#F28C6A', 'shrimp'); f(29, 10, 1, 1, '#F28C6A', 'shrimp'); f(29, 13, 1, 1, '#F28C6A', 'shrimp')
   }
   const group = (cls: string) => `<g class="${cls}">${(groups.get(cls) ?? []).join('')}</g>`
-  const props = [...groups.keys()].filter(k => k !== 'bd' && k !== 'la' && k !== 'lb')
+  const ride = pose === 'ride' ? gadgetOf(shown, look.isDark) : null
+  const props = [...groups.keys()].filter(k => k !== 'bd' && k !== 'la' && k !== 'lb' && !(ride?.bare && k === 'it'))
   const body = `<g class="bd">${(groups.get('bd') ?? []).join('')}${props.map(group).join('')}</g>`
   const legs = SEATED.has(pose) ? '' : `${group('la')}${group('lb')}`
+  // On its gadget: the gadget behind it, the crab (or just its legs, or nothing), the gadget in front.
+  if (ride) {
+    const me = ride.hideCrab ? '' : `<g transform="translate(0,${ride.dy ?? 0})">${body}${ride.legs ? legs : ''}</g>`
+    return `<g class="${tiredness}"><g class="mood ride"><g class="c-${shown} run">${ride.back}${me}${ride.front}</g></g></g>`
+  }
 
   const fx: string[] = []
   if (pose === 'cheer') fx.push(`<g fill="#F5C542"><rect class="spark" x="-6" y="4" width="2" height="2"/><rect class="spark spark2" x="-12" y="12" width="2" height="2"/><rect class="spark spark2" x="-3" y="18" width="2" height="2"/></g>`)

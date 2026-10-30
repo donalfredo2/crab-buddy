@@ -49,6 +49,7 @@ The crab has a little beach: sand with its home shell, a pile of the shells it h
 - **Weather:** with a place set (see Settings), the real local weather shows: rain (it carries a tiny umbrella), snow, storms with the odd flash, fog, and wind that bends the seaweed.
 - **The sea shows your context:** the shoreline creeps up the beach as the context window fills, to just past the castle at 85%, with a small tide on top.
 - **Each costume has its beach:** a treasure chest and shipwreck for the pirate, craters and the Earth for the astronaut, a BBQ for the chef, cones and a crane for the engineer, a surfboard and beach ball for the surfer, fins and a buoy for the diver, a longship for the viking, a tower for the wizard, speakers and decks for the DJ, a beer table and flags for Oktoberfest, a finish flag for the racer, a magnifier and question marks for the detective.
+- **Each costume has its gadget:** every so often it takes it out, about every 11 minutes, and `/crab ride` sends it off right away. A low sports car for the racer (headlights on after dark), a longship for the viking, a digger for the engineer, a food cart for the chef, a skateboard when it's plain, a newspaper to hide behind for the detective, a barrel to balance on at Oktoberfest, a paper boat in the rain, a sedan chair carried by two friends for the king, a broom for the wizard, a sleigh for Santa, a pumpkin lantern for the ghost, a rocket for the astronaut, a wave for the surfer, a mini-sub for the diver, decks and a disco ball for the DJ, a cannon for the pirate.
 - **Shells unlock decor:** a palm tree at 5, a deck chair and umbrella at 10 (it sunbathes there), a lighthouse at 20 whose beam sweeps at night. Very rarely it finds a golden shell.
 
 Its costume changes every day (astronaut, surfer, detective, viking, engineer, diver, chef, wizard, racer, DJ, pirate, plain), and holidays win. In rain or a storm it puts on a raincoat, if you've set `weatherPlace`. From 20-09 to 05-10 it's Oktoberfest, and 50 shells earn the crown: `/crab king`. A costume you pick beats a holiday, a holiday beats the rain, and the rain beats the day's costume. Your first message of the day gets a hello that names the theme ("ahoy, it's pirate day!"), and `/crab theme` tells you any time. While a savvy-progress bar is showing, the crab steps aside so there is only one crab on screen.
@@ -92,6 +93,7 @@ Food and Fun fade 5 points an hour, counted only while a session is open. When t
 Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 
 - `/crab feed`, `/crab play`, `/crab pet`
+- `/crab ride`: sends it off on its gadget right now
 - `/crab name <name>`: give it a name (up to 16 characters)
 - `/crab stats`: session time, turns, tool calls, context, needs, shells and today's theme
 - `/crab theme`: today's theme, and the costume you picked if it differs

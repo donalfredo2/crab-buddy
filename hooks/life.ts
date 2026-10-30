@@ -3,6 +3,7 @@
 // draws the same plan and the CSS picks up where the crab is.
 
 import type { Activity, Pose, Segment } from '../types'
+import type { Costume } from './sprites'
 
 export const CRAB_W = 26
 /** Where the crab's track starts: right of its home shell and the shell pile. */
@@ -69,17 +70,52 @@ const stops = (width: number, shore = NO_CONTEXT_SHORE) => {
   }
 }
 
-export type Beat = { t0: number; t1: number; p0: number; p1: number; face: 1 | -1; pose: Pose; act: Activity }
+/** `y0` and `y1`: px above its usual height, for a gadget that leaves the ground. */
+export type Beat = { t0: number; t1: number; p0: number; p1: number; face: 1 | -1; pose: Pose; act: Activity; y0?: number; y1?: number }
 
-export type MarkKind = 'butterfly' | 'seagull' | 'fish' | 'neighbour' | 'pebble' | 'hole' | 'castle' | 'shell' | 'pile' | 'fireworks' | 'storm' | 'plane' | 'friend'
+export type MarkKind = 'butterfly' | 'seagull' | 'fish' | 'neighbour' | 'pebble' | 'hole' | 'castle' | 'shell' | 'pile' | 'fireworks' | 'storm' | 'plane' | 'friend' | 'poof' | 'disco' | 'cannon'
 /** Something in the habitat that moves or appears at a moment of the plan. */
 export type Mark = {
   kind: MarkKind; t0: number; t1: number; p0: number; p1: number; dir: 1 | -1
   /** The friend's visit: when it arrives and when it leaves, and what they do together. */
-  meet?: number; part?: number; variant?: 'dance' | 'sky' | 'chase' | 'gold'
+  meet?: number; part?: number; variant?: 'dance' | 'sky' | 'chase' | 'gold' | 'muzzle'
 }
 
-export type LifeMoment = 'muse' | 'aware' | 'butterfly' | 'neighbour' | 'hic' | 'sky' | 'found' | 'built' | 'peek' | 'friend' | 'golden'
+export type LifeMoment = 'muse' | 'aware' | 'butterfly' | 'neighbour' | 'hic' | 'sky' | 'found' | 'built' | 'peek' | 'friend' | 'golden' | 'ride'
+
+/** How each costume's gadget moves. `lift` is how high it flies, px; `pxs` its speed. */
+export type Ride = { kind: 'drive' | 'fly' | 'surf' | 'sub' | 'stage'; pxs: number; lift?: number }
+export const RIDES: Record<Costume, Ride> = {
+  racer: { kind: 'drive', pxs: 95 },
+  viking: { kind: 'drive', pxs: 30 },
+  engineer: { kind: 'drive', pxs: 26 },
+  chef: { kind: 'drive', pxs: 22 },
+  plain: { kind: 'drive', pxs: 55 },
+  detective: { kind: 'drive', pxs: 16 },
+  oktoberfest: { kind: 'drive', pxs: 18 },
+  raincoat: { kind: 'drive', pxs: 26 },
+  king: { kind: 'drive', pxs: 20 },
+  wizard: { kind: 'fly', pxs: 70, lift: 11 },
+  santa: { kind: 'fly', pxs: 85, lift: 12 },
+  ghost: { kind: 'fly', pxs: 28, lift: 7 },
+  astronaut: { kind: 'fly', pxs: 0, lift: 170 },
+  surfer: { kind: 'surf', pxs: 60 },
+  diver: { kind: 'sub', pxs: 12 },
+  dj: { kind: 'stage', pxs: 0 },
+  pirate: { kind: 'stage', pxs: 0 },
+}
+const MIN_TRACK = 200
+const SUB_W = 30
+/** Where a sub rides: a little under the surface. */
+const SUB_Y = -3
+
+/** Whether its gadget has room: a track to move on, and water for the sub. */
+export const rideFits = (seg: Segment): boolean => {
+  if (!seg.ride) return false
+  const { kind, pxs } = RIDES[seg.ride]
+  if (kind === 'sub') return seg.width - spots(seg.width, seg.shore).sea >= SUB_W
+  return pxs === 0 || trackSpan(seg.width) >= MIN_TRACK
+}
 export type LifeEvent = { t: number; kind: 'build' | 'shell' | 'tidy' | 'say'; moment?: LifeMoment; isGolden?: boolean }
 
 export type Plan = { beats: Beat[]; marks: Mark[]; events: LifeEvent[]; duration: number; endP: number; endFace: 1 | -1 }
@@ -103,11 +139,11 @@ export const isWalking = (pose: Pose): boolean => WALKING.has(pose)
 const LENGTH: Partial<Record<Activity, number>> = {
   lookAround: 4.5 * S, gaze: 3.5 * S, peek: 4 * S, muse: 5 * S, dig: 4 * S, forage: 3.5 * S, kick: 3 * S,
   inspect: 3.5 * S, hide: 5 * S, sway: 5 * S, sunbathe: 8 * S, butterfly: 7 * S, seagull: 4 * S, fish: 5 * S,
-  neighbour: 8 * S, tidy: 4 * S, friend: 12 * S, yawn: 2.5 * S, sneeze: 2 * S, hiccup: 3 * S, skywatch: 7 * S, dance: 4.5 * S, build: 6 * S,
+  neighbour: 8 * S, tidy: 4 * S, friend: 12 * S, ride: 16 * S, yawn: 2.5 * S, sneeze: 2 * S, hiccup: 3 * S, skywatch: 7 * S, dance: 4.5 * S, build: 6 * S,
 }
 
 const VISITORS: ReadonlySet<Activity> = new Set(['butterfly', 'seagull', 'fish', 'neighbour'])
-const ONCE: ReadonlySet<Activity> = new Set(['build', 'kick', 'neighbour', 'friend'])
+const ONCE: ReadonlySet<Activity> = new Set(['build', 'kick', 'neighbour', 'friend', 'ride'])
 
 /** How likely each activity is, from its needs, the time of day and whether Claude works. */
 export const weights = (seg: Segment): Partial<Record<Activity, number>> => {
@@ -126,6 +162,7 @@ export const weights = (seg: Segment): Partial<Record<Activity, number>> => {
     butterfly: night ? 0 : 1, seagull: night ? 0 : 0.7, fish: 0.7, neighbour: 0.5,
     yawn: 0.6 + (sleepy ? 3 : 0) + (night ? 1 : 0), sneeze: 0.35, hiccup: 0.35,
     skywatch: 0.8 + (night ? 1.5 : 0), dance: 0.7 + (happy ? 2.5 : 0), build: seg.castle < MAX_CASTLE ? 1.3 : 0,
+    ride: rideFits(seg) ? (isWork ? 0.8 : 1) : 0,
   }
   if (isWork) for (const v of VISITORS) w[v] = (w[v] ?? 0) * 0.5
   if (seg.timeOfDay === 'evening') w.butterfly = (w.butterfly ?? 0) * 0.5
@@ -178,9 +215,9 @@ export const plan = (seg: Segment): Plan => {
   let p = clamp01(seg.startP)
   let face: 1 | -1 = seg.startFace
 
-  const push = (ms: number, pose: Pose, act: Activity, p1 = p, f = face) => {
+  const push = (ms: number, pose: Pose, act: Activity, p1 = p, f = face, y0 = 0, y1 = y0) => {
     if (ms <= 0) return
-    beats.push({ t0: t, t1: t + ms, p0: p, p1, face: f, pose, act })
+    beats.push({ t0: t, t1: t + ms, p0: p, p1, face: f, pose, act, ...(y0 || y1 ? { y0, y1 } : {}) })
     t += ms
     p = p1
     face = f
@@ -193,6 +230,15 @@ export const plan = (seg: Segment): Plan => {
   }
   const stand = (ms: number, pose: Pose = 'stand', act: Activity = 'stroll', f: 1 | -1 = face) => push(ms, pose, act, p, f)
   const say = (moment: LifeMoment, dt = 300) => events.push({ t: t + dt, kind: 'say', moment })
+  // A gadget beat: `to` along the strip in `ms`, from `y0` above the sand to `y1`.
+  const roll = (ms: number, to = p, y0 = 0, y1 = y0) => push(ms, 'ride', 'ride', to, to > p ? 1 : to < p ? -1 : face, y0, y1)
+  const poof = (at0 = p, variant?: 'muzzle') => marks.push({ kind: 'poof', t0: t, t1: t + 0.6 * S, p0: at0, p1: at0, dir: 1, ...(variant ? { variant } : {}) })
+  const gone = () => {
+    poof()
+    stand(0.7 * S, 'stand', 'ride')
+  }
+
+  if (seg.poof) poof()
 
   if (seg.hold) {
     stand(seg.hold.ms, seg.hold.pose, 'hold')
@@ -216,6 +262,8 @@ export const plan = (seg: Segment): Plan => {
     ...(at.seaweed === undefined ? {} : { sway: at.seaweed }),
     // With a deck chair it sunbathes in it.
     ...(at.chair !== undefined && hasDecor('chair', seg.shells, seg.width) ? { sunbathe: at.chair } : {}),
+    // The wave and the sub start at the water's edge.
+    ...(seg.ride && (RIDES[seg.ride].kind === 'surf' || RIDES[seg.ride].kind === 'sub') ? { ride: at.limit } : {}),
   }
   const drowned: Activity[] = [...(at.pebble === undefined ? ['kick' as const] : []), ...(at.seaweed === undefined ? ['sway' as const] : [])]
   const target = isWork ? 120 * S : 150 * S
@@ -347,6 +395,81 @@ export const plan = (seg: Segment): Plan => {
         say('friend', -6000)
         return
       }
+      case 'ride': {
+        const ride = seg.ride ? RIDES[seg.ride] : undefined
+        if (!ride || !rideFits(seg)) {
+          stand(3 * S, 'look', a)
+          return
+        }
+        const { kind, pxs, lift = 0 } = ride
+        const reach = (secs: number) => (pxs * secs) / span
+        const toward = (d: number) => Math.max(0, Math.min(at.limit, p + d))
+        const msTo = (to: number) => (Math.abs(to - p) * span * S) / Math.max(1, pxs)
+        const dir = p < at.limit / 2 ? 1 : -1
+        say('ride', 800)
+        if (kind === 'drive') {
+          poof()
+          const out = toward(dir * reach(9))
+          roll(msTo(out), out)
+          roll(0.7 * S)
+          // The turn happens behind a puff of dust: the wide ones swing right round.
+          poof()
+          const back = toward(-dir * reach(5))
+          roll(msTo(back), back)
+        } else if (kind === 'fly' && pxs === 0) {
+          // Straight up off the top of the sky, and back down on its tail.
+          poof()
+          roll(1.6 * S)
+          roll(2.6 * S, p, 0, lift)
+          roll(2 * S, p, lift)
+          roll(3 * S, p, lift, 0)
+        } else if (kind === 'fly') {
+          poof()
+          const up = 1.6 * S
+          const across = 7 * S
+          const d = dir * reach(8.6)
+          const start = p
+          const end = toward(d)
+          const at1 = start + (end - start) * (up / (2 * up + across))
+          const at2 = end - (end - start) * (up / (2 * up + across))
+          roll(up, at1, 0, lift)
+          roll(across, at2, lift)
+          roll(up, end, lift, 0)
+        } else if (kind === 'surf') {
+          // A wave comes in past the shoreline and carries it up the sand.
+          poof()
+          const to = toward(-reach(6))
+          roll(msTo(to), to)
+        } else if (kind === 'sub') {
+          // It wades in, and the sub comes up where it went under.
+          const wade = pOf(spots(seg.width, seg.shore).sea + 2, seg.width)
+          push(walkMs(wade), isWork ? 'work' : 'wander', 'ride', wade, 1)
+          poof()
+          roll(1.6 * S, p, -24, SUB_Y)
+          const out = Math.min(1, p + reach(5))
+          roll(msTo(out), out, SUB_Y)
+          roll(1.2 * S, p, SUB_Y)
+          roll(msTo(wade), wade, SUB_Y)
+          roll(1.6 * S, p, SUB_Y, -24)
+          gone()
+          walkTo(at.limit)
+          return
+        } else if (seg.ride === 'pirate') {
+          poof()
+          face = 1
+          roll(1.4 * S)
+          const shot = t
+          poof(Math.min(1, p + (44 - CRAB_W / 2) / span), 'muzzle')
+          marks.push({ kind: 'cannon', t0: shot, t1: shot + 2.2 * S, p0: p, p1: p, dir: 1 })
+          roll(3.4 * S)
+        } else {
+          poof()
+          marks.push({ kind: 'disco', t0: t, t1: t + 9 * S, p0: p, p1: p, dir: 1 })
+          roll(9 * S)
+        }
+        gone()
+        return
+      }
       case 'tidy':
         // Clears the work pile: picks it up and carries it home.
         stand(1 * S, 'build', a, 1)
@@ -382,7 +505,8 @@ export const plan = (seg: Segment): Plan => {
       for (let tries = 0; tries < 6; tries++) {
         const c = pick(rnd, w)
         const loc = where[c]
-        if (loc === undefined || walkMs(loc, 32) <= gap - (LENGTH[c] ?? 0) - S) {
+        // A ride is worth the walk to the water, however far off it is.
+        if (loc === undefined || c === 'ride' || walkMs(loc, 32) <= gap - (LENGTH[c] ?? 0) - S) {
           a = c
           break
         }
@@ -414,18 +538,19 @@ export const plan = (seg: Segment): Plan => {
   return { beats, marks, events, duration: t, endP: p, endFace: face }
 }
 
-export type Where = { p: number; face: 1 | -1; pose: Pose; act: Activity }
+export type Where = { p: number; face: 1 | -1; pose: Pose; act: Activity; lift: number }
 
 /** Where the crab is `t` ms into a plan, and what it is doing. */
 export const whereAt = (pl: Plan, t: number): Where => {
   for (const b of pl.beats) {
     if (t < b.t1) {
       const k = b.t1 > b.t0 ? Math.max(0, (t - b.t0) / (b.t1 - b.t0)) : 1
-      return { p: b.p0 + (b.p1 - b.p0) * k, face: b.face, pose: b.pose, act: b.act }
+      const y0 = b.y0 ?? 0
+      return { p: b.p0 + (b.p1 - b.p0) * k, face: b.face, pose: b.pose, act: b.act, lift: y0 + ((b.y1 ?? 0) - y0) * k }
     }
   }
   const lastBeat = pl.beats[pl.beats.length - 1]
-  return { p: pl.endP, face: pl.endFace, pose: lastBeat?.pose ?? 'stand', act: lastBeat?.act ?? 'stroll' }
+  return { p: pl.endP, face: pl.endFace, pose: lastBeat?.pose ?? 'stand', act: lastBeat?.act ?? 'stroll', lift: 0 }
 }
 
 /** Activity starts, for checking the pace. */

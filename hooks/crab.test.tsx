@@ -3,7 +3,7 @@ import type { TestBody } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import type { Segment } from '../types'
-import { activityStarts, hasDecor, plan, planOf, shoreFrac, spots, whereAt, xOf } from './life'
+import { RIDES, activityStarts, hasDecor, plan, planOf, rideFits, shoreFrac, spots, trackSpan, whereAt, xOf } from './life'
 
 import { line, themeLine, themeName } from './lines'
 import { care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
@@ -358,6 +358,154 @@ test('shells unlock decor, each costume has its beach, and a friend visits', () 
   expect(draw({ first: 'friend' })).toMatch(/#5B8FD9/)
 })
 
+const ALL = [...COSTUMES, ...SPECIAL_COSTUMES]
+const rideScene = (over: Partial<Segment>, extra: Partial<Parameters<typeof sceneSvg>[0]> = {}) => {
+  const s = seg({ width: 900, first: 'ride', ...over })
+  const first = plan(s).beats.find(b => b.pose === 'ride')
+  return sceneSvg({ width: s.width, costume: s.ride ?? 'plain', look: {}, timeOfDay: s.timeOfDay, bubble: null, now: T0 + (first?.t0 ?? 0) + 500, prop: null, sky: skyFor(T0), hour: 12, work: [], seg: s, ...extra })
+}
+
+test('every costume rides its gadget, and the plan never jumps', () => {
+  for (const ride of ALL) {
+    expect(RIDES[ride]).toBeDefined()
+    for (const seed of SEEDS.slice(0, 15)) {
+      const s = seg({ seed, ride, width: 900, first: 'ride' })
+      expect(JSON.stringify(plan(s))).toBe(JSON.stringify(plan(s)))
+      const pl = plan(s)
+      expect(pl.beats.some(b => b.pose === 'ride' && b.act === 'ride')).toBe(true)
+      // Every beat picks up where the last one left off, on the sand and in the air.
+      pl.beats.reduce((a, b) => {
+        expect(Math.abs(a.p1 - b.p0)).toBeLessThan(1e-9)
+        return b
+      })
+      const flying = pl.beats.filter(b => b.y0 !== undefined)
+      for (const [i, b] of flying.entries()) {
+        const next = flying[i + 1]
+        if (next && next.t0 === b.t1) expect(next.y0).toBe(b.y1)
+      }
+      // It comes down and gets out before anything else happens.
+      const end = pl.beats.findLastIndex(b => b.pose === 'ride')
+      expect(pl.beats[end]?.y1 ?? 0).toBeLessThanOrEqual(0)
+      expect(pl.beats[end + 1]?.pose).not.toBe('ride')
+      expect(pl.marks.filter(m => m.kind === 'poof').length).toBeGreaterThan(0)
+    }
+  }
+})
+
+test('the gadgets draw small enough on every costume, in the day and at night', () => {
+  for (const ride of ALL) {
+    for (const timeOfDay of ['day', 'night'] as const) {
+      const s = rideScene({ ride, timeOfDay, width: 1600, seed: 99, castle: 3, shells: 30 }, { prop: 'hammer', work: ['hammer'] })
+      expect(s).toMatch(/class="mood ride"/)
+      expect(s.length).toBeLessThan(120_000)
+    }
+  }
+})
+
+test('only the car has headlights, only after dark, and tools go away for the ride', () => {
+  expect(rideScene({ ride: 'racer', timeOfDay: 'night' })).toMatch(/#FFF3B0" opacity="\.3"/)
+  expect(rideScene({ ride: 'racer', timeOfDay: 'evening' })).toMatch(/#FFF3B0" opacity="\.3"/)
+  expect(rideScene({ ride: 'racer' })).not.toMatch(/#FFF3B0" opacity="\.3"/)
+  expect(rideScene({ ride: 'viking', timeOfDay: 'night' })).not.toMatch(/#FFF3B0" opacity="\.3"/)
+  expect(rideScene({ ride: 'racer' }, { prop: 'hammer' })).toMatch(/@keyframes nr\{/)
+  expect(rideScene({ ride: 'racer' }, { prop: 'hammer' })).toMatch(/class="nr" opacity="0"/)
+  expect(rideScene({ ride: 'wizard' })).toMatch(/@keyframes ly\{/)
+  expect(rideScene({ ride: 'racer' })).not.toMatch(/@keyframes ly\{/)
+})
+
+test('a ride cut short ends in a puff of dust, from where it was', () => {
+  const pl = plan(seg({ seed: 3, ride: 'racer', width: 900, poof: true, startP: 0.4 }))
+  const puff = pl.marks[0]
+  expect(puff?.kind).toBe('poof')
+  expect(puff?.t0).toBe(0)
+  expect(Math.abs((puff?.p0 ?? 0) - 0.4)).toBeLessThan(1e-9)
+  const mid = plan(seg({ seed: 3, ride: 'wizard', width: 900, first: 'ride' }))
+  const flying = mid.beats.find(b => (b.y0 ?? 0) > 0 && b.y0 === b.y1)
+  expect(whereAt(mid, ((flying?.t0 ?? 0) + (flying?.t1 ?? 0)) / 2).lift).toBe(11)
+  expect(whereAt(mid, ((flying?.t0 ?? 0) + (flying?.t1 ?? 0)) / 2).pose).toBe('ride')
+})
+
+test('rides need room: a track, and water for the sub', () => {
+  expect(trackSpan(220)).toBeLessThan(200)
+  expect(rideFits(seg({ ride: 'racer', width: 220 }))).toBe(false)
+  expect(rideFits(seg({ ride: 'racer', width: 900 }))).toBe(true)
+  expect(rideFits(seg({ width: 900 }))).toBe(false)
+  expect(rideFits(seg({ ride: 'dj', width: 220 }))).toBe(true)
+  expect(rideFits(seg({ ride: 'astronaut', width: 220 }))).toBe(true)
+  expect(rideFits(seg({ ride: 'diver', width: 300, shore: 0.94 }))).toBe(false)
+  expect(rideFits(seg({ ride: 'diver', width: 900, shore: 0.92 }))).toBe(true)
+  // Asked for where it can't: it looks around instead of driving through the wall.
+  const stuck = plan(seg({ ride: 'racer', width: 220, first: 'ride' }))
+  expect(stuck.beats.some(b => b.pose === 'ride')).toBe(false)
+  expect(count({ width: 220, ride: 'racer' }, 'ride')).toBe(0)
+  expect(count({ width: 900 }, 'ride')).toBe(0)
+})
+
+test('the sub goes in past the shore and comes back out; everything else stays on the beach', () => {
+  const sea = spots(900, 0.8).sea
+  const sub = plan(seg({ ride: 'diver', width: 900, shore: 0.8, first: 'ride' }))
+  const under = sub.beats.filter(b => b.pose === 'ride')
+  expect(Math.min(...under.map(b => xOf(b.p1, 900)))).toBeGreaterThan(sea)
+  const i = sub.beats.findLastIndex(b => b.pose === 'ride')
+  expect(xOf(sub.beats.at(-1)?.p1 ?? 1, 900) + 26).toBeLessThan(sea)
+  expect(sub.beats[i + 2]?.p1).toBeLessThan(sub.beats[i]?.p1 ?? 0)
+  for (const ride of ['racer', 'wizard', 'surfer'] as const) {
+    for (const seed of SEEDS.slice(0, 10)) {
+      const pl = plan(seg({ seed, ride, width: 900, shore: 0.8, first: 'ride', startP: 0.3 }))
+      for (const b of pl.beats) expect(xOf(b.p1, 900) + 26).toBeLessThan(sea)
+    }
+  }
+})
+
+test('a ride comes along now and then, idle or working', () => {
+  const rate = (mode: Segment['mode'], ride: Segment['ride'] = 'racer') => {
+    const seeds = Array.from({ length: 900 }, (_, i) => i * 7919 + 13)
+    let rides = 0
+    let ms = 0
+    for (const seed of seeds) {
+      const pl = plan(seg({ seed, mode, ride, width: 900, shore: 0.8 }))
+      rides += activityStarts(pl).filter(s => s.act === 'ride').length
+      ms += pl.duration
+    }
+    return ms / rides / MIN
+  }
+  const idle = rate('idle')
+  const work = rate('work')
+  expect(idle).toBeGreaterThan(8)
+  expect(idle).toBeLessThan(15)
+  expect(work).toBeGreaterThan(5)
+  expect(work).toBeLessThan(9)
+  // The ones that start at the water come just as often, however far it has to walk.
+  for (const ride of ['diver', 'surfer'] as const) {
+    expect(rate('idle', ride)).toBeLessThan(15)
+    expect(rate('work', ride)).toBeLessThan(10)
+  }
+})
+
+test('every gadget has lines of its own, and no brand gets near them', () => {
+  for (const ride of ALL) expect(line(`ride-${ride}`, 0, { name: 'x' })).not.toBe('')
+  const words = ALL.flatMap(ride => [0, 1, 2].map(i => line(`ride-${ride}`, i, { name: 'x' }))).join(' ')
+  expect(words).not.toMatch(/porsche|911|ferrari|lamborghini/i)
+})
+
+test('the terminal shows the gadget, and a rocket leaves the top', () => {
+  const base = { columns: 80, rows: 3, timeOfDay: 'day', sky: skyFor(T0), bubble: null } as const
+  const at = (ride: Segment['ride'], k: number) => {
+    const s = seg({ ride, width: 900, first: 'ride' })
+    const pl = plan(s)
+    const beats = pl.beats.filter(b => b.pose === 'ride')
+    const t = (beats[0]?.t0 ?? 0) + ((beats.at(-1)?.t1 ?? 0) - (beats[0]?.t0 ?? 0)) * k
+    return beachPixels({ ...base, seg: s, costume: ride ?? 'plain', now: T0 + t }).px
+  }
+  const has = (px: number[], c: number) => px.includes(c)
+  expect(has(at('racer', 0.5), 0x1d9e75)).toBe(true)
+  expect(has(at('viking', 0.5), 0x8a5a2b)).toBe(true)
+  expect(has(at('diver', 0.5), 0xf5c542)).toBe(true)
+  // Up off the top: the rocket's white is gone from the raster.
+  expect(has(at('astronaut', 0.05), 0xf4f3ee)).toBe(true)
+  expect(has(at('astronaut', 0.55), 0xf4f3ee)).toBe(false)
+})
+
 // --- the mod in the engine
 
 test('the crab naps, works, cheers, wanders, then naps again', async ($, on) => {
@@ -580,6 +728,37 @@ test('/crab breaks off silences the reminder', async ($, on) => {
   await clock.advance(120 * MIN)
   expect(toasts.filter(t => /Stretch/.test(t))).toEqual([])
   expect(await alt($, true)).toMatch(/working/)
+})
+
+test('/crab ride sends it off now, with the gadget of what it wears, and a message cuts it short with a puff', async ($, on) => {
+  const clock = mock.clock(on, { now: at(9) })
+  mock.store(on)
+  engine(on)
+  await start($)
+  expect(JSON.stringify(await crab($, 'ride'))).toMatch(/asleep/)
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  expect(JSON.stringify(await crab($, 'racer'))).toMatch(/racer/)
+  expect(JSON.stringify(await crab($, 'ride'))).toMatch(/off on its gadget/)
+  await clock.advance(500)
+  const riding = await band($, true)
+  expect(riding.source).toMatch(/class="mood ride"/)
+  expect(riding.source).toMatch(/class="c-racer run"/)
+
+  // Picking another costume starts over with that costume's gadget, from where it stood.
+  await clock.advance(3000)
+  await crab($, 'wizard')
+  await crab($, 'ride')
+  await clock.advance(500)
+  expect((await band($, true)).source).toMatch(/class="c-wizard run"/)
+  expect((await band($, true)).source).toMatch(/@keyframes ly\{/)
+
+  // A new turn mid-flight: no gadget left hanging, a puff where it was.
+  await clock.advance(3000)
+  await $.turn.complete({ answer: 'hi', durationMs: 1000, isAborted: false, turnId: 't1', reason: 'answer' })
+  await $.turn.start({ text: 'again', turnId: 't2' })
+  const after = (await band($, true)).source
+  expect(after).toMatch(/fill="#E8E5DD"/)
 })
 
 test('/crab off hides it on every surface, /crab on brings it back', async ($, on) => {

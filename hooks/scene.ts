@@ -491,8 +491,44 @@ const compile = (pl: Plan, width: number, elapsed: number, shore: number) => {
       markCss(name, [[0, `${hide};transform:translateX(${out}px)`], [m.t0 - 1, `${hide};transform:translateX(${out}px)`], [m.t0, `opacity:1;transform:translateX(${out}px)`], [arrive, `opacity:1;transform:translateX(${r1(stay)}px)`], [leave, `opacity:1;transform:translateX(${r1(stay)}px)`], [m.t1, `opacity:1;transform:translateX(${out}px)`], [m.t1 + 1, hide]])
       return `<g class="${name}" opacity="0"><g class="run stroll">${pixels(['..ddd...', '.dpwpd..', 'dpwpwpd.', 'dpppppde', '.lllll..'], { d: '#9C8B9E', p: '#C9B8CC', w: '#E6DCE8', e: '#1F1E1D', l: '#D97757' }, 0, GROUND - 5)}</g></g>`
     }
+    if (m.kind === 'poof') {
+      const cx = x(m.p0) + CRAB_W / 2
+      const y = m.variant === 'muzzle' ? GROUND - 13 : GROUND - 6
+      markCss(name, [[0, hide], [m.t0 - 1, hide], [m.t0, 'opacity:.95;transform:scale(.5)'], [m.t1, 'opacity:0;transform:scale(1.5)'], [m.t1 + 1, hide]])
+      const puffs = [[-9, 2, 5], [-3, -3, 7], [5, 0, 6], [-5, 3, 6], [3, 4, 5]] as const
+      return `<g class="${name}" opacity="0" style="transform-origin:${r1(cx)}px ${y}px">${puffs.map(([dx, dy, w]) => `<rect x="${r1(cx + dx)}" y="${y + dy}" width="${w}" height="${w - 1}" rx="1.5" fill="#E8E5DD"/>`).join('')}</g>`
+    }
+    if (m.kind === 'disco') {
+      const cx = x(m.p0) + CRAB_W / 2
+      const ball = pixels(['..s..', '..s..', '.wbw.', 'wyrbw', 'wbwyw', '.wrw.'], { s: '#8E929A', w: '#F4F3EE', b: '#378ADD', y: '#F5C542', r: '#E8577A' }, Math.round(cx) - 2, 0)
+      const colors = ['#E8577A', '#F5C542', '#378ADD', '#1D9E75', '#7F77DD']
+      const lights = Array.from({ length: 10 }, (_, i) => `<rect class="spark${i % 2 ? ' spark2' : ''}" x="${r1(Math.max(0, Math.min(width - 6, cx - 64 + i * 13)))}" y="${GROUND + (i % 3)}" width="6" height="1.4" fill="${colors[i % colors.length] ?? '#F5C542'}"/>`).join('')
+      markCss(name, [[0, hide], [m.t0 - 1, hide], [m.t0, 'opacity:1;transform:translateY(-8px)'], [m.t0 + 900, 'opacity:1;transform:translateY(0)'], [m.t1 - 700, 'opacity:1;transform:translateY(0)'], [m.t1, 'opacity:0;transform:translateY(-8px)'], [m.t1 + 1, hide]])
+      return `<g class="${name}" opacity="0" shape-rendering="crispEdges">${ball}${lights}</g>`
+    }
+    if (m.kind === 'cannon') {
+      // The ball flies out from the muzzle in an arc and splashes in the sea.
+      const from = x(m.p0) + 44
+      const to = Math.max(from + 40, Math.min(width - 10, spots(width, shore).sea + 18))
+      const at = (k: number) => `opacity:1;transform:translate(${r1(from + (to - from) * k)}px,${r1(GROUND - 13 - 32 * k * (1 - k) * 3 + 13 * k)}px)`
+      const span = m.t1 - m.t0
+      markCss(name, [[0, hide], [m.t0 - 1, hide], ...[0, 0.25, 0.5, 0.75, 1].map((k): [number, string] => [m.t0 + span * k, at(k)]), [m.t1 + 1, hide]])
+      const splash = `${name}s`
+      markCss(splash, [[0, hide], [m.t1 - 1, hide], [m.t1, `opacity:1;transform:translate(${r1(to)}px,${GROUND - 1}px) scaleY(.4)`], [m.t1 + 400, `opacity:1;transform:translate(${r1(to)}px,${GROUND - 1}px) scaleY(1)`], [m.t1 + 900, `opacity:0;transform:translate(${r1(to)}px,${GROUND - 1}px) scaleY(1.2)`], [m.t1 + 901, hide]])
+      return `<g class="${name}" opacity="0" shape-rendering="crispEdges"><rect x="-1.5" y="-1.5" width="3" height="3" fill="#3A3936"/></g><g class="${splash}" opacity="0" shape-rendering="crispEdges">${pixels(['.w...w.', 'w..w..w', '.w.w.w.', '..www..'], { w: '#F4F3EE' }, -3, -4)}</g>`
+    }
     return ''
   }).join('')
+
+  // Up off the sand and down again, and whatever it holds is put away for the ride.
+  const lifted = pl.beats.flatMap((b, i) => {
+    const prev = pl.beats[i - 1]
+    if (!b.y0 && !b.y1 && !prev?.y0 && !prev?.y1) return []
+    return [`${fine(b.t0)}{transform:translateY(${r1(-(b.y0 ?? 0))}px)}`, `${fine(b.t1)}{transform:translateY(${r1(-(b.y1 ?? 0))}px)}`]
+  })
+  if (lifted.length) css.push(`@keyframes ly{${lifted.join('')}}.ly{${anim('ly', 'linear')}}`)
+  const rides = pl.beats.some(b => b.pose === 'ride')
+  if (rides) css.push(`@keyframes nr{${pl.beats.map(b => `${fine(b.t0)}{opacity:${b.pose === 'ride' ? 0 : 1}}`).join('')}}.nr{${anim('nr', 'steps(1,end)')}}`)
 
   return { css: css.join('\n'), poses, marks }
 }
@@ -576,15 +612,16 @@ export const sceneSvg = (s: SceneInput): string => {
   const bubbleX = bubble ? Math.max(2 - xNow, Math.min(0, width - 2 - bubble.width - xNow)) : 0
 
   const layers = poses.map((pose, i) => {
-    const look = { ...s.look, hasNightcap: s.timeOfDay === 'night' && pose === 'nap' }
+    const look = { ...s.look, hasNightcap: s.timeOfDay === 'night' && pose === 'nap', isDark: s.timeOfDay === 'night' || s.timeOfDay === 'evening' }
     return `<g class="l${i}" opacity="${pose === here.pose ? 1 : 0}"><g transform="scale(${SCALE})" shape-rendering="crispEdges">${crab(s.costume, pose, look)}</g></g>`
   })
   const uprights = poses.map((pose, i) => {
     const o = overlay(pose)
     return o ? `<g class="l${i}" opacity="${pose === here.pose ? 1 : 0}">${o}</g>` : ''
   })
-  const prop = s.prop ? `<g transform="scale(${SCALE})" shape-rendering="crispEdges">${propSvg(s.prop)}</g>` : ''
-  const umbrella = isWet(s.sky) ? `<g transform="scale(${SCALE})" shape-rendering="crispEdges">${umbrellaSvg()}</g>` : ''
+  const held = (inner: string) => `<g class="nr" opacity="${here.pose === 'ride' ? 0 : 1}"><g transform="scale(${SCALE})" shape-rendering="crispEdges">${inner}</g></g>`
+  const prop = s.prop ? held(propSvg(s.prop)) : ''
+  const umbrella = isWet(s.sky) ? held(umbrellaSvg()) : ''
   const skyCss = `@keyframes clx{from{transform:translateX(-14px)}to{transform:translateX(${width + 4}px)}}@keyframes bat{0%{transform:translate(-8px,${sy(6)}px)}25%{transform:translate(${Math.round(width * 0.3)}px,${sy(3)}px)}50%{transform:translate(${Math.round(width * 0.55)}px,${sy(9)}px)}75%{transform:translate(${Math.round(width * 0.8)}px,${sy(4)}px)}100%{transform:translate(${width + 8}px,${sy(7)}px)}}`
   const faceNow = here.face === 1 ? '' : ` transform="translate(${CRAB_W},0) scale(-1,1)"`
 
@@ -596,7 +633,7 @@ export const sceneSvg = (s: SceneInput): string => {
 <g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}
 <g class="mv" transform="translate(${r1(xNow)},0)"><g transform="translate(0,${CRAB_Y})">
 <ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>
-<g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}
+<g class="ly" transform="translate(0,${r1(-here.lift)})"><g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}</g>
 ${bubble ? `<g transform="translate(${r1(bubbleX)},-${CRAB_Y})">${bubble.svg}</g>` : ''}</g></g>
 ${skyFront(width, s.timeOfDay, s.sky, s.now, top)}</g>
 </svg>`

@@ -37,6 +37,34 @@ const STEP = ['d.....d', 'dbebebd', '.bbbbb.', 'd.d.d.d']
 const NAP = ['.......', '.......', '.bdbdb.', 'dbbbbbd']
 const BOUNCY = new Set(['dance', 'wave', 'cheer', 'party', 'play', 'love'])
 
+// Its gadget, the crab's own 7 columns plus 3 either side, facing right; `show` leaves
+// the crab's pixels showing through where the gadget is empty. A cell is too coarse for
+// more: each is a shape and a colour or two.
+type Cells = { rows: readonly string[]; show?: boolean }
+const GADGET: Record<Costume, Cells> = {
+  racer: { show: true, rows: ['.............', '.............', 'ggggggggggggg', '..kk.....kk..'] },
+  viking: { show: true, rows: ['.............', 'h...........h', 'hhhhhhhhhhhhh', '.hhhhhhhhhhh.'] },
+  engineer: { show: true, rows: ['..........yy.', '..........y.y', 'yyyyyyyyyy..y', 'ddddddddddd..'] },
+  chef: { show: true, rows: ['.........rrrr', '.........a..a', '.........wwww', '..........k.k'] },
+  plain: { show: true, rows: ['.............', '.............', '.............', '..qqqqqqqqq..'] },
+  detective: { rows: ['...wwwwwww...', '...wewwwew...', '...wwwwwww...', '....b.b.b....'] },
+  oktoberfest: { show: true, rows: ['.............', '.............', '.............', '...aaaaaaa...'] },
+  raincoat: { show: true, rows: ['.............', '.............', 'wwwwwwwwwwwww', '..wwwwwwwww..'] },
+  king: { show: true, rows: ['.............', '.............', 'hhhhhhhhhhhhh', '.l.l.....l.l.'] },
+  wizard: { show: true, rows: ['.............', '.............', 'yynnnnnnnnnnn', '.............'] },
+  santa: { show: true, rows: ['.............', '.............', 'rrrrrrrrrrrnn', 'SSSSSSSSSSSnn'] },
+  ghost: { show: true, rows: ['.............', '.............', '..........o..', '.............'] },
+  astronaut: { rows: ['......r......', '.....www.....', '.....wbw.....', '....rwwwr....'] },
+  surfer: { show: true, rows: ['t............', 'tt...........', 'ttt..........', 'tttBBBBBBBBB.'] },
+  diver: { rows: ['.......y.....', '.......y.....', '..yyyyyyyyy..', '.yyybyyybyyy.'] },
+  dj: { show: true, rows: ['.............', '.............', '..xxxxxxxxx..', '..x.......x..'] },
+  pirate: { show: true, rows: ['.............', '.............', '.........dddd', '.........nn..'] },
+}
+const GADGET_INK: Record<string, string> = {
+  g: '#1D9E75', k: '#1F1E1D', h: '#8A5A2B', y: '#F5C542', d: '#3A3936', r: '#D8433B', a: '#A0703F', w: '#F4F3EE', q: '#D85A30',
+  e: '#3A3936', b: '#B85C3E', l: '#5B8FD9', n: '#7A4A26', S: '#8E929A', o: '#F28C3A', t: '#6BB8D6', B: '#378ADD', x: '#5F5E5A',
+}
+
 /** A speech bubble as cells: one character each, so only narrow ones, and no emoji. */
 export const cellText = (text: string): string =>
   [...text.replace(/♥/g, '<3')].filter(c => (c.codePointAt(0) ?? 0) < 0x2100 && c !== '️').join('').replace(/\s+/g, ' ').trim()
@@ -129,14 +157,26 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   const hat = HAT[t.costume]
   const colors: Record<string, string> = { e: '#3A3936', b: ghost ? '#F2F2EE' : CLAY, d: ghost ? '#C9CCD2' : '#B85C3E' }
   const lift = BOUNCY.has(here.pose) && tick % 2 && G >= 5 ? 1 : 0
-  rows.forEach((row, dy) => {
-    for (let dx = 0; dx < 7; dx++) {
-      const k = row[here.face === 1 ? dx : 6 - dx] ?? '.'
-      const color = colors[k]
-      if (color) put(x0 + dx, G - 4 + dy - lift, color)
+  // Up with the gadget, one half-cell per pixel of the strip's scale; a rocket leaves the top.
+  const up = Math.round((here.lift * H) / 40)
+  const flyUp = lift + (here.lift > 40 ? up : Math.min(up, Math.max(0, G - 4)))
+  const riding = here.pose === 'ride' && t.seg.ride ? GADGET[t.seg.ride] : null
+  if (!riding || riding.show) {
+    rows.forEach((row, dy) => {
+      for (let dx = 0; dx < 7; dx++) {
+        const k = row[here.face === 1 ? dx : 6 - dx] ?? '.'
+        const color = colors[k]
+        if (color) put(x0 + dx, G - 4 + dy - flyUp, color)
+      }
+    })
+    if (hat && !isNap) for (const dx of [2, 3, 4]) put(x0 + dx, G - 4 - flyUp, hat)
+  }
+  riding?.rows.forEach((row, dy) => {
+    for (let dx = 0; dx < 13; dx++) {
+      const color = GADGET_INK[row[here.face === 1 ? dx : 12 - dx] ?? '.']
+      if (color) put(x0 - 3 + dx, G - 4 + dy - flyUp, color)
     }
   })
-  if (hat && !isNap) for (const dx of [2, 3, 4]) put(x0 + dx, G - 4 - lift, hat)
   if (hat && isNap) for (const dx of [2, 3, 4]) put(x0 + dx, G - 3, hat)
   if (isNap && G >= 5 && sec % 2) put(x0 + (here.face === 1 ? 6 : 0), G - 5, '#C9CCD2')
 

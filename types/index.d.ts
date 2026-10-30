@@ -1,3 +1,8 @@
+/** The daily costumes, then those worn on holidays, in the rain or once earned. */
+export type Costume =
+  | 'astronaut' | 'surfer' | 'detective' | 'viking' | 'engineer' | 'diver' | 'chef' | 'wizard' | 'racer' | 'dj' | 'pirate' | 'plain'
+  | 'ghost' | 'santa' | 'oktoberfest' | 'raincoat' | 'king'
+
 export type Mood = 'nap' | 'work' | 'wander' | 'cheer' | 'daze' | 'wave' | 'party' | 'cool' | 'nervous' | 'stretch' | 'eat' | 'play' | 'love'
 
 export type ReactionMood = 'cheer' | 'daze' | 'wave' | 'party' | 'cool' | 'nervous' | 'eat' | 'play' | 'love'
@@ -13,14 +18,14 @@ export type WeatherNow = { kind: Weather; isWindy: boolean; at: number } | null
 export type Pose =
   | Mood
   | 'stand' | 'look' | 'gaze' | 'wink' | 'dig' | 'sit' | 'yawn' | 'sneeze' | 'dance' | 'duck' | 'carry' | 'build'
-  | 'peek' | 'notice' | 'kick' | 'hide' | 'sun' | 'sway' | 'hic' | 'chase' | 'skywatch' | 'muse'
+  | 'peek' | 'notice' | 'kick' | 'hide' | 'sun' | 'sway' | 'hic' | 'chase' | 'skywatch' | 'muse' | 'ride'
 
 export type LifeMode = 'idle' | 'work' | 'sleep' | 'stretch'
 
 export type Activity =
   | 'stroll' | 'lookAround' | 'gaze' | 'peek' | 'muse' | 'dig' | 'forage' | 'kick' | 'inspect' | 'hide' | 'sway'
   | 'sunbathe' | 'butterfly' | 'seagull' | 'fish' | 'neighbour' | 'yawn' | 'sneeze' | 'hiccup' | 'skywatch' | 'dance'
-  | 'build' | 'tidy' | 'friend' | 'sleep' | 'stretch' | 'hold'
+  | 'build' | 'tidy' | 'friend' | 'sleep' | 'stretch' | 'hold' | 'ride'
 
 /**
  * One stretch of the crab's life: the seed and the inputs its plan is made from,
@@ -39,6 +44,10 @@ export type Segment = {
   hold?: { pose: Pose; ms: number }
   /** An activity to do first (a friend Claude's Agent tool whistled for). */
   first?: Activity
+  /** What it wears: its gadget is that costume's. */
+  ride?: Costume
+  /** The last segment was cut off mid-ride: a puff of dust covers the gadget going. */
+  poof?: boolean
   castle: number
   shells: number
   /** Rare golden shells found, kept apart from the pile's count. */
