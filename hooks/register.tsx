@@ -110,7 +110,7 @@ const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 const KEY = {
   hidden: 'isHidden', breaksOff: 'areBreaksOff', soundOff: 'isSoundOff', needs: 'needs', name: 'name',
   firstMet: 'firstMet', bubbles: 'bubbles', signsOff: 'areSignsOff', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo',
-  greeted: 'greetedDay', tank: 'isTank', fish: 'fishCaught', roam: 'isRoaming', logOff: 'isLogOff',
+  greeted: 'greetedDay', tank: 'isTank', fish: 'fishCaught', roam: 'isRoaming', logOff: 'isLogOff', earned: 'decorEarned',
 } as const
 
 const TERMINAL_GLYPH: Record<Mood, string> = {
@@ -376,16 +376,18 @@ async function desiredMode($: EngineInterface): Promise<LifeMode> {
   return isAwake ? 'idle' : 'sleep'
 }
 
-async function traces($: EngineInterface): Promise<{ castle: number; shells: number; golden: number; layout?: number }> {
+async function traces($: EngineInterface): Promise<{ castle: number; shells: number; golden: number; layout?: number; earned?: number }> {
   const now = await $.clock.now()
   const c = await $.store.get(KEY.castle)
   const sh = await $.store.get(KEY.shells)
   const gold = await $.store.get(KEY.golden)
   // When you met is this install's own: it stays put, on this machine, and every window reads the same one.
   const met = await $.store.get(KEY.firstMet)
+  const earned = await $.store.get(KEY.earned)
   return {
     castle: isCastle(c) && c.day === dayKey(now) ? c.stage : 0, shells: isShells(sh) ? sh.count : 0, golden: isShells(gold) ? gold.count : 0,
     ...(typeof met === 'number' ? { layout: met >>> 0 } : {}),
+    ...(typeof earned === 'number' ? { earned } : {}),
   }
 }
 
@@ -419,6 +421,7 @@ async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms:
     shore: shoreFrac((await read($, tide))?.level ?? null, new Date(now).getHours() + new Date(now).getMinutes() / 60),
     ride: await wearing($),
     ...(tr.layout === undefined ? {} : { layout: tr.layout }),
+    ...(tr.earned === undefined ? {} : { earned: tr.earned }),
     ...(hold ? { hold } : {}), ...(opts.first ? { first: opts.first } : {}), ...(opts.haul ? { haul: opts.haul } : {}), ...(opts.isLeaving ? { isLeaving: true } : {}), ...(poof ? { poof } : {}),
   }
   await update($, life, () => seg)
@@ -1059,6 +1062,11 @@ export const register: Register = (on, options) => {
     const met = await $.store.get(KEY.firstMet)
     const metAt = typeof met === 'number' && met > 0 ? met : now
     if (metAt === now) await $.store.set(KEY.firstMet, now)
+    // A beach keeps what it already earned: only what comes after this count is its own.
+    if (typeof (await $.store.get(KEY.earned)) !== 'number') {
+      const sh = await $.store.get(KEY.shells)
+      await $.store.set(KEY.earned, isShells(sh) ? sh.count : 0)
+    }
     // Time away does not starve it; a long enough gap is rest.
     const stored = await $.store.get(KEY.needs)
     await saveNeeds($, isNeeds(stored) ? { ...rest(stored, now - stored.updatedAt), updatedAt: now } : freshNeeds(now))

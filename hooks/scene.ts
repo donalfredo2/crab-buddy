@@ -341,27 +341,94 @@ const costumeBeach = (costume: Costume, width: number, sea: number, now: number)
   }
 }
 
-const unlocked = (width: number, tod: TimeOfDay, shells: number, sea: number, own: Layout): string => {
-  const at = spots(width, undefined, own)
+/** Art standing on the sand, its left edge at `x`. */
+const stands = (rows: string[], colors: Record<string, string>, x: number): string => pixels(rows, colors, x, GROUND - rows.length)
+
+/** A soft edge around the `ink` cells, or white vanishes against a light sky. */
+const edged = (rows: string[], ink: string): string[] => {
+  const at = (x: number, y: number) => rows[y]?.[x] ?? '.'
+  return rows.map((row, y) => [...row].map((c, x) => (c === '.' && [at(x - 1, y), at(x + 1, y), at(x, y - 1), at(x, y + 1)].includes(ink) ? 'e' : c)).join(''))
+}
+
+const fiveShells = (own: Layout, x: number): string => {
   const g = GROUND
+  switch (own.decor.palm) {
+    case 'palm': {
+      // It leans its own way: the crown sits over the top of the trunk either way.
+      const crown = x + 1 + own.lean * 3
+      const trunk = [[0, -2], [0, -4], [1, -6], [1, -8], [2, -10], [2, -12], [3, -14]].map(([dx, dy]) => `<rect x="${x + own.lean * (dx ?? 0)}" y="${g + (dy ?? 0)}" width="2" height="2" fill="#8A5A2B"/>`).join('')
+      const coconuts = [crown - 1, crown + 1].slice(0, own.coconuts).map(cx => `<rect x="${cx}" y="${g - 15}" width="1.5" height="1.5" fill="#6B4423"/>`).join('')
+      return trunk + `<g class="palm" style="transform-origin:${crown}px ${g - 15}px">${pixels(['.gg....gg.', 'gggg..gggg', 'g..gggg..g', '...gggg...', '..g.gg.g..', '.g..gg..g.'], { g: '#3E9E5A' }, crown - 5, g - 19)}</g>${coconuts}`
+    }
+    case 'flamingo':
+      return stands(['..pppk....', '.pp...k...', '.p........', '.pp.......', '..pp......', '...p......', '...ppppp..', '..pppppppp', '..ppppppp.', '...ppppp..', '.....l....', '.....l....', '.....l....', '.....l....', '.....l....', '....lll...'], { p: '#F28CA8', k: '#3A3936', l: '#D9577F' }, x - 3)
+    case 'lifebuoy':
+      return stands(['.....pp....', '.....pp....', '...rrrrr...', '..rrrrrrr..', '.rrr.pp.rrr', 'rww..pp..wwr', 'rww..pp..wwr', 'rww..pp..wwr', '.rrr.pp.rrr', '..rrrrrrr..', '...rrrrr...', '.....pp....', '.....pp....', '.....pp....', '.....pp....', '.....pp....', '.....pp....', '.....pp....'], { p: '#8A5A2B', r: '#D8433B', w: '#F4F3EE' }, x - 5)
+  }
+}
+
+const tenShells = (own: Layout, x: number, isLit: boolean): string => {
+  const g = GROUND
+  switch (own.decor.chair) {
+    case 'chair':
+      return `<rect x="${x + 4}" y="${g - 17}" width="1" height="17" fill="#8E929A"/>${pixels(['....rrwrr....', '..rrwwrrwwr..', '.rrwwrrrwwrr.', 'rrwwrrrrrwwrr'], { r: own.stripe, w: '#F4F3EE' }, x - 2, g - 20)}${pixels(['........bb', '.......bb.', '......bb..', 'bbbbbbbb..', 'b.....b...'], { b: '#378ADD' }, x - 3, g - 5)}`
+    case 'strandkorb': {
+      const canvas = Array.from({ length: 13 }, (_, i) => (i % 3 === 2 ? 'wbffffffffffffffffffffbw' : 'wbssssssssssssssssssssbw'))
+      return stands(['...wwwwwwwwwwwwwwwwww...', '..wbbbbbbbbbbbbbbbbbbw..', '.wbbbbbbbbbbbbbbbbbbbbw.', ...canvas, 'wwwwwwwwwwwwwwwwwwwwwwww', 'wbbbwbbbwbbbwbbbwbbbwbbw', 'wbbbwbbbwbbbwbbbwbbbwbbw', 'wbbbwbbbwbbbwbbbwbbbwbbw', 'wwwwwwwwwwwwwwwwwwwwwwww'], { w: '#C9A25E', b: '#A8823F', s: own.stripe, f: '#F4F3EE' }, x - 12)
+    }
+    case 'hammock': {
+      const post = (at: number) => `<rect x="${at}" y="${g - 13}" width="1" height="13" fill="#8A5A2B"/>`
+      return post(x - 11) + post(x + 10) + pixels(['f....................f', '.ff................ff.', '..fff............fff..', '....ffff......ffff....', '.......ffffffff.......'], { f: own.stripe }, x - 11, g - 13)
+    }
+    case 'armchair': {
+      // A lamp with no cable, on after dark, and the crab's own rug on the sand.
+      const glow = isLit ? `<ellipse cx="${x + 7}" cy="${g - 24}" rx="10" ry="7" fill="#F5D96A" opacity=".1"/>` : ''
+      const lamp = `<rect x="${x + 7}" y="${g - 24}" width="1" height="8" fill="#3A3936"/>${pixels(['..sssss..', '.sssssss.', 'sssssssss'], { s: isLit ? '#F5D96A' : '#EAD9B0' }, x + 3, g - 28)}`
+      const chair = stands(['....cccccccccccccccc....', '...cCCCCCCCCCCCCCCCCc...', ...Array.from({ length: 8 }, () => '...cCCCCCCCCCCCCCCCCc...'), 'ccccccCCCCCCCCCCCCcccccc', 'cCCCCcCCCCCCCCCCCCcCCCCc', 'cCCCCcCCCCCCCCCCCCcCCCCc', 'cCCCCcssssssssssssscCCCc', 'cCCCCcccccccccccccccCCCc', 'cCCCCcccccccccccccccCCCc', 'cccccccccccccccccccccccc', '..d..................d..'], { c: '#7A3B46', C: '#94505C', s: '#A9626E', d: '#3A3936' }, x - 12)
+      const rug = pixels(['yrrrrrrrrrrrrrrrrrrrrrry', 'rrbbbbbbbbbbbbbbbbbbbbrr', 'yrrrrrrrrrrrrrrrrrrrrrry'], { r: '#4A7FB5', b: '#7FA8D1', y: '#F5C542' }, x - 12, g + 1)
+      return glow + lamp + chair + rug
+    }
+  }
+}
+
+const twentyShells = (own: Layout, x: number, isLit: boolean): string => {
+  // Someone's home after dark: the window glows, and nothing moves.
+  const pane = isLit ? '#F5D96A' : '#A9D6F5'
+  switch (own.decor.house) {
+    case 'house':
+      return stands(['.......rrr.......', '.....rrrrrrr.....', '...rrrrrrrrrrr...', '.rrrrrrrrrrrrrrr.', '..wwwwwwwwwwwww..', '..wwwwwwwdddwww..', '..wlllwwdddddww..', '..wlllwwdddddww..', '..wlllwwdddddww..', '..wwwwwwdddddww..', '..wwwwwwdddddww..', '..wwwwwwdddddww..', '.ggggggggggggggg.'], { r: own.roof, w: '#F0E2C4', d: '#8A5A2B', l: pane, g: '#8E929A' }, x - 8)
+    case 'tower':
+      return stands(['.rrrrrrrrrrrrr.', 'rrrrrrrrrrrrrrr', '..w.........w..', '..wlllllllllw..', '..wlllllllllw..', '..wwwwwwwwwww..', '..rrrrrrrrrrr..', '..wwwwwwwwwww..', '.ggggggggggggg.', '..p.p.....p.p..', '..p..p...p..p..', '..p...p.p...p..', '..p....p....p..', '..p...p.p...p..', '..p..p...p..p..', '..p.p.....p.p..', '..p.........p..'], { r: own.roof, w: '#F4F3EE', l: pane, g: '#8E929A', p: '#8A5A2B' }, x - 7)
+    case 'hut':
+      return stands(['.......rr.......', '.....rrrrrr.....', '...rrrrrrrrrr...', '.rrrrrrrrrrrrrr.', '..wwrrwwrrwwrr..', '..wwrrwwrrwwrr..', '..wwrrddddwwrr..', '..wwrrdlldwwrr..', '..wwrrdlldwwrr..', '..wwrrddddwwrr..', '..wwrrddyDwwrr..', '..wwrrddddwwrr..', '..wwrrddddwwrr..', '.gggggggggggggg.', '..p..........p..', '..p..........p..'], { r: own.roof, w: '#F4F3EE', d: '#8A5A2B', D: '#8A5A2B', l: pane, y: '#F5C542', g: '#8E929A', p: '#8A5A2B' }, x - 8)
+    case 'vending': {
+      const glow = isLit ? `<ellipse cx="${x}" cy="${GROUND + 2}" rx="15" ry="2.6" fill="#F5D96A" opacity=".45"/>` : ''
+      return glow + stands(['bbbbbbbbbbbbb', 'bhhhhhhhhhhhb', 'bhhhhhhhhhhhb', 'bbbbbbbbbbbbb', 'bllllllllbbbb', 'blclclclcbggb', 'bllllllllbggb', 'blalalalabbbb', 'bllllllllbkkb', 'blelelelebbbb', 'bllllllllbbbb', 'bbbbbbbbbbbbb', 'bbkkkkkkkbbbb', 'bbkkkkkkkbbbb', 'bbbbbbbbbbbbb', '.d.........d.'], { b: own.roof, h: '#F4F3EE', l: pane, c: '#D8433B', a: '#378ADD', e: '#4C8A5B', g: '#E6E2D6', k: '#3A3936', d: '#3A3936' }, x - 6)
+    }
+  }
+}
+
+// Afloat from the moment the sea reaches its middle: it rides the tide instead of drowning under it.
+const fortyShells = (own: Layout, x: number, sea: number, now: number): string => {
+  const isAfloat = x + 11 >= sea
+  const y = (rows: string[]) => GROUND - rows.length + (isAfloat ? 1 : 0)
+  const art = (rows: string[], colors: Record<string, string>) => pixels(rows, colors, x, y(rows))
+  const boat =
+    own.decor.boat === 'rowboat' ? art(['..............o.......', '.............o........', 'b...........o........b', 'bbwwwwwwwwwwwwwwwwwwbb', '.bbbbbbbbbbbbbbbbbbbb.', '..bbbbbbbbbbbbbbbbbb..', '...bbbbbbbbbbbbbbbb...'], { b: own.roof, w: '#F4F3EE', o: '#8A5A2B' })
+    : own.decor.boat === 'dinghy' ? art(edged(['..........m..........', '..........mw.........', '..........mww........', '..........mwww.......', '..........mwwww......', '..........mssss......', '..........mwwwwww....', '..........mwwwwwww...', '..........mssssssss..', '..........mwwwwwwwww.', '..........m..........', '..........m..........', 'bb................bb.', '.bbbbbbbbbbbbbbbbbb..', '..bbbbbbbbbbbbbbbb...', '...ssssssssssssss....'], 'w'), { m: '#8A5A2B', w: '#F4F3EE', s: own.stripe, b: own.roof, e: '#B4B2A9' })
+    : art(edged(['......................', '................ww....', '...............wwwoo..', '...............ww.....', '..............ww......', '..............ww......', '.............ww.......', '.w...........ww.......', '.www.........ww.......', '.wwwww..ww.wwww.......', '.wwwwwwwwwwwwwww......', '..wwwwwwwwwwwwwww.....', '......................', '..ssssssssssssss......', '...ssssssssssss.......'], 'w'), { w: '#F4F3EE', o: '#F28C3A', s: '#4A7FB5', e: '#B4B2A9' })
+  return isAfloat ? `<g class="btl" style="${wall(now, 3)}" shape-rendering="crispEdges">${boat}</g>` : boat
+}
+
+/** What the shell collection unlocked. `costume`: the pirate's and viking's own ships lie where the boat would. */
+export const unlocked = (width: number, tod: TimeOfDay, shells: number, sea: number, own: Layout, costume: Costume, now: number): string => {
+  const at = spots(width, undefined, own)
+  const isLit = tod === 'night' || tod === 'evening'
   const out: string[] = []
-  if (hasDecor('house', shells, width)) {
-    // Someone's home after dark: the window glows, and nothing moves.
-    const pane = tod === 'night' || tod === 'evening' ? '#F5D96A' : '#A9D6F5'
-    out.push(pixels(['.......rrr.......', '.....rrrrrrr.....', '...rrrrrrrrrrr...', '.rrrrrrrrrrrrrrr.', '..wwwwwwwwwwwww..', '..wwwwwwwdddwww..', '..wlllwwdddddww..', '..wlllwwdddddww..', '..wlllwwdddddww..', '..wwwwwwdddddww..', '..wwwwwwdddddww..', '..wwwwwwdddddww..', '.ggggggggggggggg.'], { r: own.roof, w: '#F0E2C4', d: '#8A5A2B', l: pane, g: '#8E929A' }, at.house - 8, g - 13))
-  }
-  if (hasDecor('palm', shells, width)) {
-    const x = at.palm
-    // It leans its own way: the crown sits over the top of the trunk either way.
-    const crown = x + 1 + own.lean * 3
-    const trunk = [[0, -2], [0, -4], [1, -6], [1, -8], [2, -10], [2, -12], [3, -14]].map(([dx, dy]) => `<rect x="${x + own.lean * (dx ?? 0)}" y="${g + (dy ?? 0)}" width="2" height="2" fill="#8A5A2B"/>`).join('')
-    const coconuts = [crown - 1, crown + 1].slice(0, own.coconuts).map(cx => `<rect x="${cx}" y="${g - 15}" width="1.5" height="1.5" fill="#6B4423"/>`).join('')
-    out.push(trunk + `<g class="palm" style="transform-origin:${crown}px ${g - 15}px">${pixels(['.gg....gg.', 'gggg..gggg', 'g..gggg..g', '...gggg...', '..g.gg.g..', '.g..gg..g.'], { g: '#3E9E5A' }, crown - 5, g - 19)}</g>${coconuts}`)
-  }
-  if (hasDecor('chair', shells, width) && at.chair + 12 < sea) {
-    const x = at.chair
-    out.push(`<rect x="${x + 4}" y="${g - 17}" width="1" height="17" fill="#8E929A"/>${pixels(['....rrwrr....', '..rrwwrrwwr..', '.rrwwrrrwwrr.', 'rrwwrrrrrwwrr'], { r: own.stripe, w: '#F4F3EE' }, x - 2, g - 20)}${pixels(['........bb', '.......bb.', '......bb..', 'bbbbbbbb..', 'b.....b...'], { b: '#378ADD' }, x - 3, g - 5)}`)
-  }
+  if (hasDecor('house', shells, width)) out.push(twentyShells(own, at.house, isLit))
+  if (hasDecor('palm', shells, width)) out.push(fiveShells(own, at.palm))
+  if (hasDecor('chair', shells, width) && at.chair + 12 < sea) out.push(tenShells(own, at.chair, isLit))
+  if (hasDecor('boat', shells, width) && costume !== 'pirate' && costume !== 'viking') out.push(fortyShells(own, at.boat, sea, now))
   return out.join('')
 }
 
@@ -428,7 +495,7 @@ const habitat = (width: number, tod: TimeOfDay, sky: Sky, shore: number, now: nu
   const pool = !at.hasPool ? '' : `${glow}<ellipse class="pool" cx="${at.pool}" cy="${GROUND + 2}" rx="14" ry="2.2"/><rect class="shim" x="${at.pool - 6}" y="${GROUND + 1.4}" width="4" height=".6" fill="#fff" opacity=".7"/><rect class="shim tw2" x="${at.pool + 3}" y="${GROUND + 2.4}" width="3" height=".6" fill="#fff" opacity=".6"/>`
   const snowy = sky.season === 'winter' || sky.weather === 'snow'
   const snow = snowy ? `<rect class="snowl" x="0" y="${GROUND - 0.8}" width="${width}" height="2" rx="1"/>${Array.from({ length: Math.floor(width / 60) }, (_, i) => `<ellipse class="snowl" cx="${i * 60 + 23}" cy="${GROUND - 0.6}" rx="5" ry="1.4"/>`).join('')}` : ''
-  return `<rect class="sand" x="0" y="${GROUND}" width="${width}" height="${SCENE_H - GROUND}" rx="2"/><rect class="sand2" x="0" y="${GROUND}" width="${width}" height="1"/>${snow}${pool}${pebbles}${weed}${sea(width, at.sea, now)}${hasMark ? wrackSvg(width) : ''}${holidayDecor(width, tod, sky)}${sky.holiday ? '' : costumeBeach(costume, width, at.sea, now)}${unlocked(width, tod, shells, at.sea, own)}`
+  return `<rect class="sand" x="0" y="${GROUND}" width="${width}" height="${SCENE_H - GROUND}" rx="2"/><rect class="sand2" x="0" y="${GROUND}" width="${width}" height="1"/>${snow}${pool}${pebbles}${weed}${sea(width, at.sea, now)}${hasMark ? wrackSvg(width) : ''}${holidayDecor(width, tod, sky)}${sky.holiday ? '' : costumeBeach(costume, width, at.sea, now)}${unlocked(width, tod, shells, at.sea, own, costume, now)}`
 }
 
 const bubbleSvg = (text: string): { svg: string; width: number } => {
@@ -624,7 +691,7 @@ export const sceneSvg = (s: SceneInput): string => {
   const elapsed = Math.max(0, Math.min(pl.duration, s.now - s.seg.startAt))
   const here = whereAt(pl, elapsed)
   const shore = s.seg.shore ?? NO_CONTEXT_SHORE
-  const own = layoutOf(s.seg.layout)
+  const own = layoutOf(s.seg.layout, s.seg.earned)
   const { css, poses, marks } = compile(pl, width, elapsed, shore, own)
   const at = spots(width, shore, own)
 

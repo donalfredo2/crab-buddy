@@ -6,17 +6,18 @@ import type { Beach, Rod, Segment } from '../types'
 import { reconcile, sameRods } from './fishing'
 import { ACTIVE_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, whereCrabIs } from './roam'
 import type { BeachRecord } from './roam'
-import { MARK_SHORE, MARK_TIDE, MAX_RODS, RIDES, ROOFS, STRIPES, TEMPERAMENTS, ZONES, activityStarts, hasDecor, layoutOf, plan, planOf, rideFits, rodSpots, shoreFrac, spots, tideOf, trackSpan, weights, whereAt, xOf } from './life'
-import type { Temperament } from './life'
+import { HAMMOCK, MARK_SHORE, MARK_TIDE, MAX_RODS, POOLS, RIDES, ROOFS, STRIPES, TEMPERAMENTS, ZONES, activityStarts, hasDecor, layoutOf, plan, planOf, rideFits, rodSpots, shoreFrac, spots, tideOf, trackSpan, weights, whereAt, xOf } from './life'
+import type { Decor, Temperament } from './life'
 
 import { line, signLine, themeLine, themeName } from './lines'
 import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
 import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, newsOf, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, toolNewsOf, wornAt } from './register'
-import { sceneSvg, timeOfDay } from './scene'
+import { sceneSvg, timeOfDay, unlocked } from './scene'
 import { breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
 import { COSTUMES, SPECIAL_COSTUMES, costumeOfDay } from './sprites'
+import type { Costume } from './sprites'
 import { beachCells, beachPixels, cellText, decodeCells } from './terminal'
 
 const DAY = 86_400_000
@@ -692,7 +693,222 @@ test('the terminal shows the same things where this beach has them', () => {
   }
 })
 
+// --- what the shells unlock, each beach its own
+
+const TIERS = Object.keys(POOLS) as (keyof Decor)[]
+const itemsOf = (tier: keyof Decor): string[] => [...POOLS[tier].usual, ...(POOLS[tier].odd ? [POOLS[tier].odd] : [])]
+const withDecor = (tier: keyof Decor, item: string): number => {
+  const found = LAYOUTS.find(n => layoutOf(n, 0).decor[tier] === item)
+  if (found === undefined) throw new Error(`no beach has ${item}`)
+  return found
+}
+/** Left and right edge of what `svg` draws in rects. */
+const reach = (svg: string): [number, number] => {
+  const edges = [...svg.matchAll(/<rect x="([\d.]+)"[^>]*? width="([\d.]+)"/g)].map(m => [Number(m[1]), Number(m[1]) + Number(m[2])] as const)
+  expect(edges.length).toBeGreaterThan(0)
+  return [Math.min(...edges.map(e => e[0])), Math.max(...edges.map(e => e[1]))]
+}
+
+test('each unlock comes from its pool, the same every time, and the odd one stays rare', () => {
+  expect(layoutOf().decor).toEqual({ palm: 'palm', chair: 'chair', house: 'house', boat: 'rowboat' })
+  expect(layoutOf(1234, 0)).toEqual(layoutOf(1234, 0))
+  for (const tier of TIERS) {
+    const seen = LAYOUTS.map(n => layoutOf(n, 0).decor[tier] as string)
+    expect(new Set(seen)).toEqual(new Set(itemsOf(tier)))
+    const { odd } = POOLS[tier]
+    if (odd) {
+      const share = seen.filter(i => i === odd).length / seen.length
+      expect(share).toBeGreaterThan(0.06)
+      expect(share).toBeLessThan(0.2)
+    }
+  }
+  // What 0.18.0 placed stays put, whatever is drawn after it.
+  const mine = layoutOf(1793309359555 >>> 0, 0)
+  expect([mine.temperament, mine.lean, mine.coconuts]).toEqual(['sunbather', -1, 1])
+  for (const n of LAYOUTS.slice(0, 40)) {
+    const { decor: _a, ...drawn } = layoutOf(n, 0)
+    const { decor: _b, ...kept } = layoutOf(n)
+    expect(drawn).toEqual(kept)
+  }
+})
+
+test('a beach keeps what it had earned, and what comes later is its own', () => {
+  const n = LAYOUTS.find(l => {
+    const { palm, chair, house } = layoutOf(l, 0).decor
+    return palm !== 'palm' && chair !== 'chair' && house !== 'house'
+  }) ?? 0
+  const drawn = layoutOf(n, 0).decor
+  expect(layoutOf(n, 4).decor).toEqual(drawn)
+  expect(layoutOf(n, 7).decor).toEqual({ ...drawn, palm: 'palm' })
+  expect(layoutOf(n, 28).decor).toEqual({ ...drawn, palm: 'palm', chair: 'chair', house: 'house' })
+  // No beach had a boat, so even the richest gets its own.
+  expect(layoutOf(n, 500).decor.boat).toBe(drawn.boat)
+  // No number yet: it keeps what it has.
+  expect(layoutOf(n).decor).toEqual({ ...drawn, palm: 'palm', chair: 'chair', house: 'house' })
+})
+
+test('everything the shells unlock fits its own stretch of the beach', () => {
+  for (const n of LAYOUTS) {
+    const own = layoutOf(n, 0)
+    for (const width of WIDTHS) {
+      const at = spots(width, undefined, own)
+      const mark = Math.round(width * MARK_SHORE)
+      const art = (shells: number) => unlocked(width, 'day', shells, at.sea, own, 'plain', T0)
+      const [palmLeft, palmRight] = reach(art(5))
+      expect(palmLeft).toBeGreaterThan(at.house + 9)
+      expect(palmRight).toBeLessThan(at.castle - 6)
+      const [chairLeft, chairRight] = reach(art(10).slice(art(9).length))
+      expect(chairLeft).toBeGreaterThanOrEqual(at.pebble + 3)
+      expect(chairRight).toBeLessThanOrEqual(at.seaweed - 3)
+      const [houseLeft, houseRight] = reach(art(20).slice(0, art(20).length - art(19).length))
+      expect(houseLeft).toBeGreaterThan(24)
+      expect(houseRight).toBeLessThan(at.palm - 7)
+      const [boatLeft, boatRight] = reach(art(40).slice(art(39).length))
+      expect(boatLeft).toBeGreaterThan(mark + 9)
+      expect(boatRight).toBeLessThan(at.pool - 14)
+    }
+  }
+})
+
+test('it sunbathes in whatever chair the beach has, and only the hammock lifts it', () => {
+  for (const item of itemsOf('chair')) {
+    const layout = withDecor('chair', item)
+    const chair = spots(800, undefined, layoutOf(layout, 0)).chair
+    const { beats } = plan(seg({ layout, earned: 0, shells: 30, first: 'sunbathe' }))
+    const i = beats.findIndex(b => b.pose === 'sun')
+    const sun = beats[i]
+    expect(Math.abs(xOf(sun?.p0 ?? 0, 800) + 13 - chair)).toBeLessThan(2)
+    expect(sun?.y0 ?? 0).toBe(item === 'hammock' ? HAMMOCK : 0)
+    if (item === 'hammock') {
+      expect(beats[i - 1]?.y1).toBe(HAMMOCK)
+      expect(beats[i + 1]?.y1).toBe(0)
+    }
+  }
+  // With the hammock under the sea there is nothing to climb.
+  const layout = withDecor('chair', 'hammock')
+  expect(plan(seg({ layout, earned: 0, shells: 30, shore: 0.45, first: 'sunbathe' })).beats.some(b => b.y0 || b.y1)).toBe(false)
+  expect(plan(seg({ layout, earned: 0, shells: 5, first: 'sunbathe' })).beats.some(b => b.y0 || b.y1)).toBe(false)
+})
+
+test('the boat comes at 40 shells, and floats when the tide reaches it', () => {
+  for (const item of itemsOf('boat')) {
+    const own = layoutOf(withDecor('boat', item), 0)
+    const { boat } = spots(800, undefined, own)
+    const art = (shells: number, sea: number, costume: Costume = 'plain', width = 800) => unlocked(width, 'day', shells, sea, own, costume, T0)
+    expect(hasDecor('boat', 39, 800)).toBe(false)
+    expect(art(40, 736).length).toBeGreaterThan(art(39, 736).length)
+    expect(art(40, 400)).toContain(`class="btl" style="animation-delay`)
+    expect(art(40, 736)).not.toContain('class="btl"')
+    expect(art(40, boat + 12)).not.toContain('class="btl"')
+    expect(art(40, boat + 11)).toContain('class="btl"')
+    // The pirate's wreck and the viking's ship lie there already.
+    expect(art(40, 736, 'pirate')).toBe(art(39, 736))
+    expect(art(40, 736, 'viking')).toBe(art(39, 736))
+    expect(art(40, 736, 'surfer')).toBe(art(40, 736))
+    expect(art(40, 400, 'plain', 499)).toBe('')
+  }
+})
+
+test('after dark the new shelters and the lamp light up, and nothing else moves', () => {
+  for (const [tier, item] of [['house', 'tower'], ['house', 'hut'], ['house', 'vending'], ['chair', 'armchair']] as const) {
+    const own = layoutOf(withDecor(tier, item), 0)
+    const at = (tod: 'day' | 'night') => unlocked(800, tod, 30, 736, own, 'plain', T0)
+    expect(at('day')).not.toContain('#F5D96A')
+    expect(at('night')).toContain('#F5D96A')
+    expect(at('night')).not.toContain('@keyframes')
+  }
+})
+
+test('the terminal draws them all, in their own few cells', () => {
+  const G = 5
+  const pixelsOf = (columns: number, over: Partial<Segment>) =>
+    beachPixels({ columns, rows: 3, now: T0 + 1000, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null, seg: seg({ width: columns * 8, startP: 0.95, earned: 0, ...over }) }).px
+  // Cells that differ, left of where the crab stands.
+  const cellsOf = (W: number, a: number[], b: number[]) => a.flatMap((c, i) => (c !== b[i] && i % W < W * 0.85 ? [{ x: i % W, y: Math.floor(i / W) }] : []))
+  for (const W of [63, 80, 120]) {
+    for (const item of itemsOf('palm')) {
+      const layout = withDecor('palm', item)
+      const x = Math.round(W * layoutOf(layout, 0).at.palm)
+      // Past the shell pile, which grows with that fifth shell too.
+      const cells = cellsOf(W, pixelsOf(W, { layout, shells: 5 }), pixelsOf(W, { layout, shells: 4 })).filter(c => c.x > 9)
+      expect(cells.length).toBeGreaterThan(3)
+      for (const c of cells) expect(Math.abs(c.x - x)).toBeLessThanOrEqual(2)
+    }
+    for (const item of itemsOf('chair')) {
+      const layout = withDecor('chair', item)
+      const x = Math.round(W * layoutOf(layout, 0).at.chair)
+      const cells = cellsOf(W, pixelsOf(W, { layout, shells: 10 }), pixelsOf(W, { layout, shells: 9 }))
+      expect(cells.length).toBeGreaterThan(3)
+      // Only a lampshade may pass the pebble and seaweed, up above them.
+      for (const c of cells) expect(Math.abs(c.x - x)).toBeLessThanOrEqual(c.y === G - 4 ? 3 : 2)
+      const narrow = pixelsOf(50, { layout, shells: 10 })
+      expect(narrow).toEqual(pixelsOf(50, { layout, shells: 9 }))
+    }
+    for (const item of itemsOf('boat')) {
+      const layout = withDecor('boat', item)
+      const x = Math.round(W * layoutOf(layout, 0).at.boat) + 1
+      const cells = cellsOf(W, pixelsOf(W, { layout, shells: 40 }), pixelsOf(W, { layout, shells: 39 }))
+      expect(cells.length).toBeGreaterThan(3)
+      for (const c of cells) expect(c.x >= x && c.x <= x + 4).toBe(true)
+      // Under the tide it still shows, over the sea.
+      const wet = cellsOf(W, pixelsOf(W, { layout, shells: 40, shore: 0.5 }), pixelsOf(W, { layout, shells: 39, shore: 0.5 }))
+      expect(wet).toEqual(cells)
+    }
+  }
+  // The house's rule holds for all of them: past the pile, clear of the palm, or not at all.
+  for (const item of itemsOf('house')) {
+    const layout = withDecor('house', item)
+    for (const W of [63, 80, 120]) {
+      const cells = cellsOf(W, pixelsOf(W, { layout, shells: 20 }), pixelsOf(W, { layout, shells: 19 }))
+      const palm = Math.round(W * layoutOf(layout, 0).at.palm)
+      if (palm < 17) expect(cells).toEqual([])
+      else {
+        expect(cells.length).toBeGreaterThan(3)
+        expect(Math.min(...cells.map(c => c.x))).toBeGreaterThan(9)
+        expect(Math.max(...cells.map(c => c.x))).toBeLessThan(palm - 1)
+      }
+    }
+  }
+})
+
 // --- the mod in the engine
+
+/** A store in memory that also notes what lands on the count. */
+const watchedStore = (on: On, entries: Record<string, unknown>): unknown[] => {
+  const kept = new Map(Object.entries(entries))
+  const written: unknown[] = []
+  on('store.get', async ($, e) => ({ value: kept.get(e.key) }))
+  on('store.set', async ($, e) => {
+    kept.set(e.key, e.value)
+    if (e.key === 'decorEarned') written.push(e.value)
+    return { value: undefined }
+  })
+  return written
+}
+
+test('an existing beach keeps what it earned, and a count once stored stays', async ($, on) => {
+  const met = withDecor('house', 'vending')
+  const written = watchedStore(on, { firstMet: met, shells: { count: 28, last: 'x' } })
+  mock.clock(on, { now: T0 })
+  engine(on)
+  await start($)
+  expect(written).toEqual([28])
+  expect((await band($)).source).toContain('#F0E2C4')
+  await start($)
+  expect(written).toEqual([28])
+})
+
+test('a new beach gets its own from the first shell', async ($, on) => {
+  const met = withDecor('house', 'vending')
+  const written = watchedStore(on, { firstMet: met, decorEarned: 0, shells: { count: 28, last: 'x' } })
+  mock.clock(on, { now: T0 })
+  engine(on)
+  await start($)
+  expect(written).toEqual([])
+  const { source } = await band($)
+  expect(source).not.toContain('#F0E2C4')
+  expect(source).toContain('#E6E2D6')
+})
 
 test('an install keeps its beach from when you first met, in every window', async ($, on) => {
   const met = 1793309359555

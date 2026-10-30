@@ -5,6 +5,7 @@
 
 import type { Beach, Segment, TimeOfDay } from '../types'
 import { CRAB_W, MARK_SHORE, MAX_RODS, NO_CONTEXT_SHORE, ZONES, hasDecor, isWalking, layoutOf, planOf, whereAt, xOf } from './life'
+import type { Layout } from './life'
 import { moonLit } from './sky'
 import type { Sky } from './sky'
 import { CLAY } from './sprites'
@@ -76,6 +77,140 @@ export const cellText = (text: string): string =>
 const wordsAt = (crabX: number, length: number, W: number): number =>
   crabX + 9 + length <= W ? crabX + 9 : Math.max(0, crabX - length - 2)
 
+// What the shells unlocked, in a few cells each.
+type Put = (x: number, y: number, c: string) => void
+
+const fiveShells = (put: Put, own: Layout, x: number, G: number): void => {
+  switch (own.decor.palm) {
+    case 'palm':
+      for (let y = G - 3; y <= G - 1; y++) put(x, y, '#8A5A2B')
+      for (const dx of [-1, 0, 1]) put(x + own.lean + dx, G - 4, '#3E9E5A')
+      return
+    case 'flamingo':
+      put(x, G - 1, '#D9577F')
+      put(x, G - 2, '#F28CA8')
+      put(x + 1, G - 2, '#F28CA8')
+      put(x - 1, G - 3, '#F28CA8')
+      put(x - 1, G - 4, '#F28CA8')
+      put(x, G - 4, '#3A3936')
+      return
+    case 'lifebuoy':
+      put(x, G - 1, '#8A5A2B')
+      put(x, G - 3, '#8A5A2B')
+      put(x, G - 4, '#D8433B')
+      put(x, G - 2, '#D8433B')
+      for (const dx of [-1, 1]) {
+        put(x + dx, G - 4, '#D8433B')
+        put(x + dx, G - 3, '#F4F3EE')
+        put(x + dx, G - 2, '#D8433B')
+      }
+  }
+}
+
+const tenShells = (put: Put, own: Layout, x: number, G: number, isLit: boolean): void => {
+  switch (own.decor.chair) {
+    case 'chair':
+      for (const dx of [-1, 0, 1]) put(x + dx, G - 1, '#378ADD')
+      put(x, G - 2, '#8E929A')
+      put(x, G - 3, '#8E929A')
+      for (const dx of [-2, -1, 0, 1, 2]) put(x + dx, G - 4, dx % 2 ? '#F4F3EE' : own.stripe)
+      return
+    case 'strandkorb':
+      for (let dx = -2; dx <= 2; dx++) {
+        const isSide = dx === -2 || dx === 2
+        put(x + dx, G - 1, '#C9A25E')
+        put(x + dx, G - 2, isSide ? '#C9A25E' : own.stripe)
+        put(x + dx, G - 3, isSide ? '#C9A25E' : '#F4F3EE')
+        put(x + dx, G - 4, '#C9A25E')
+      }
+      return
+    case 'hammock':
+      for (let y = G - 3; y <= G - 1; y++) {
+        put(x - 2, y, '#8A5A2B')
+        put(x + 2, y, '#8A5A2B')
+      }
+      put(x - 1, G - 3, own.stripe)
+      put(x, G - 2, own.stripe)
+      put(x + 1, G - 3, own.stripe)
+      return
+    case 'armchair':
+      for (const dx of [-2, -1, 0]) {
+        put(x + dx, G - 1, '#94505C')
+        put(x + dx, G - 2, '#7A3B46')
+      }
+      put(x - 2, G - 3, '#7A3B46')
+      put(x, G - 3, '#7A3B46')
+      for (let y = G - 3; y <= G - 1; y++) put(x + 2, y, '#3A3936')
+      for (const dx of [1, 2, 3]) put(x + dx, G - 4, isLit ? '#F5D96A' : '#EAD9B0')
+  }
+}
+
+const twentyShells = (put: Put, own: Layout, x: number, G: number, isLit: boolean): void => {
+  const pane = isLit ? '#F5D96A' : '#A9D6F5'
+  switch (own.decor.house) {
+    case 'house':
+      for (let dx = 0; dx < 5; dx++) {
+        put(x + dx, G - 1, dx === 3 ? '#8A5A2B' : '#F0E2C4')
+        put(x + dx, G - 2, dx === 1 ? pane : dx === 3 ? '#8A5A2B' : '#F0E2C4')
+        put(x + dx, G - 3, own.roof)
+      }
+      for (const dx of [1, 2, 3]) put(x + dx, G - 4, own.roof)
+      return
+    case 'tower':
+      for (let dx = 0; dx < 5; dx++) {
+        put(x + dx, G - 4, own.roof)
+        put(x + dx, G - 3, dx === 0 || dx === 4 ? '#F4F3EE' : pane)
+      }
+      for (const dx of [0, 4]) {
+        put(x + dx, G - 2, '#8A5A2B')
+        put(x + dx, G - 1, '#8A5A2B')
+      }
+      put(x + 2, G - 2, '#8E929A')
+      return
+    case 'hut':
+      for (let dx = 0; dx < 5; dx++) {
+        put(x + dx, G - 1, dx === 2 ? '#8A5A2B' : dx % 2 ? '#F4F3EE' : own.roof)
+        put(x + dx, G - 2, dx === 2 ? pane : dx % 2 ? '#F4F3EE' : own.roof)
+        put(x + dx, G - 3, own.roof)
+      }
+      for (const dx of [1, 2, 3]) put(x + dx, G - 4, own.roof)
+      return
+    case 'vending':
+      for (const dx of [1, 2, 3]) {
+        put(x + dx, G - 4, dx === 2 ? '#F4F3EE' : own.roof)
+        put(x + dx, G - 3, pane)
+        put(x + dx, G - 2, pane)
+        put(x + dx, G - 1, own.roof)
+      }
+      put(x + 2, G - 2, '#D8433B')
+  }
+}
+
+const fortyShells = (put: Put, own: Layout, x: number, G: number): void => {
+  switch (own.decor.boat) {
+    case 'rowboat':
+      for (let dx = 0; dx < 5; dx++) put(x + dx, G - 1, own.roof)
+      put(x, G - 2, own.roof)
+      put(x + 4, G - 2, own.roof)
+      put(x + 2, G - 2, '#F4F3EE')
+      put(x + 3, G - 3, '#8A5A2B')
+      return
+    case 'dinghy':
+      for (let dx = 0; dx < 5; dx++) put(x + dx, G - 1, own.roof)
+      for (let y = G - 4; y <= G - 2; y++) put(x + 2, y, '#8A5A2B')
+      put(x + 3, G - 3, own.stripe)
+      put(x + 3, G - 2, own.stripe)
+      put(x + 4, G - 2, own.stripe)
+      return
+    case 'swan':
+      for (let dx = 0; dx < 5; dx++) put(x + dx, G - 1, '#4A7FB5')
+      for (const dx of [0, 1, 2, 3]) put(x + dx, G - 2, '#D9D6CC')
+      put(x + 3, G - 3, '#D9D6CC')
+      put(x + 3, G - 4, '#D9D6CC')
+      put(x + 4, G - 4, '#F28C3A')
+  }
+}
+
 /** The pixels of the beach, `columns` wide and `rows * 2` tall, NONE where empty, and where the crab is. */
 export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } => {
   const W = Math.max(8, Math.round(t.columns))
@@ -125,7 +260,8 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   for (let x = 0; x < W; x++) put(x, G, x < shore ? '#D9C08A' : x === shore ? '#FFFFFF' : '#4FA3CC')
   for (let x = shore + 2; x < W; x++) put(x, G - 1, '#8FCFE6')
   const onSand = (x: number) => x < shore - 1
-  const own = layoutOf(t.seg.layout)
+  const own = layoutOf(t.seg.layout, t.seg.earned)
+  const isLit = t.timeOfDay === 'night' || t.timeOfDay === 'evening'
   const pool = Math.round(W * own.at.pool)
   if (pool + 1 < restShore - 1) for (const dx of [-1, 0, 1]) put(pool + dx, G, '#9FD3E8')
   if (t.beach?.hasMark) {
@@ -157,29 +293,18 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   // What the shells unlocked, in a few cells each, where the beach is tall enough to hold them.
   if (G >= 4 && hasDecor('palm', t.seg.shells, t.seg.width)) {
     const palm = Math.round(W * own.at.palm)
-    for (let y = G - 3; y <= G - 1; y++) put(palm, y, '#8A5A2B')
-    for (const dx of [-1, 0, 1]) put(palm + own.lean + dx, G - 4, '#3E9E5A')
+    fiveShells(put, own, palm, G)
     // Past the shell pile and clear of the palm; a beach too short to fit it goes without.
     const room = palm - 17
     if (room >= 0 && hasDecor('house', t.seg.shells, t.seg.width)) {
       const [from, to] = ZONES.house
       const x = 10 + Math.round(((own.at.house - from) / (to - from)) * Math.min(4, room))
-      const pane = t.timeOfDay === 'night' || t.timeOfDay === 'evening' ? '#F5D96A' : '#A9D6F5'
-      for (let dx = 0; dx < 5; dx++) {
-        put(x + dx, G - 1, dx === 3 ? '#8A5A2B' : '#F0E2C4')
-        put(x + dx, G - 2, dx === 1 ? pane : dx === 3 ? '#8A5A2B' : '#F0E2C4')
-        put(x + dx, G - 3, own.roof)
-      }
-      for (const dx of [1, 2, 3]) put(x + dx, G - 4, own.roof)
+      twentyShells(put, own, x, G, isLit)
     }
   }
   const chair = Math.round(W * own.at.chair)
-  if (G >= 4 && hasDecor('chair', t.seg.shells, t.seg.width) && onSand(chair + 2)) {
-    for (const dx of [-1, 0, 1]) put(chair + dx, G - 1, '#378ADD')
-    put(chair, G - 2, '#8E929A')
-    put(chair, G - 3, '#8E929A')
-    for (const dx of [-2, -1, 0, 1, 2]) put(chair + dx, G - 4, dx % 2 ? '#F4F3EE' : own.stripe)
-  }
+  if (G >= 4 && hasDecor('chair', t.seg.shells, t.seg.width) && onSand(chair + 2)) tenShells(put, own, chair, G, isLit)
+  if (G >= 4 && hasDecor('boat', t.seg.shells, t.seg.width)) fortyShells(put, own, Math.round(W * own.at.boat) + 1, G)
   if (sky.holiday === 'halloween') for (const f of [0.12, 0.565]) put(W * f, G - 1, '#E8822B')
   if (sky.holiday === 'christmas') {
     const x = Math.round(W * 0.12)

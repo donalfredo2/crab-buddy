@@ -89,6 +89,7 @@ export type Segment = {
   poof?: boolean
   /** This install's own number, the same in all its windows: what its beach and its ways are like. */
   layout?: number
+  earned?: number
   castle: number
   shells: number
   /** Rare golden shells found, kept apart from the pile's count. */

@@ -55,7 +55,7 @@ export const rodSpots = (width: number, shore: number, count: number): { x: numb
 }
 
 /** Decor unlocked by the shell collection; narrow strips skip it. */
-export const DECOR = { palm: 5, chair: 10, house: 20 } as const
+export const DECOR = { palm: 5, chair: 10, house: 20, boat: 40 } as const
 export const ROOMY = 500
 export const hasDecor = (what: keyof typeof DECOR, shells: number, width: number): boolean => width >= ROOMY && shells >= DECOR[what]
 
@@ -76,9 +76,27 @@ export type Temperament = keyof typeof TEMPERAMENTS
 export const ROOFS = ['#C8553D', '#4A7FB5', '#4C8A5B', '#D9A441'] as const
 export const STRIPES = ['#E8577A', '#378ADD', '#F5C542', '#2E9E8F'] as const
 
+/** What each unlock can be on a beach. The first of each is what every beach used to have; the boat is the left edge of its art. */
+export type Decor = {
+  palm: 'palm' | 'flamingo' | 'lifebuoy'
+  chair: 'chair' | 'strandkorb' | 'hammock' | 'armchair'
+  house: 'house' | 'tower' | 'hut' | 'vending'
+  boat: 'rowboat' | 'dinghy' | 'swan'
+}
+export const POOLS: { [T in keyof Decor]: { usual: readonly Decor[T][]; odd?: Decor[T] } } = {
+  palm: { usual: ['palm', 'flamingo', 'lifebuoy'] },
+  chair: { usual: ['chair', 'strandkorb', 'hammock'], odd: 'armchair' },
+  house: { usual: ['house', 'tower', 'hut'], odd: 'vending' },
+  boat: { usual: ['rowboat', 'dinghy'], odd: 'swan' },
+}
+/** How often a beach gets the odd one: rare enough to stay a surprise. */
+export const ODD = 1 / 8
+/** How far up the crab sits in a hammock, in px. */
+export const HAMMOCK = 7
+
 /** Where each thing may lie, as fractions of the width: apart from each other, the castle and the mark. */
 export const ZONES = {
-  house: [0.07, 0.105], palm: [0.21, 0.26], pebble: [0.4, 0.45], chair: [0.48, 0.55], seaweed: [0.58, 0.645], pool: [0.79, 0.87],
+  house: [0.07, 0.105], palm: [0.21, 0.26], pebble: [0.4, 0.45], chair: [0.48, 0.55], seaweed: [0.58, 0.645], boat: [0.708, 0.718], pool: [0.79, 0.87],
 } as const
 
 export type Layout = {
@@ -88,27 +106,36 @@ export type Layout = {
   lean: 1 | -1
   coconuts: 1 | 2
   temperament: Temperament | null
+  decor: Decor
 }
 
 /** The beach as it was before each install had its own. */
 const SHARED: Layout = {
-  at: { house: 0.07, palm: 0.22, pebble: 0.44, chair: 0.52, seaweed: 0.62, pool: 0.83 },
+  at: { house: 0.07, palm: 0.22, pebble: 0.44, chair: 0.52, seaweed: 0.62, boat: 0.71, pool: 0.83 },
   roof: ROOFS[0], stripe: STRIPES[0], lean: 1, coconuts: 2, temperament: null,
+  decor: { palm: 'palm', chair: 'chair', house: 'house', boat: 'rowboat' },
 }
 
 /**
  * What an install's number makes of its beach. Each thing draws from a stream named after
  * it, so one added later leaves the others where they lie. No number: the shared beach.
+ * `earned` is the shells it had when the pools came: what it had by then stays as it was.
  */
-export const layoutOf = (n?: number): Layout => {
+export const layoutOf = (n?: number, earned = Infinity): Layout => {
   if (n === undefined) return SHARED
   const draw = (name: string): number => random([...name].reduce((h, c) => Math.imul(h ^ (c.codePointAt(0) ?? 0), 16777619), n ^ 2166136261))()
   const within = (name: keyof typeof ZONES): number => ZONES[name][0] + draw(name) * (ZONES[name][1] - ZONES[name][0])
   const one = <T>(name: string, of: readonly T[]): T => of[Math.floor(draw(name) * of.length)] as T
+  const item = <T extends keyof Decor>(tier: T): Decor[T] => {
+    const { usual, odd } = POOLS[tier]
+    return odd && draw(`${tier} odd`) < ODD ? odd : one(`${tier} item`, usual)
+  }
+  const kept = <T extends 'palm' | 'chair' | 'house'>(tier: T): Decor[T] => (earned >= DECOR[tier] ? (POOLS[tier].usual[0] as Decor[T]) : item(tier))
   return {
-    at: { house: within('house'), palm: within('palm'), pebble: within('pebble'), chair: within('chair'), seaweed: within('seaweed'), pool: within('pool') },
+    at: { house: within('house'), palm: within('palm'), pebble: within('pebble'), chair: within('chair'), seaweed: within('seaweed'), boat: within('boat'), pool: within('pool') },
     roof: one('roof', ROOFS), stripe: one('stripe', STRIPES), lean: one('lean', [1, -1] as const), coconuts: one('coconuts', [1, 2] as const),
     temperament: one('temperament', Object.keys(TEMPERAMENTS) as Temperament[]),
+    decor: { palm: kept('palm'), chair: kept('chair'), house: kept('house'), boat: item('boat') },
   }
 }
 
@@ -122,6 +149,7 @@ export const spots = (width: number, shore = NO_CONTEXT_SHORE, own = SHARED) => 
   const chair = Math.round(width * own.at.chair)
   return {
     castle, pebble, seaweed, pool, sea, chair,
+    boat: Math.round(width * own.at.boat),
     pile: castle + 14,
     palm: Math.round(width * own.at.palm),
     house: Math.max(40, Math.round(width * own.at.house)),
@@ -284,7 +312,8 @@ export const planOf = (seg: Segment): Plan => {
 export const plan = (seg: Segment): Plan => {
   const rnd = random(seg.seed)
   const span = trackSpan(seg.width)
-  const at = stops(seg.width, seg.shore, layoutOf(seg.layout))
+  const own = layoutOf(seg.layout, seg.earned)
+  const at = stops(seg.width, seg.shore, own)
   const inside = (x: number) => Math.min(at.limit, clamp01(x))
   const isWork = seg.mode === 'work'
   const speed = isWork ? 22 : 15
@@ -367,7 +396,7 @@ export const plan = (seg: Segment): Plan => {
     peek: at.buttons, inspect: at.home, hide: at.home, fish: at.fish, build: at.castle, tidy: at.pile,
     ...(at.pebble === undefined ? {} : { kick: at.pebble }),
     ...(at.seaweed === undefined ? {} : { sway: at.seaweed }),
-    // With a deck chair it sunbathes in it.
+    // With a chair of any kind it sunbathes in it.
     ...(at.chair !== undefined && hasDecor('chair', seg.shells, seg.width) ? { sunbathe: at.chair } : {}),
     // The wave and the sub start at the water's edge.
     ...(seg.ride && (RIDES[seg.ride].kind === 'surf' || RIDES[seg.ride].kind === 'sub') ? { ride: at.limit } : {}),
@@ -432,7 +461,11 @@ export const plan = (seg: Segment): Plan => {
         stand(5 * S, 'sway', a, 1)
         return
       case 'sunbathe':
-        stand(8 * S, 'sun', a)
+        if (own.decor.chair === 'hammock' && where.sunbathe !== undefined) {
+          push(0.6 * S, 'stand', a, p, face, 0, HAMMOCK)
+          push(8 * S, 'sun', a, p, face, HAMMOCK)
+          push(0.6 * S, 'stand', a, p, face, HAMMOCK, 0)
+        } else stand(8 * S, 'sun', a)
         return
       case 'butterfly': {
         const dir: 1 | -1 = p < at.limit / 2 ? 1 : -1
