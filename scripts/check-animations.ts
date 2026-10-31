@@ -62,6 +62,9 @@ scenarios.push({ name: 'roam:arriving', input: base(seg({ first: 'arrive', start
 scenarios.push({ name: 'roam:empty', input: base(seg({ mode: 'away', startP: 0.3 })) })
 const beach: Beach = { rods: 2, sign: 'pushed!', planted: 'good moment', hasBottle: true, hasMark: true }
 scenarios.push({ name: 'fishing+signs', input: base(seg({ first: 'cast', shore: 0.6 }), { beach }) })
+// The helper: the red flag held while Claude waits, and the hourglass on the home shell.
+scenarios.push({ name: 'assist:flag', input: base(seg({ hold: { pose: 'look', ms: 600_000 } }), { beach: { sign: 'needs you: Bash', isFlag: true } }) })
+scenarios.push({ name: 'assist:hourglass', input: base(seg({ seed: 21 }), { beach: { usage: 0.5 } }) })
 scenarios.push({ name: 'reel:boot', input: base(seg({ first: 'reel', haul: 'boot', shore: 0.6 }), { beach: { rods: 1 } }) })
 for (const [k, seed] of [1, 2, 3, 5, 8, 13, 21, 34].entries()) {
   // Seeds that cover the antics: digging, the butterfly, the gull, the friend and more.

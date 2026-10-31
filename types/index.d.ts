@@ -23,7 +23,7 @@ export type Pose =
 export type LifeMode = 'idle' | 'work' | 'sleep' | 'stretch' | 'away'
 
 /** News the crab shows on a sign. */
-export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact' | 'fish' | 'boot'
+export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact' | 'fish' | 'boot' | 'limit' | 'budget'
 
 /** A sign waiting its turn; `at` is when it was asked for. */
 export type QueuedSign = { kind: SignKind; text: string; at: number }
@@ -37,6 +37,10 @@ export type Beach = {
   sign?: string
   /** Words on a sign in the sand. */
   planted?: string
+  /** The sign it holds is a red flag: Claude is waiting for you. */
+  isFlag?: boolean
+  /** How full the usage limit or budget is, 0 to 1: the hourglass by the home shell. Absent: no hourglass. */
+  usage?: number
   /** A bottle at the waterline: a compaction just took the log. */
   hasBottle?: boolean
   /** Rods planted at the water's edge, one for each subagent out. */
@@ -102,6 +106,15 @@ export type Segment = {
   /** Where the sea starts, as a fraction of the width: it creeps in as the context fills. */
   shore?: number
 }
+
+/** Claude is waiting for you: a permission, a question or a plan. `id` is the tool call it waits on. */
+export type NeedsYou = { what: string; id: string; since: number } | null
+
+/**
+ * How much of the usage limit (a subscription's five-hour window) or of the budget (API billing) is gone.
+ * `samples` are [ms, percent] for the forecast; `signed` is the highest mark (80, 95) signed in this window.
+ */
+export type Usage = { kind: 'limit' | 'budget'; percent: number; resetsAt: number | null; usd?: number; budget?: number; samples: [number, number][]; signed: number } | null
 
 /** A prop in its claw that mirrors the tool Claude is using. */
 export type Prop = 'scroll' | 'magnifier' | 'hammer' | 'keyboard' | 'binoculars' | 'rod'
@@ -205,6 +218,13 @@ declare module 'claude-code' {
       turnWork: string[]
       /** The crab lives in its tank pane instead of the strip above the prompt. */
       isTank: boolean
+      /** Claude is waiting for you; the crab holds up a red flag. */
+      needsYou: NeedsYou
+      areNeedsOff: boolean
+      /** No Tab suggestions in the prompt box from the crab. */
+      areTipsOff: boolean
+      usage: Usage
+      isHourglassOff: boolean
     }
     /** Read only: savvy-progress's flow, non-null while its bar is up. */
     'savvy-progress': {

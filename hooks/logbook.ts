@@ -64,3 +64,19 @@ export const logNote = (log: Logbook): string => {
 
 /** What /crab log shows you. */
 export const logText = (log: Logbook): string => logLines(log, 2000).join('\n')
+
+const KEEP_MAX = 240
+
+/**
+ * A ready /compact for the prompt box, telling the summary what to keep: the files changed since the last
+ * commit, the last commit, and a test or build left failing. With nothing logged, a plain /compact.
+ */
+export const compactKeep = (log: Logbook): string => {
+  const parts = [
+    log.files.length ? `the work on ${fileList(log.files.slice(-5), 110)}` : '',
+    log.commits.length ? `the last commit "${log.commits[log.commits.length - 1]}"` : '',
+    log.test === 'failed' ? 'the tests are failing' : '',
+    log.build === 'failed' ? 'the build is failing' : '',
+  ].filter(Boolean)
+  return parts.length ? `/compact Keep ${parts.join('; ')}`.slice(0, KEEP_MAX) : '/compact'
+}

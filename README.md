@@ -19,6 +19,7 @@ Unofficial, not affiliated with Anthropic.
 - **Holds up signs.** Task done, commit pushed, PR merged, coffee time: it stops, faces you and raises a plank.
 - **Looks after you.** It nudges you to take a break after a long stretch, and chirps when a long task finishes.
 - **Wants looking after.** Feed it, play with it, pet it. It remembers you across sessions.
+- **Lends a claw.** It holds up a red flag while Claude waits for you, offers a ready `/compact` at the right moment, and keeps an hourglass for your usage limit.
 - **Keeps a logbook.** It writes down the state of your work and passes it to the summary when the context gets compacted.
 
 A new costume every day, a new beach to match. The animation is all CSS and costs no tokens.
@@ -95,12 +96,20 @@ Food and Fun fade 5 points an hour, counted only while a session is open. When t
 - **Breaks**: after 90 minutes of continuous work it stretches and holds up a coffee sign, and twice that earns a walk; Snooze adds 30 minutes.
 - **Speech bubbles**: short canned lines at moments that matter, at most one unprompted line every 15 minutes (`rare`) or 5 (`often`). Your own care actions always get a reply.
 
+## Lending a claw
+
+Three small helps, all free: nothing goes to the model, and the crab never answers, blocks or changes anything for you.
+
+- **The red flag:** when Claude is waiting for you (a permission, a question, a plan to approve) the crab turns to you and holds up a red flag saying what for: "needs you: Bash", "a question for you", "a plan to approve", "a helper needs you" for a subagent. It comes down when you answer, write, or the turn ends. It makes no sound: Claude Code already notifies you its own way. News that comes meanwhile waits behind it. With roaming on, the crab goes to the window that waits, once you've been quiet a minute; until then its sign says "<repo> needs you". `/crab needs off` turns it off.
+- **A ready /compact:** at the good moment sign, or with the sea near the top, a `/compact` waits dim in the empty prompt box, telling the summary what to keep: the files you worked on, the last commit, and a test or build left failing. Tab takes it, Enter sends it; ignore it and it goes. Once per fill of the context. `/crab tips off` turns it off.
+- **The hourglass:** on a subscription a small hourglass stands on the crab's home shell. Its top holds what's left of your five-hour usage limit; the sand runs down as you use it, red from 95%. At 80% and 95% a sign goes up in the sand with when it runs out at this pace and when it resets ("limit 81% · full ~15:40 · resets 16:20"), once each per window. On API billing it counts a budget instead, if you set `budgetUsd`. `/crab stats` says it in words. `/crab hourglass off` turns it off.
+
 ## The logbook
 
 The crab logs the session's work as it happens: files changed since the last commit, including by subagents, the last test and build results, and recent commits. Keeping the log costs nothing. `/crab log` shows it.
 
 - **The bottle:** before each compaction the log goes to the summarizer, as a note of up to 600 characters asking it to keep those facts. A bottle then washes up at the waterline. This is the one thing the mod adds to what Claude reads, so it costs a few tokens and it's disclosed here. It's on by default, and `/crab log off` turns it off. The summarizer can still leave things out, so it improves the odds and guarantees nothing.
-- **The good moment sign:** when a turn ends on a commit or passing tests with the tide past the mark, the crab plants a sign. The work is at a clean break, so it's a good moment to `/compact`. It shows once, and again once the sea has gone well back and come in again.
+- **The good moment sign:** when a turn ends on a commit or passing tests with the tide past the mark, the crab plants a sign. The work is at a clean break, so it's a good moment to `/compact`. It shows once, and again once the sea has gone well back and come in again. A ready `/compact` waits in the prompt box with it: see [Lending a claw](#lending-a-claw).
 
 ## The tide
 
@@ -152,13 +161,14 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab feed`, `/crab play`, `/crab pet`
 - `/crab ride`: sends it off on its gadget right now
 - `/crab name <name>`: give it a name (up to 16 characters)
-- `/crab stats`: session time, turns, tool calls, context, needs, shells, fish, what kind of crab it is and today's theme
+- `/crab stats`: session time, turns, tool calls, context, usage limit or budget, needs, shells, fish, what kind of crab it is and today's theme
 - `/crab lines`: the subagents out fishing
 - `/crab log`: what's in the logbook; `/crab log on|off` turns the bottle on or off
 - `/crab theme`: today's theme, and the costume you picked if it differs
 - `/crab weather`: which place the weather is for, how it was found, and what it is
 - `/crab size`: what this surface reports for the strip, handy if it looks stretched
 - `/crab bubbles often|rare|off`, `/crab signs on|off`, `/crab breaks on|off`, `/crab sound on|off`
+- `/crab needs on|off`, `/crab tips on|off`, `/crab hourglass on|off`: the red flag, the ready /compact, the hourglass
 - `/crab snooze`: snooze the break reminder for 30 minutes
 - `/crab`, `/crab <costume>`, `/crab today`: costumes
 - `/crab tank` / `/crab strip`: move it into its tank pane or back above the prompt; `/crab tank` again says where the pane sits
@@ -169,7 +179,9 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 
 ## Settings
 
-`longTaskSeconds` (120), `breakMinutes` (90), `sound` (`on`), `bubbles` (`rare`), `signs` (`on`) and `weatherPlace` (empty) can be changed with `/plugin configure crab-buddy@crab-buddy`; 0 turns a timer off.
+`longTaskSeconds` (120), `breakMinutes` (90), `budgetUsd` (0), `sound` (`on`), `bubbles` (`rare`), `signs` (`on`) and `weatherPlace` (empty) can be changed with `/plugin configure crab-buddy@crab-buddy`; 0 turns a timer off.
+
+`budgetUsd` is for API billing: the hourglass counts the session's cost against it. Left at 0 there is no hourglass on API billing; a subscription's usage limit needs no setting.
 
 `weatherPlace` says whose weather shows, and nothing is fetched unless you set it:
 

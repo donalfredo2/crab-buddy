@@ -1043,12 +1043,12 @@ test('on a plan the mark shows, the crab tires there, and /crab stats says so', 
   await start($)
   expect((await band($)).source).toContain('#4C8A5B')
   expect(await alt($)).not.toMatch(/tired/)
-  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 190k · food/)
+  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 190k · limit 18% · food/)
 
   ctx.percent = 38
   await $.turn.complete({ ...TURN, reason: 'answer' })
   expect(await alt($)).toMatch(/tired/)
-  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 380k, past the mark · food/)
+  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 380k, past the mark · limit 18% · food/)
   ctx.percent = 96.7
   await $.turn.complete({ ...TURN, reason: 'answer' })
   expect(await alt($)).toMatch(/sweaty/)
@@ -1074,7 +1074,7 @@ test('with idle compaction off in the settings there is no mark, even on a plan'
   engine(on, { percent: 30, full: 967_000, isOnPlan: true, idleSetting: false })
   await start($)
   expect((await band($)).source).not.toContain('#4C8A5B')
-  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 300k · food/)
+  expect(JSON.stringify(await crab($, 'stats'))).toMatch(/context 300k · limit 18% · food/)
 })
 
 test('a measurement during a turn raises the tide', async ($, on) => {
@@ -1606,7 +1606,7 @@ test('with 50 shells the crown is yours', async ($, on) => {
 })
 
 test('no costume shares a name with a /crab word', () => {
-  const words = ['feed', 'play', 'pet', 'name', 'stats', 'log', 'theme', 'size', 'tank', 'strip', 'snooze', 'breaks', 'sound', 'bubbles', 'off', 'on', 'restart', 'ride', 'today']
+  const words = ['feed', 'play', 'pet', 'name', 'stats', 'log', 'theme', 'size', 'tank', 'strip', 'snooze', 'breaks', 'sound', 'bubbles', 'off', 'on', 'restart', 'ride', 'today', 'needs', 'tips', 'hourglass', 'signs', 'roam', 'here', 'where', 'lines']
   for (const c of [...COSTUMES, ...SPECIAL_COSTUMES]) expect(words.includes(c)).toBe(false)
 })
 
