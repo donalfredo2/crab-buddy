@@ -20,11 +20,15 @@ type Net = {
   ip: { city: string; latitude: number; longitude: number } | null
   /** The weather code the forecast answers. */
   code: number
+  /** Requests never answer. */
+  isHung: boolean
+  /** The geocoder knows no such place. */
+  isUnknownPlace: boolean
 }
 
 /** The engine beneath the plugin, with the network and the TZ variable under the test's control. */
 function engine(on: On, zone: string | undefined): Net {
-  const net: Net = { urls: [], isOnline: true, ip: null, code: 63 }
+  const net: Net = { urls: [], isOnline: true, ip: null, code: 63, isHung: false, isUnknownPlace: false }
   on('command.register', () => ({ value: { command: 'crab' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
@@ -48,11 +52,12 @@ function engine(on: On, zone: string | undefined): Net {
     const url = (e as { url: string }).url
     net.urls.push(url)
     if (!net.isOnline) throw new Error('offline')
+    if (net.isHung) return new Promise(() => undefined) as never
     let body: unknown
     if (/ipwho\.is/.test(url)) body = net.ip ? { success: true, ...net.ip } : { success: false, message: 'reserved range' }
     else if (/geocoding/.test(url)) {
       const name = decodeURIComponent(/name=([^&]+)/.exec(url)?.[1] ?? '')
-      body = { results: [name === 'Berlin' ? { latitude: 52.52, longitude: 13.41 } : { latitude: 38.72, longitude: -9.14 }] }
+      body = net.isUnknownPlace ? {} : { results: [name === 'Berlin' ? { latitude: 52.52, longitude: 13.41 } : { latitude: 38.72, longitude: -9.14 }] }
     } else body = { current: { weather_code: net.code, wind_speed_10m: 4 } }
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(body) } } as never
   })
@@ -60,7 +65,14 @@ function engine(on: On, zone: string | undefined): Net {
 }
 
 type Tester = Parameters<TestBody>[0]
-const start = ($: Tester) => $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+// The host's own timer: a turn of its event loop lets a settled call reach the plugin.
+const hostTimer = (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout
+const tick = () => new Promise<void>(r => hostTimer(r, 0))
+/** The session starts without waiting for the weather, which is fetched in the background: wait for it here. */
+async function start($: Tester): Promise<void> {
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  for (let i = 0; i < 5; i++) await tick()
+}
 const crab = async ($: Tester, args: string) =>
   ((await $.command.run({ command: 'crab', args, origin: { kind: 'user' }, presentation: { isFullscreen: false, columns: 100 } } as never)) as { text: string }).text
 async function sky($: Tester): Promise<string> {
@@ -68,6 +80,24 @@ async function sky($: Tester): Promise<string> {
   const source = String((await ui.find({ type: 'Svg' }))?.props.source ?? '')
   await ui.unmount()
   return source
+}
+/** $.store in memory, like mock.store, but the test can look inside: which keys were written, and to what. */
+function memoryStore(on: On, entries: Readonly<Record<string, unknown>> = {}): { held: Map<string, unknown>; written: Map<string, unknown> } {
+  const held = new Map<string, unknown>(Object.entries(entries))
+  const written = new Map<string, unknown>()
+  on('store.get', (_, e) => ({ value: held.get((e as { key: string }).key) }) as never)
+  on('store.set', (_, e) => {
+    const { key, value } = e as { key: string; value: unknown }
+    held.set(key, value)
+    written.set(key, value)
+    return { value: undefined } as never
+  })
+  on('store.delete', (_, e) => {
+    held.delete((e as { key: string }).key)
+    return { value: undefined } as never
+  })
+  on('store.keys', () => ({ value: [...held.keys()] }) as never)
+  return { held, written }
 }
 const count = (net: Net, re: RegExp) => net.urls.filter(u => re.test(u)).length
 const forecasts = (net: Net) => net.urls.filter(u => /forecast/.test(u))
@@ -98,6 +128,9 @@ test("an IP lookup's answer gives a city and coordinates, or nothing", () => {
   expect(parseIp({ success: false })).toBe(null)
   expect(parseIp({ success: true, city: 'X' })).toBe(null)
   expect(parseIp(null)).toBe(null)
+  expect(parseIp({ success: true, city: 'X', latitude: 91, longitude: 0 })).toBe(null)
+  expect(parseIp({ success: true, city: 'X', latitude: 0, longitude: -181 })).toBe(null)
+  expect(parseIp({ success: true, city: 'X', latitude: Number.NaN, longitude: 0 })).toBe(null)
 })
 
 // --- the privacy default
@@ -255,4 +288,103 @@ test('offline from the start, auto shows clear skies and no error', { options: {
   await clock.advance(5 * MIN)
   expect(await sky($)).not.toMatch(/class="rain"/)
   expect(await crab($, 'weather')).toMatch(/no place found yet/)
+})
+
+// --- a service that hangs or fails
+
+test('a request that never answers times out, and the weather comes once the service is back', { options: { weatherPlace: 'Lisbon' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const net = engine(on, 'Europe/Berlin')
+  net.isHung = true
+  await start($)
+  expect(count(net, /geocoding/)).toBe(1)
+  await clock.advance(11_000)
+  net.isHung = false
+  // Left alone for a while after the failure, then asked again.
+  await clock.advance(16 * MIN)
+  expect(forecasts(net).length).toBe(1)
+  expect(await sky($)).toMatch(/class="rain"/)
+})
+
+test('a failing service is left alone for 15 minutes instead of asked every minute', { options: { weatherPlace: 'Lisbon' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const net = engine(on, 'Europe/Berlin')
+  net.isOnline = false
+  await start($)
+  await clock.advance(10 * MIN)
+  expect(count(net, /geocoding/)).toBe(1)
+  net.isOnline = true
+  await clock.advance(6 * MIN)
+  expect(count(net, /geocoding/)).toBe(2)
+  expect(await sky($)).toMatch(/class="rain"/)
+})
+
+test('a place the geocoder does not know is not asked about every minute', { options: { weatherPlace: 'Atlantis' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const net = engine(on, 'Europe/Berlin')
+  net.isUnknownPlace = true
+  await start($)
+  await clock.advance(29 * MIN)
+  expect(count(net, /geocoding/)).toBe(2)
+  expect(forecasts(net)).toEqual([])
+})
+
+// --- what is kept
+
+test('a place found by IP is kept only to about a kilometre', { options: { weatherPlace: 'auto-ip' } }, async ($, on) => {
+  mock.clock(on, { now: T0 })
+  const kept = memoryStore(on).written
+  const net = engine(on, 'Europe/Berlin')
+  net.ip = { city: 'Augsburg', latitude: 48.367891, longitude: 10.898123 }
+  await start($)
+  expect(kept.get('weatherLocated')).toMatchObject({ place: 'Augsburg', lat: 48.37, lon: 10.9 })
+})
+
+const KEPT = { weatherAsked: 'auto-ip', weatherLocated: { asked: 'auto-ip', source: 'ip', key: 'ipwho.is', place: 'Augsburg', lat: 48.37, lon: 10.9, at: T0 - MIN }, weather: { place: 'Augsburg@48.37,10.90', at: T0 - MIN, code: 63, wind: 4 }, weatherGeo: { place: 'Augsburg', lat: 48.37, lon: 10.9 } }
+
+test('emptying weatherPlace forgets the place and weather it had found', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  const kept = memoryStore(on, KEPT).written
+  const net = engine(on, 'Europe/Berlin')
+  await start($)
+  for (const key of ['weatherLocated', 'weather', 'weatherGeo']) expect(kept.get(key)).toBe(null)
+  expect(net.urls).toEqual([])
+})
+
+test('switching from auto-ip to a city forgets the place found by IP', { options: { weatherPlace: 'Lisbon' } }, async ($, on) => {
+  mock.clock(on, { now: T0 })
+  const kept = memoryStore(on, KEPT).written
+  engine(on, 'Europe/Berlin')
+  await start($)
+  expect(kept.get('weatherLocated')).toBe(null)
+  expect(await crab($, 'weather')).toMatch(/^Weather for Lisbon \(set in weatherPlace\): rain/)
+})
+
+test('an install from before this version keeps its weather until the setting changes', { options: { weatherPlace: 'auto-ip' } }, async ($, on) => {
+  mock.clock(on, { now: T0 })
+  const { weatherAsked: _, ...older } = KEPT
+  const kept = memoryStore(on, older).written
+  const net = engine(on, 'Europe/Berlin')
+  await start($)
+  expect(count(net, /ipwho/)).toBe(0)
+  expect(kept.has('weatherLocated')).toBe(false)
+  expect(kept.get('weatherAsked')).toBe('auto-ip')
+  expect(await crab($, 'weather')).toMatch(/^Weather for Augsburg, found by IP lookup/)
+})
+
+test('a session set differently elsewhere doesn\'t make this one forget and look again every minute', { options: { weatherPlace: 'auto-ip' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  const store = memoryStore(on, { ...KEPT, weatherAsked: 'Lisbon' })
+  const net = engine(on, 'Europe/Berlin')
+  net.ip = { city: 'Augsburg', latitude: 48.37, longitude: 10.9 }
+  await start($)
+  expect(count(net, /ipwho/)).toBe(1)
+  // A window in another project, with weatherPlace "Lisbon", writes its own setting back.
+  store.held.set('weatherAsked', 'Lisbon')
+  await clock.advance(10 * MIN)
+  expect(count(net, /ipwho/)).toBe(1)
+  expect(store.held.get('weatherLocated')).toMatchObject({ place: 'Augsburg' })
 })
