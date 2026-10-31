@@ -90,9 +90,9 @@ Three meters, kept across sessions, never below 10, and it never dies:
 
 - **Food**: every finished turn +3, the 🍤 button +15 (5-minute cooldown). Hungry below 30: a thought bubble with a shrimp.
 - **Fun**: commits +10, passing tests +5, ✋ pet +5, 🎾 play +15.
-- **Energy**: drains while you work (twice as fast after 23:00), refills with a 15-minute break (+40) or a night away (full). Low energy makes it sleepy.
+- **Energy**: drains while you work (twice as fast after 23:00), refills with a 15-minute break (+40) or a night away (full).
 
-Food and Fun fade 5 points an hour, counted only while a session is open. When the lowest meter drops under 25 it gets grumpy.
+Food and Fun fade 5 points an hour, counted only while a session is open. **While Claude works, no meter drops below 30**: working never makes it hungry, bored, sleepy or grumpy. Hunger and a grump come only from leaving it alone with a session open (hungry under 30, grumpy under 25), and a press of a button puts them right.
 
 ## What it tells you
 

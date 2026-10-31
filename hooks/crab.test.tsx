@@ -11,7 +11,7 @@ import type { Decor, Temperament } from './life'
 
 import { line, signLine, themeLine, themeName } from './lines'
 import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
-import { care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
+import { WORK_FLOOR, care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
 import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, newsOf, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, toolNewsOf, wornAt } from './register'
 import { sceneSvg, timeOfDay, unlocked } from './scene'
 import { breakKind, enqueue, heldSign, nextInQueue } from './signs'
@@ -2931,4 +2931,26 @@ test('the bottle and sign show on the terminal beach too', () => {
   expect(beachPixels({ ...base, beach: { hasBottle: true } }).px).not.toEqual(plain)
   expect(beachPixels({ ...base, beach: { hasMark: true } }).px).not.toEqual(plain)
   expect(beachPixels({ ...base, beach: { planted: 'clean break: /compact' } }).px).not.toEqual(plain)
+})
+
+// --- working never wears it down
+
+test('while working no need sinks below the floor; one already under it stays put', () => {
+  const MIN = 60_000
+  const work = { isWorking: true, isLate: true }
+  let n = { ...freshNeeds(0), food: 31, fun: 31, energy: 31 }
+  for (let t = MIN; t <= 2 * 60 * MIN; t += MIN) n = tick(n, t, work)
+  expect([n.food, n.fun, n.energy]).toEqual([WORK_FLOOR, WORK_FLOOR, WORK_FLOOR])
+  let low = { ...freshNeeds(0), food: 20, fun: 12, energy: 25 }
+  for (let t = MIN; t <= 60 * MIN; t += MIN) low = tick(low, t, work)
+  expect([low.food, low.fun, low.energy]).toEqual([20, 12, 25])
+})
+
+test('time away from work still fades food and fun past the floor', () => {
+  const MIN = 60_000
+  let n = { ...freshNeeds(0), food: 31, fun: 31, energy: 31 }
+  for (let t = MIN; t <= 2 * 60 * MIN; t += MIN) n = tick(n, t, { isWorking: false, isLate: false })
+  expect(Math.round(n.food)).toBe(21)
+  expect(Math.round(n.fun)).toBe(21)
+  expect(n.energy).toBe(31)
 })
