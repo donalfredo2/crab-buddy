@@ -1,5 +1,6 @@
 {
   "name": "crab-buddy",
   "owner": { "name": "Andy" },
+  "description": "crab-buddy, a pixel crab on a little beach above your Claude Code prompt.",
   "plugins": [{ "name": "crab-buddy", "source": "./" }]
 }

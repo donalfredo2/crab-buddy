@@ -198,6 +198,18 @@ The terminal draws no pictures, so there the beach is coloured half-block charac
 
 On the desktop and in VS Code the animation is CSS only, costs no tokens, and stops when macOS "Reduce motion" is on. The chirp is an original sound synthesized for this mod.
 
+## Development
+
+Three checks, the same ones CI runs on every push and pull request:
+
+```
+claude plugin validate .          # the manifests
+claude plugin test .              # every *.test.tsx, through the real mod
+bun scripts/check-animations.ts   # the beach in a real browser (needs playwright and Chromium)
+```
+
+`CRAB_SHOTS=/tmp/crab` also saves a PNG per animation scenario, and `CRAB_ONLY=<name>` runs just one.
+
 ## Credits
 
 The crab sprite and costumes are adapted from [savvy-progress](https://github.com/johnnyvizz/claude-kit/tree/main/plugins/savvy-progress) by johnnyvizz, MIT License, Copyright (c) 2026 johnnyvizz.
