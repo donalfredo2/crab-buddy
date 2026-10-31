@@ -22,8 +22,7 @@ import type { Sky } from './sky'
 import { CLAY, COSTUMES, costumeOfDay, isCostume } from './sprites'
 import { beachCells } from './terminal'
 import { clip } from './text'
-import { nextUsage, usageMark, usageSign, usageStat } from './usage'
-import type { Costume, CrabLook } from './sprites'
+import { KEY, MIN, cfg } from './state'
 
 const reaction = atom({ plugin: 'crab-buddy', key: 'reaction' } as const, null)
 const picked = atom({ plugin: 'crab-buddy', key: 'costume' } as const, null)
@@ -63,10 +62,14 @@ const areNeedsOff = atom({ plugin: 'crab-buddy', key: 'areNeedsOff' } as const, 
 const areTipsOff = atom({ plugin: 'crab-buddy', key: 'areTipsOff' } as const, false)
 const usage = atom({ plugin: 'crab-buddy', key: 'usage' } as const, null)
 const isHourglassOff = atom({ plugin: 'crab-buddy', key: 'isHourglassOff' } as const, false)
-// savvy-progress draws its own crab in its bar: ours steps aside while that bar is up.
-const savvyFlow = { plugin: 'savvy-progress', key: 'flow' } as const
 
-const MIN = 60_000
+// savvy-progress draws its own crab in its bar: ours steps aside while that bar is up. Written here, where it's
+// read: the engine lists what a module reads from $.state, so the reference must be a literal in this file.
+const savvyFlow = { plugin: 'savvy-progress', key: 'flow' } as const
+import { nextUsage, usageMark, usageSign, usageStat } from './usage'
+import type { Costume, CrabLook } from './sprites'
+
+
 const REACT_MS = 2600
 const WAVE_MS = 4000
 const CARE_MS = 3200
@@ -122,13 +125,6 @@ const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 // Tools whose whole point is a person's answer.
 const ASKS_YOU: ReadonlySet<string> = new Set(['AskUserQuestion', 'ExitPlanMode'])
 
-// $.store keys: choices made with /crab and the pet itself outlive the session.
-const KEY = {
-  hidden: 'isHidden', breaksOff: 'areBreaksOff', soundOff: 'isSoundOff', needs: 'needs', name: 'name',
-  firstMet: 'firstMet', bubbles: 'bubbles', signsOff: 'areSignsOff', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo', located: 'weatherLocated', failed: 'weatherFailed', asked: 'weatherAsked',
-  greeted: 'greetedDay', tank: 'isTank', fish: 'fishCaught', roam: 'isRoaming', logOff: 'isLogOff', earned: 'decorEarned',
-  needsOff: 'areNeedsOff', tipsOff: 'areTipsOff', hourglassOff: 'isHourglassOff',
-} as const
 
 const TERMINAL_GLYPH: Record<Mood, string> = {
   nap: 'z', work: '…', wander: '·', cheer: '✦', daze: '✗', wave: '👋', party: '🎉', cool: '😎', nervous: '💦', stretch: '🙆', eat: '🍤', play: '🎾', love: '♥',
@@ -223,8 +219,6 @@ const shoreAt = (level: number | null, now: number): number => shoreFrac(level, 
 /** Shells it takes to earn the crown. */
 export const KING_SHELLS = 50
 
-// Set from the options each time the module loads.
-const cfg = { longMs: 120_000, breakMs: 90 * MIN, place: '', budgetUsd: 0 }
 // Module scope is fine: a reload mid-turn only delays the idle check by a turn.
 let isTurnRunning = false
 /** This turn's last word was a commit or green tests, with no edit since. */
