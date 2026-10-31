@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Weekly, so a Claude Code release that breaks the crab shows up even in a week with no pushes.
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,6 +28,23 @@ jobs:
           node-version: 22
       # Pinned so a new Claude Code release can't turn CI red on its own. Bump on purpose.
       - run: npm install -g @anthropic-ai/claude-code@2.1.316
+      - run: claude plugin validate .
+      - run: claude plugin test .
+
+  # The canary: the same checks on the newest Claude Code. It never blocks a merge; when it goes red while the
+  # pinned job above stays green, a new release changed something the crab relies on, before users find out.
+  latest:
+    name: validate and test (latest Claude Code)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @anthropic-ai/claude-code@latest
+      - run: claude --version
       - run: claude plugin validate .
       - run: claude plugin test .
 
