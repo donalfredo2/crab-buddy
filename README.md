@@ -53,7 +53,7 @@ The crab has a little beach: sand with its home shell, a pile of the shells it h
 
 - **Sky:** a sun by day, a sunset glow from 18:00, drifting clouds, and at night stars, shooting stars and the moon in its real phase. Fireflies come out on warm nights and the tide pool glows.
 - **Seasons and holidays:** leaves blow by in autumn and snow lies in winter. On Halloween it wears a ghost sheet among pumpkins and a bat, at Christmas a Santa hat beside a tiny tree, and at New Year there are fireworks.
-- **Weather:** with a place set (see Settings), the real local weather shows: rain (it carries a tiny umbrella), snow, storms with the odd flash, fog, and wind that bends the seaweed.
+- **Weather:** with a place set, or `auto-ip` to follow where you are (see Settings), the real local weather shows: rain (it carries a tiny umbrella), snow, storms with the odd flash, fog, and wind that bends the seaweed.
 - **The sea shows your context:** the shoreline creeps up the beach as the context fills, to just past the castle at the point Claude compacts, with a small tide on top. See [The tide](#the-tide).
 - **Each costume has its beach:** a treasure chest and shipwreck for the pirate, craters and the Earth for the astronaut, a BBQ for the chef, cones and a crane for the engineer, a surfboard and beach ball for the surfer, fins and a buoy for the diver, a longship for the viking, a tower for the wizard, speakers and decks for the DJ, a beer table and flags for Oktoberfest, a finish flag for the racer, a magnifier and question marks for the detective.
 - **Each costume has its gadget:** every so often it takes it out, about every 11 minutes, and `/crab ride` sends it off right away. A low sports car for the racer (headlights on after dark), a longship for the viking, a digger for the engineer, a food cart for the chef, a skateboard when it's plain, a newspaper to hide behind for the detective, a barrel to balance on at Oktoberfest, a paper boat in the rain, a sedan chair carried by two friends for the king, a broom for the wizard, a sleigh for Santa, a pumpkin lantern for the ghost, a rocket for the astronaut, a wave for the surfer, a mini-sub for the diver, decks and a disco ball for the DJ, a cannon for the pirate.
@@ -165,6 +165,7 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab lines`: the subagents out fishing
 - `/crab log`: what's in the logbook; `/crab log on|off` turns the bottle on or off
 - `/crab theme`: today's theme, and the costume you picked if it differs
+- `/crab weather`: which place the weather is for, how it was found, and what it is
 - `/crab size`: what this surface reports for the strip, handy if it looks stretched
 - `/crab bubbles often|rare|off`, `/crab signs on|off`, `/crab breaks on|off`, `/crab sound on|off`
 - `/crab needs on|off`, `/crab tips on|off`, `/crab hourglass on|off`: the red flag, the ready /compact, the hourglass
@@ -182,7 +183,14 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 
 `budgetUsd` is for API billing: the hourglass counts the session's cost against it. Left at 0 there is no hourglass on API billing; a subscription's usage limit needs no setting.
 
-`weatherPlace` is a city name. When it is set, the place's name and coordinates go to [Open-Meteo](https://open-meteo.com) (free, no key) once an hour, shared by all open sessions. Left empty, nothing is fetched and the sky stays clear.
+`weatherPlace` says whose weather shows, and nothing is fetched unless you set it:
+
+- **Empty** (the default): nothing is fetched and the sky stays clear.
+- **A city name**, like `Lisbon`: the place's name and coordinates go to [Open-Meteo](https://open-meteo.com) (free, no key) once an hour, shared by all open sessions. A place you type always wins.
+- **`auto-ip`** (recommended): the weather where you are, by IP address, from [ipwho.is](https://ipwho.is) (free, no key), which sees your IP. Accurate to the city, unless you're on a VPN. If the lookup fails it falls back to the time zone.
+- **`auto`**: the weather where you are, from your system time zone's city instead (`Europe/Berlin` is Berlin, `America/New_York` is New York). Only that city's name and coordinates go to Open-Meteo, the same as typing it; nothing new leaves your machine. It's coarse: the zone names one city for a whole region, so pick this if you'd rather not share your IP.
+
+The place `auto-ip` or `auto` finds is kept for 3 hours and shared by all open sessions, then looked up again (at once if your time zone changes), so a laptop that travels catches up. The weather itself still refreshes hourly. Offline, the last place and weather stay. `/crab weather` says which place it is and how it was found.
 
 ## In the terminal
 

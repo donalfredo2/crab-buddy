@@ -1,6 +1,6 @@
 {
   "name": "crab-buddy",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "A pixel crab with a life of its own on a little beach above the prompt that also lends a claw: a red flag while Claude waits for you, a ready /compact at the right moment, an hourglass for your usage limit, a sea that shows your context, real sky, seasons and weather, costume beaches, unlockable decor, a fishing line for each subagent, one crab that can roam between your windows, signs for news, needs you care for and break reminders.",
   "author": {
     "name": "Andy"
@@ -56,7 +56,7 @@
     "weatherPlace": {
       "type": "string",
       "title": "Weather place",
-      "description": "A city whose real weather shows on the beach (rain, snow, wind). Its name and coordinates go to open-meteo.com once an hour. Empty: no weather is fetched.",
+      "description": "Whose real weather shows on the beach (rain, snow, wind). \"auto-ip\" (recommended): your city by IP lookup at ipwho.is, which sees your IP address, every 3 hours. \"auto\": your time zone's city instead (e.g. Europe/Berlin is Berlin), sending nothing new. A city name: its name and coordinates go to open-meteo.com once an hour. Empty: no weather is fetched.",
       "default": ""
     },
     "signs": {
