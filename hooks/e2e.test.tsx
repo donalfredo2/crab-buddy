@@ -1049,3 +1049,76 @@ test('leaving, it sinks into the sea before it is gone, with no two heights at o
   const gone = frames.findLast(([, v]) => heightOf(v) === 0)
   expect((sunk?.[0] ?? 100) < (gone?.[0] ?? 0)).toBe(true)
 })
+
+// --- the front door: help, what's new, feedback
+
+test('/crab help lists the main commands and leaves the costume alone', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  const before = await alt($)
+  const help = await said($, 'help')
+  expect(help).toMatch(/^crab-buddy \d+\.\d+\.\d+\. New in/)
+  for (const cmd of ['/crab feed', '/crab tank', '/crab weather', '/crab log', '/crab roam on', '/crab feedback']) expect(help).toContain(cmd)
+  expect(await said($, '?')).toBe(help)
+  expect(await alt($)).toBe(before)
+  expect(await said($, 'nonsense')).toMatch(/\/crab help lists the main ones\.$/)
+})
+
+test('a first install hears no news, and the next session none either', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  expect(await heldWords($)).toBe(null)
+  await clock.advance(MIN)
+  await start($)
+  expect(await heldWords($)).toBe(null)
+})
+
+test('after an update the crab holds up what is new once, and not again', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on, { firstMet: T0 - 24 * 60 * MIN, seenVersion: '0.22.1' })
+  engine(on)
+  await start($)
+  expect(await heldWords($)).toBe('new: /crab help')
+  await clock.advance(MIN)
+  await start($)
+  expect(await heldWords($)).toBe(null)
+})
+
+test('a crab met before versions kept a record still gets the news', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on, { firstMet: T0 - 24 * 60 * MIN })
+  engine(on)
+  await start($)
+  expect(await heldWords($)).toBe('new: /crab help')
+})
+
+test('with signs off there is no news sign', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on, { firstMet: T0 - 24 * 60 * MIN, seenVersion: '0.22.1', areSignsOff: true })
+  engine(on)
+  await start($)
+  expect(await heldWords($)).toBe(null)
+})
+
+test('/crab feedback says where to write and what is switched off, and sends nothing', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const fetched: string[] = []
+  on('http.fetch', (_, e) => {
+    fetched.push((e as { url: string }).url)
+    return { value: { status: 200, ok: true, headers: {}, text: '{}' } } as never
+  })
+  await start($)
+  expect(await said($, 'feedback')).toMatch(/switched off: nothing$/)
+  await crab($, 'sound off')
+  await crab($, 'signs off')
+  const text = await said($, 'feedback')
+  expect(text).toContain('https://github.com/donalfredo2/crab-buddy/issues/new/choose')
+  expect(text).toMatch(/crab-buddy \d+\.\d+\.\d+, roaming off, switched off: signs, sound$/)
+  expect(fetched).toEqual([])
+})

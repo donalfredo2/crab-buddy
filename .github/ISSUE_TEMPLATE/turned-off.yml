@@ -1,0 +1,37 @@
+name: I turned something off
+description: The most useful thing you can tell me. What did you switch off, and why?
+title: "Turned off: "
+labels: [turned-off]
+body:
+  - type: dropdown
+    id: what
+    attributes:
+      label: What did you turn off?
+      multiple: true
+      options:
+        - The whole crab (/crab off)
+        - Signs
+        - The red flag (needs)
+        - The /compact tips
+        - The hourglass
+        - Break reminders
+        - The chirp (sound)
+        - Bubbles
+        - The logbook note (log)
+        - Roaming
+        - Weather
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why?
+      description: Annoying, distracting, confusing, too much, not useful, broken… Anything helps.
+    validations:
+      required: true
+  - type: input
+    id: facts
+    attributes:
+      label: What /crab feedback printed
+      description: Optional. The line starting with "crab-buddy".

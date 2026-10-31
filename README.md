@@ -1,6 +1,6 @@
 # crab-buddy 🦀
 
-**See what Claude is doing without reading the transcript.** A sea that rises with your context, a red flag when Claude is waiting for you, an hourglass for your usage limit, a ready `/compact` at the right moment. All of it shown by a tiny pixel crab with a life of its own, on a beach above your prompt.
+**See what Claude is doing without reading the transcript.** A sea that rises with your context, a red flag when Claude is waiting for you, an hourglass for your usage limit, a ready `/compact` at the right moment. All of it shown by a tiny pixel crab with a life of its own, on a beach above your prompt. `/crab help` shows the main commands.
 
 Unofficial, not affiliated with Anthropic.
 
@@ -49,7 +49,7 @@ New versions are published here with a higher version number. To get the latest:
 /plugin update crab-buddy@crab-buddy
 ```
 
-Then start a new session. To get updates automatically, open `/plugin`, go to Marketplaces, pick `crab-buddy` and turn on auto-update: Claude Code then checks for a new version when it starts.
+Then start a new session: the crab holds up what's new, once. [CHANGELOG.md](CHANGELOG.md) has every version. To get updates automatically, open `/plugin`, go to Marketplaces, pick `crab-buddy` and turn on auto-update: Claude Code then checks for a new version when it starts.
 
 ## The strip
 
@@ -164,6 +164,8 @@ Signs wait in line if several arrive together, and your message clears the line.
 
 Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 
+- `/crab help`: the main commands, and what's new in this version
+- `/crab feedback`: where to tell the author what you think, with the facts worth pasting (nothing is sent)
 - `/crab feed`, `/crab play`, `/crab pet`
 - `/crab ride`: sends it off on its gadget right now
 - `/crab name <name>`: give it a name (up to 16 characters)

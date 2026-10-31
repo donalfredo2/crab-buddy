@@ -25,6 +25,17 @@ jobs:
       # Pinned so a new Claude Code release can't turn CI red on its own. Bump on purpose.
       - run: npm install -g @anthropic-ai/claude-code@2.1.316
       - run: claude plugin validate .
+      - name: hooks/news.ts has the version plugin.json gives
+        run: |
+          node -e '
+            const v = require("./.claude-plugin/plugin.json").version
+            const src = require("fs").readFileSync("hooks/news.ts", "utf8")
+            if (!src.includes(`export const VERSION = ${JSON.stringify(v).replace(/"/g, "\x27")}`)) {
+              console.error(`hooks/news.ts VERSION is not ${v}: bump it with plugin.json`)
+              process.exit(1)
+            }
+            console.log(`VERSION ${v} matches`)
+          '
       - run: claude plugin test .
 
   animations:

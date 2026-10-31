@@ -1,0 +1,16 @@
+name: An idea
+description: Something the crab could show you, or do better.
+title: "Idea: "
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What would it help you with?
+      description: The problem behind it matters more than the solution.

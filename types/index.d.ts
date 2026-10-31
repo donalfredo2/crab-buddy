@@ -23,7 +23,7 @@ export type Pose =
 export type LifeMode = 'idle' | 'work' | 'sleep' | 'stretch' | 'away'
 
 /** News the crab shows on a sign. */
-export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact' | 'fish' | 'boot' | 'limit' | 'budget'
+export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact' | 'fish' | 'boot' | 'limit' | 'budget' | 'news'
 
 /** A sign waiting its turn; `at` is when it was asked for. */
 export type QueuedSign = { kind: SignKind; text: string; at: number }

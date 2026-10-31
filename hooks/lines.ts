@@ -85,6 +85,7 @@ const SIGNS: Record<SignKind, readonly string[]> = {
   boot: ['old boot: it failed', 'a boot! it failed', 'no fish: it failed'],
   limit: ['limit {time}'],
   budget: ['budget {time}'],
+  news: ['new: {time}'],
 }
 
 /** The red flag's words: what Claude is waiting for you on, short enough for a plank. */
