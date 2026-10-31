@@ -16,6 +16,8 @@ import { SCENE_H, sceneSvg, timeOfDay } from './scene'
 import { SIGN_MOOD, breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import type { HeldKind } from './signs'
 import { WINDY_KMH, holiday, skyFor, weatherOf } from './sky'
+import { IP_SERVICE, IP_URL, cityOfZone, cleanZone, howFound, isLocated, isLocatedFresh, parseIp, weatherMode } from './locate'
+import type { Located } from './locate'
 import type { Sky } from './sky'
 import { CLAY, COSTUMES, costumeOfDay, isCostume } from './sprites'
 import { beachCells } from './terminal'
@@ -112,7 +114,7 @@ const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 // $.store keys: choices made with /crab and the pet itself outlive the session.
 const KEY = {
   hidden: 'isHidden', breaksOff: 'areBreaksOff', soundOff: 'isSoundOff', needs: 'needs', name: 'name',
-  firstMet: 'firstMet', bubbles: 'bubbles', signsOff: 'areSignsOff', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo',
+  firstMet: 'firstMet', bubbles: 'bubbles', signsOff: 'areSignsOff', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo', located: 'weatherLocated',
   greeted: 'greetedDay', tank: 'isTank', fish: 'fishCaught', roam: 'isRoaming', logOff: 'isLogOff', earned: 'decorEarned',
 } as const
 
@@ -552,38 +554,91 @@ async function getJson($: EngineInterface, url: string): Promise<unknown> {
   return JSON.parse(res.text) as unknown
 }
 
+/** Coordinates for a city name, from Open-Meteo's geocoder, cached in $.store by name. */
+async function geocode($: EngineInterface, place: string): Promise<Geo | null> {
+  const cached = await $.store.get(KEY.geo)
+  if (isGeo(cached) && cached.place === place) return cached
+  const found = (await getJson($, `https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(place)}`)) as { results?: { latitude?: number; longitude?: number }[] }
+  const hit = found.results?.[0]
+  if (typeof hit?.latitude !== 'number' || typeof hit.longitude !== 'number') return null
+  const geo: Geo = { place, lat: hit.latitude, lon: hit.longitude }
+  await $.store.set(KEY.geo, geo)
+  return geo
+}
+
+/** The system's time zone: TZ when it names one, else the one dates here are local to. */
+async function systemZone($: EngineInterface): Promise<string | null> {
+  const tz = cleanZone(await $.env.get('TZ').catch(() => undefined))
+  if (tz) return tz
+  try {
+    return cleanZone(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  } catch {
+    return null
+  }
+}
+
 /**
- * The real weather for the place in the settings, at most once an hour, kept in
- * $.store so every open session shares it. Only the place's name and coordinates
- * go out, to Open-Meteo. No place set, or offline: clear skies, no errors.
+ * Where the person is, for "auto" (the time zone's city) and "auto-ip" (an IP lookup,
+ * falling back to the time zone). Looked up again every few hours or when the zone
+ * changes, kept in $.store for every session; offline, the last place found stands.
+ */
+async function locate($: EngineInterface, isIp: boolean, now: number): Promise<Located | null> {
+  const zone = await systemZone($)
+  const stored = await $.store.get(KEY.located)
+  const last = isLocated(stored) && stored.asked === (isIp ? 'auto-ip' : 'auto') ? stored : null
+  if (last && isLocatedFresh(last, isIp, zone, now)) return last
+  const asked = isIp ? 'auto-ip' : 'auto'
+  let found: Located | null = null
+  if (isIp) {
+    const hit = parseIp(await getJson($, IP_URL).catch(() => null))
+    if (hit) found = { asked, source: 'ip', key: IP_SERVICE, ...hit, at: now }
+  }
+  const city = zone ? cityOfZone(zone) : null
+  if (!found && zone && city) {
+    const geo = await geocode($, city).catch(() => null)
+    if (geo) found = { asked, source: 'zone', key: zone, place: city, lat: geo.lat, lon: geo.lon, at: now }
+  }
+  if (!found) return last
+  await $.store.set(KEY.located, found)
+  return found
+}
+
+/**
+ * The real weather, at most once an hour, kept in $.store so every open session
+ * shares it. For a place in the settings only its name and coordinates go out, to
+ * Open-Meteo; "auto" sends the time zone's city instead, and "auto-ip" first asks
+ * ipwho.is where the IP is. Empty, or offline: clear skies, no errors.
  */
 async function refreshWeather($: EngineInterface): Promise<void> {
-  if (!cfg.place) {
+  const mode = weatherMode(cfg.place)
+  if (mode.kind === 'off') {
     await update($, weather, () => null)
     return
   }
   const now = await $.clock.now()
-  const stored = await $.store.get(KEY.weather)
-  if (isStoredWeather(stored) && stored.place === cfg.place) {
-    await update($, weather, () => toWeatherNow(stored))
-    if (now - stored.at < WEATHER_MS) return
-  }
   if (isFetching) return
   isFetching = true
   try {
-    let geo = await $.store.get(KEY.geo)
-    if (!isGeo(geo) || geo.place !== cfg.place) {
-      const found = (await getJson($, `https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(cfg.place)}`)) as { results?: { latitude?: number; longitude?: number }[] }
-      const hit = found.results?.[0]
-      if (typeof hit?.latitude !== 'number' || typeof hit.longitude !== 'number') return
-      geo = { place: cfg.place, lat: hit.latitude, lon: hit.longitude }
-      await $.store.set(KEY.geo, geo)
+    let geo: Geo | null = null
+    let place = mode.kind === 'place' ? mode.place : ''
+    if (mode.kind === 'auto') {
+      const here = await locate($, mode.isIp, now)
+      if (!here) return
+      geo = { place: here.place, lat: here.lat, lon: here.lon }
+      place = `${here.place}@${here.lat.toFixed(2)},${here.lon.toFixed(2)}`
     }
-    const { lat, lon } = geo as Geo
+    const stored = await $.store.get(KEY.weather)
+    if (isStoredWeather(stored) && stored.place === place) {
+      await update($, weather, () => toWeatherNow(stored))
+      if (now - stored.at < WEATHER_MS) return
+    }
+    geo ??= await geocode($, place)
+    if (!geo) return
+    const { lat, lon } = geo
     const data = (await getJson($, `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&current=weather_code,wind_speed_10m`)) as { current?: { weather_code?: number; wind_speed_10m?: number } }
     const code = data.current?.weather_code
     if (typeof code !== 'number') return
-    const w: StoredWeather = { place: cfg.place, at: now, code, wind: data.current?.wind_speed_10m ?? 0 }
+    const w: StoredWeather = { place, at: now, code, wind: data.current?.wind_speed_10m ?? 0 }
     await $.store.set(KEY.weather, w)
     await update($, weather, () => toWeatherNow(w))
   } catch {
@@ -591,6 +646,20 @@ async function refreshWeather($: EngineInterface): Promise<void> {
   } finally {
     isFetching = false
   }
+}
+
+/** What /crab weather says: which place the weather is for, how it was found, and what it is. */
+async function weatherText($: EngineInterface): Promise<string> {
+  const mode = weatherMode(cfg.place)
+  if (mode.kind === 'off') return 'No weather: weatherPlace is empty, so nothing is fetched. Set it to a city, to "auto" (your time zone\'s city) or to "auto-ip" (an IP lookup, which shows your IP address to ipwho.is) with /plugin configure crab-buddy@crab-buddy.'
+  const now = await $.clock.now()
+  const w = await read($, weather)
+  const sky = w ? `${w.kind}${w.isWindy ? ', windy' : ''}, checked ${Math.max(0, Math.round((now - w.at) / MIN))} min ago` : 'not fetched yet'
+  if (mode.kind === 'place') return `Weather for ${mode.place} (set in weatherPlace): ${sky}.`
+  const here = await $.store.get(KEY.located)
+  if (!isLocated(here) || here.asked !== (mode.isIp ? 'auto-ip' : 'auto')) return `Weather from where you are (weatherPlace "${mode.isIp ? 'auto-ip' : 'auto'}"): no place found yet${mode.isIp ? '' : ' (is the time zone set?)'}.`
+  const ago = Math.max(0, Math.round((now - here.at) / MIN))
+  return `Weather for ${here.place}, ${howFound(here)} ${ago < 60 ? `${ago} min` : `${Math.round(ago / 60)} h`} ago: ${sky}.`
 }
 
 // The shared folder, beside the rest of Claude Code's own.
@@ -1104,8 +1173,8 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await $.command.register({
       name: 'crab',
-      description: 'Crab buddy: feed, play, pet, name, stats, lines, log, theme, tank or strip, breaks, sound, bubbles, signs, roam, costume',
-      argumentHint: '[feed | play | pet | name <name> | stats | lines | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | roam on|off | here | where | off | on | restart | today | <costume>]',
+      description: 'Crab buddy: feed, play, pet, name, stats, weather, lines, log, theme, tank or strip, breaks, sound, bubbles, signs, roam, costume',
+      argumentHint: '[feed | play | pet | name <name> | stats | weather | lines | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | roam on|off | here | where | off | on | restart | today | <costume>]',
     })
     const now = await $.clock.now()
     await loadChoices($, options)
@@ -1205,6 +1274,7 @@ export const register: Register = (on, options) => {
       const { temperament } = layoutOf(tr.layout)
       return { text: `${v.summary} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''}${typeof fish === 'number' && fish > 0 ? ` · ${fish} fish` : ''}${temperament ? ` · ${TEMPERAMENTS[temperament].word}` : ''} · ${themeAt(v.now)}` }
     }
+    if (word === 'weather') return { text: await weatherText($) }
     if (word === 'lines') {
       const out = await read($, rods)
       if (!out.length) return { text: 'No lines in the water.' }
@@ -1275,7 +1345,7 @@ export const register: Register = (on, options) => {
       return { text: cfg.longMs > 0 ? 'The done chirp is on.' : 'The done chirp is on, but longTaskSeconds is 0 in the settings, so no task counts as long. Set it with /plugin configure crab-buddy@crab-buddy.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }
