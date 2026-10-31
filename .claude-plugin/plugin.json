@@ -1,7 +1,7 @@
 {
   "name": "crab-buddy",
-  "version": "0.22.1",
-  "description": "A pixel crab with a life of its own on a little beach above the prompt that also lends a claw: a red flag while Claude waits for you, a ready /compact at the right moment, an hourglass for your usage limit, a sea that shows your context, real sky, seasons and weather, costume beaches, unlockable decor, a fishing line for each subagent, one crab that can roam between your windows, signs for news, needs you care for and break reminders.",
+  "version": "0.22.2",
+  "description": "See what Claude is doing without reading the transcript: a sea that rises with your context, a red flag when Claude is waiting for you, an hourglass for your usage limit and a ready /compact at the right moment. All of it shown by a pixel crab with a life of its own, on a little beach above your prompt.",
   "author": {
     "name": "Andy"
   },

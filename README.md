@@ -1,8 +1,10 @@
 # crab-buddy 🦀
 
-A tiny pixel crab that lives on a beach above your Claude Code prompt. It has a life of its own, keeps an eye on what Claude is doing, and keeps you company while you work.
+**See what Claude is doing without reading the transcript.** A sea that rises with your context, a red flag when Claude is waiting for you, an hourglass for your usage limit, a ready `/compact` at the right moment. All of it shown by a tiny pixel crab with a life of its own, on a beach above your prompt.
 
 Unofficial, not affiliated with Anthropic.
+
+![The crab showing what Claude is doing: the sea rising with the context, a red flag while Claude waits, a fishing rod for a subagent, a "pushed!" sign and the usage hourglass](docs/demo.gif)
 
 ![crab-buddy on its beach: dancing with its friend at midday, finishing a long task at sunset, and in a ghost sheet on Halloween night](docs/screenshot.png)
 
@@ -10,17 +12,21 @@ Unofficial, not affiliated with Anthropic.
 
 ## What it does
 
+What it shows you:
+
+- **Your context.** The sea creeps up the beach as the context fills, toward where Claude really compacts.
+- **When Claude needs you.** It holds up a red flag while Claude waits for a permission, an answer or a plan, and offers a ready `/compact` at the right moment.
+- **Your usage limit.** An hourglass by its shell fills as the limit or budget runs down.
+- **What Claude is doing.** A hammer for edits, a scroll for reading, binoculars for the web, a fishing rod for every subagent. Commits get fireworks, failing tests a storm cloud, long tasks a "done!" plane and a chirp.
+- **The news.** Task done, commit pushed, PR merged: it stops, faces you and raises a sign.
+- **The state of your work, kept.** A logbook of files, tests and commits that goes to the summary when the context gets compacted.
+
+And the crab itself:
+
 - **Lives its own life.** It strolls, digs, builds a sandcastle, collects shells, chases butterflies, and now and then turns to look at you.
-- **Watches Claude work.** It holds a hammer for edits, a scroll for reading and binoculars for the web. Commits get fireworks, failing tests a storm cloud, long tasks a "done!" plane.
-- **Shows your context.** The sea creeps up the beach as the context fills, toward where Claude really compacts.
 - **Has a real sky.** Sunrise and sunset, the actual moon phase, seasons, holidays and, if you like, your local weather.
+- **Looks after you, and wants looking after.** It nudges you to take a break after a long stretch. Feed it, play with it, pet it; it remembers you across sessions.
 - **Goes between your windows, if you like.** One crab for all your sessions: it follows you and runs to a window that finishes.
-- **Goes fishing.** Every subagent is a rod on the shore: a fish when it finishes, an old boot when it fails.
-- **Holds up signs.** Task done, commit pushed, PR merged, coffee time: it stops, faces you and raises a plank.
-- **Looks after you.** It nudges you to take a break after a long stretch, and chirps when a long task finishes.
-- **Wants looking after.** Feed it, play with it, pet it. It remembers you across sessions.
-- **Lends a claw.** It holds up a red flag while Claude waits for you, offers a ready `/compact` at the right moment, and keeps an hourglass for your usage limit.
-- **Keeps a logbook.** It writes down the state of your work and passes it to the summary when the context gets compacted.
 
 A new costume every day, a new beach to match. The animation is all CSS and costs no tokens.
 
@@ -224,6 +230,8 @@ bun scripts/check-animations.ts   # the beach in a real browser (needs playwrigh
 ```
 
 `CRAB_SHOTS=/tmp/crab` also saves a PNG per animation scenario, and `CRAB_ONLY=<name>` runs just one.
+
+`bun scripts/make-demo.ts` redraws `docs/demo.gif` (it also needs ffmpeg) and `bun scripts/make-icon.ts` the icon. Every version bump adds an entry to `CHANGELOG.md`.
 
 ## Credits
 
