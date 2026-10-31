@@ -1,6 +1,6 @@
 {
   "name": "crab-buddy",
   "owner": { "name": "Andy" },
-  "description": "crab-buddy, a pixel crab on a little beach above your Claude Code prompt.",
+  "description": "crab-buddy: see what Claude is doing at a glance, shown by a pixel crab on a little beach above your prompt.",
   "plugins": [{ "name": "crab-buddy", "source": "./" }]
 }
