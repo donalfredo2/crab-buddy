@@ -7,6 +7,7 @@ import type { On } from 'claude-code'
 import type { Segment } from '../types'
 import type { BeachRecord } from './roam'
 import { plan } from './life'
+import { NEWS } from './news'
 import { KING_SHELLS } from './register'
 import { sceneSvg } from './scene'
 import { skyFor } from './sky'
@@ -1082,7 +1083,7 @@ test('after an update the crab holds up what is new once, and not again', async 
   mock.store(on, { firstMet: T0 - 24 * 60 * MIN, seenVersion: '0.22.1' })
   engine(on)
   await start($)
-  expect(await heldWords($)).toBe('new: /crab help')
+  expect(await heldWords($)).toBe(`new: ${NEWS}`)
   await clock.advance(MIN)
   await start($)
   expect(await heldWords($)).toBe(null)
@@ -1093,7 +1094,7 @@ test('a crab met before versions kept a record still gets the news', async ($, o
   mock.store(on, { firstMet: T0 - 24 * 60 * MIN })
   engine(on)
   await start($)
-  expect(await heldWords($)).toBe('new: /crab help')
+  expect(await heldWords($)).toBe(`new: ${NEWS}`)
 })
 
 test('with signs off there is no news sign', async ($, on) => {
@@ -1121,4 +1122,19 @@ test('/crab feedback says where to write and what is switched off, and sends not
   expect(text).toContain('https://github.com/donalfredo2/crab-buddy/issues/new/choose')
   expect(text).toMatch(/crab-buddy \d+\.\d+\.\d+, roaming off, switched off: signs, sound$/)
   expect(fetched).toEqual([])
+})
+
+// --- working never wears it down
+
+test('hours of work leave it at 30 at worst: never hungry, sleepy or grumpy from working', async ($, on) => {
+  const clock = mock.clock(on, { now: at(22) })
+  mock.store(on, { needs: needs({ food: 34, fun: 34, energy: 34, updatedAt: at(22) }) })
+  engine(on)
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(4 * 60 * MIN)
+  expect(await stat($, 'food')).toBe(30)
+  expect(await stat($, 'fun')).toBe(30)
+  expect(await stat($, 'energy')).toBe(30)
+  expect(await alt($, true)).not.toMatch(/hungry|tired|grumpy/)
 })

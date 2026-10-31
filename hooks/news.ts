@@ -2,13 +2,13 @@
 // update. The engine doesn't tell a plugin its own version, so it's written here, and a test keeps it equal
 // to plugin.json's.
 
-export const VERSION = '0.23.0'
+export const VERSION = '0.23.1'
 
 /** On the plank, after "new: ": 17 characters at most, so the whole sign fits. */
-export const NEWS = '/crab help'
+export const NEWS = 'a calmer crab'
 
 /** The longer line, in /crab help. */
-export const NEWS_LONG = 'New in 0.23.0: /crab help, and /crab feedback to tell the author what you think.'
+export const NEWS_LONG = 'New in 0.23.1: working never makes it hungry, bored or tired any more. Also /crab feedback, to tell the author what you think.'
 
 export const REPO = 'https://github.com/donalfredo2/crab-buddy'
 

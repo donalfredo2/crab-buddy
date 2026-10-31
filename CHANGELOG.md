@@ -2,6 +2,9 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.23.1
+- Working never makes the crab hungry, bored or tired any more: while Claude works, no need drops below 30. Time away still fades food and fun, and caring for it works as before.
+
 ## 0.23.0
 - `/crab help` lists the main commands, and an unknown word points to it.
 - After an update the crab holds up what's new, once, for all your windows. A first install hears nothing; `/crab signs off` keeps it down.
