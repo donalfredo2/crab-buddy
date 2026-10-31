@@ -530,10 +530,13 @@ const compile = (pl: Plan, width: number, elapsed: number, shore: number, own: L
   const faces = pl.beats.map(b => `${fine(b.t0)}{transform:${b.face === 1 ? RIGHT : LEFT}}`)
   css.push(`@keyframes fc{${faces.join('')}100%{transform:${pl.endFace === 1 ? RIGHT : LEFT}}}.fc{${anim('fc', 'steps(1,end)')}}`)
 
+  // Every keyframes below ends on an explicit 100%: left out, a finished animation falls back
+  // to the attribute drawn in, the pose (or height) the crab had when the image was made.
+  const last = pl.beats[pl.beats.length - 1]
   const poses = [...new Set(pl.beats.map(b => b.pose))]
   poses.forEach((pose, i) => {
     const stops = pl.beats.map(b => `${fine(b.t0)}{opacity:${b.pose === pose ? 1 : 0}}`)
-    css.push(`@keyframes l${i}{${stops.join('')}}.l${i}{${anim(`l${i}`, 'steps(1,end)')}}`)
+    css.push(`@keyframes l${i}{${stops.join('')}100%{opacity:${last?.pose === pose ? 1 : 0}}}.l${i}{${anim(`l${i}`, 'steps(1,end)')}}`)
   })
 
   // Marks: each its own keyframes, hidden outside its window.
@@ -647,14 +650,20 @@ const compile = (pl: Plan, width: number, elapsed: number, shore: number, own: L
   }).join('')
 
   // Up off the sand and down again, and whatever it holds is put away for the ride.
-  const lifted = pl.beats.flatMap((b, i) => {
-    const prev = pl.beats[i - 1]
-    if (!b.y0 && !b.y1 && !prev?.y0 && !prev?.y1) return []
-    return [`${fine(b.t0)}{transform:translateY(${whole(-(b.y0 ?? 0))}px)${stepped(b.y0 ?? 0, b.y1 ?? 0)}}`, `${fine(b.t1)}{transform:translateY(${whole(-(b.y1 ?? 0))}px)}`]
+  // Every beat gets its height once any beat leaves the sand: with gaps, the browser would ease
+  // from the height it was drawn at, and a crab drawn rising from the sea would sink back in.
+  const isLifted = pl.beats.some(b => b.y0 || b.y1)
+  // A jump to the next beat's height needs a moment of its own: two frames at one offset and the
+  // later wins, so sinking into the sea before it is gone would never be seen.
+  const before = (t: number) => `${Math.max(0, (t / D) * 100 - 0.001).toFixed(3)}%`
+  const lifted = !isLifted ? [] : pl.beats.flatMap((b, i) => {
+    const next = pl.beats[i + 1]
+    const end = next && whole(-(next.y0 ?? 0)) !== whole(-(b.y1 ?? 0)) ? before(b.t1) : fine(b.t1)
+    return [`${fine(b.t0)}{transform:translateY(${whole(-(b.y0 ?? 0))}px)${stepped(b.y0 ?? 0, b.y1 ?? 0)}}`, `${end}{transform:translateY(${whole(-(b.y1 ?? 0))}px)}`]
   })
   if (lifted.length) css.push(`@keyframes ly{${lifted.join('')}}.ly{${anim('ly', 'linear')}}`)
   const rides = pl.beats.some(b => b.pose === 'ride')
-  if (rides) css.push(`@keyframes nr{${pl.beats.map(b => `${fine(b.t0)}{opacity:${b.pose === 'ride' ? 0 : 1}}`).join('')}}.nr{${anim('nr', 'steps(1,end)')}}`)
+  if (rides) css.push(`@keyframes nr{${pl.beats.map(b => `${fine(b.t0)}{opacity:${b.pose === 'ride' ? 0 : 1}}`).join('')}100%{opacity:${last?.pose === 'ride' ? 0 : 1}}}.nr{${anim('nr', 'steps(1,end)')}}`)
 
   return { css: css.join('\n'), poses, marks }
 }

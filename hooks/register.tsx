@@ -193,7 +193,8 @@ export const isBreakDue = (b: BreakState, now: number, limitMs: number): boolean
   limitMs > 0 && b.streakStart > 0 && now - b.lastActive < IDLE_MS && now - b.streakStart >= limitMs && now >= b.snoozedUntil
 
 export const cleanName = (raw: string): string =>
-  raw.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 16)
+  // Trimmed again after the cut, so a name cut at a space doesn't keep it.
+  raw.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 16).trim()
 
 const isNeeds = (v: unknown): v is Needs =>
   !!v && typeof v === 'object' && ['food', 'fun', 'energy', 'updatedAt'].every(k => typeof (v as Record<string, unknown>)[k] === 'number')
@@ -1241,8 +1242,13 @@ export const register: Register = (on, options) => {
     if (word === 'breaks' || word === 'sound') {
       if (value !== 'on' && value !== 'off') return { text: `Use /crab ${word} on or /crab ${word} off.` }
       await setFlag($, word, value === 'on')
-      if (word === 'breaks') return { text: value === 'off' ? 'Break reminders are off.' : `Break reminders are on (every ${Math.round(cfg.breakMs / MIN) || 90} minutes).` }
-      return { text: value === 'off' ? 'The done chirp is off.' : 'The done chirp is on.' }
+      // A timer set to 0 in the settings stays off: say so rather than promise a reminder that never comes.
+      if (word === 'breaks') {
+        if (value === 'off') return { text: 'Break reminders are off.' }
+        return { text: cfg.breakMs > 0 ? `Break reminders are on (every ${Math.round(cfg.breakMs / MIN)} minutes).` : `Break reminders are on, but breakMinutes is 0 in the settings, so none will come. Set it with /plugin configure crab-buddy@crab-buddy.` }
+      }
+      if (value === 'off') return { text: 'The done chirp is off.' }
+      return { text: cfg.longMs > 0 ? 'The done chirp is on.' : 'The done chirp is on, but longTaskSeconds is 0 in the settings, so no task counts as long. Set it with /plugin configure crab-buddy@crab-buddy.' }
     }
     if (word && !isCostume(word)) {
       return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
