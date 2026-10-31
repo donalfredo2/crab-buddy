@@ -1,7 +1,7 @@
 {
   "name": "crab-buddy",
-  "version": "0.19.3",
-  "description": "A pixel crab with a life of its own on a little beach above the prompt: real sky, seasons and weather, a sea that shows your context, costume beaches, unlockable decor, a friend, tool-mirroring props, a fishing line for each subagent, an optional single crab that roams between your windows, big moments for commits and tests, signs it holds up for news, needs you care for and break reminders.",
+  "version": "0.20.0",
+  "description": "A pixel crab with a life of its own on a little beach above the prompt that also lends a claw: a red flag while Claude waits for you, a ready /compact at the right moment, an hourglass for your usage limit, a sea that shows your context, real sky, seasons and weather, costume beaches, unlockable decor, a fishing line for each subagent, one crab that can roam between your windows, signs for news, needs you care for and break reminders.",
   "author": {
     "name": "Andy"
   },
@@ -23,6 +23,14 @@
       "default": 90,
       "min": 0,
       "max": 480
+    },
+    "budgetUsd": {
+      "type": "number",
+      "title": "Budget (USD)",
+      "description": "On API billing: the session budget the hourglass counts down, with signs at 80% and 95%. 0: no hourglass on API billing. A subscription's usage limit needs no setting.",
+      "default": 0,
+      "min": 0,
+      "max": 10000
     },
     "sound": {
       "type": "string",

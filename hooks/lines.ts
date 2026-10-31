@@ -83,6 +83,17 @@ const SIGNS: Record<SignKind, readonly string[]> = {
   compact: ['good moment: /compact', 'clean break: /compact', 'tide is high: /compact'],
   fish: ['caught! {time}', 'got one! {time}', 'fish on! {time}'],
   boot: ['old boot: it failed', 'a boot! it failed', 'no fish: it failed'],
+  limit: ['limit {time}'],
+  budget: ['budget {time}'],
+}
+
+/** The red flag's words: what Claude is waiting for you on, short enough for a plank. */
+export const needsLine = (tool: string, isHelper = false): string => {
+  if (isHelper) return 'a helper needs you'
+  if (tool === 'AskUserQuestion') return 'a question for you'
+  if (tool === 'ExitPlanMode') return 'a plan to approve'
+  const name = tool.startsWith('mcp__') ? (tool.split('__')[2] ?? tool) : tool
+  return `needs you: ${name.slice(0, 18)}`
 }
 
 export const signLine = (kind: SignKind, seed: number, time = ''): string => {

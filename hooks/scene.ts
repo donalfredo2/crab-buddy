@@ -71,6 +71,7 @@ const SCENE_CSS = `
 .flut{animation:flut .7s ease-in-out infinite}
 @keyframes flut{50%{transform:translateY(-3px)}}
 .flag{transform-box:fill-box;transform-origin:0 50%;animation:wave .6s steps(1) infinite}
+.trk{animation:blink .8s steps(1) infinite}
 `
 
 const SHELL = ['...dpppd...', '..dpwpwpd..', '.dpwpwpwpd.', 'dpwpwpwpwpd', 'dpwpwpwpwpd', '.dpppppppd.', '...ddddd...']
@@ -452,10 +453,28 @@ const workPile = (x0: number, kinds: readonly string[]): string =>
 
 const plankW = (text: string): number => Math.round(text.length * 4.3 + 8)
 
-/** Words on a plank, its top left at 0,0. */
-const plank = (text: string, height: number): string => {
+/** Words on a plank, its top left at 0,0; a red one when Claude is waiting for you. */
+const plank = (text: string, height: number, isFlag = false): string => {
   const width = plankW(text)
-  return `<rect width="${width}" height="${height}" rx="1" fill="#E9D6A6" stroke="#A0703F" stroke-width=".8"/><text x="${width / 2}" y="${height - 2.8}" font-size="6.8" text-anchor="middle" font-family="-apple-system,'SF Pro Text',sans-serif" font-weight="700" fill="#3A3936">${xml(text)}</text>`
+  return `<rect width="${width}" height="${height}" rx="1" fill="${isFlag ? FLAG : '#E9D6A6'}" stroke="${isFlag ? '#9E2B3E' : '#A0703F'}" stroke-width=".8"/><text x="${width / 2}" y="${height - 2.8}" font-size="6.8" text-anchor="middle" font-family="-apple-system,'SF Pro Text',sans-serif" font-weight="700" fill="${isFlag ? '#FFFFFF' : '#3A3936'}">${xml(text)}</text>`
+}
+const FLAG = '#D9435E'
+
+/**
+ * The hourglass on top of the home shell: its top holds what is left of the usage limit or budget,
+ * the bottom what is gone, and a grain trickles through while it runs. Red sand from 95%.
+ */
+export const hourglassSvg = (used: number): string => {
+  // Seven cells of sand in each bulb, bottom up: [x, y] inside a 7 by 9 frame.
+  const top = [[3, 3], [2, 2], [3, 2], [4, 2], [2, 1], [3, 1], [4, 1]]
+  const bottom = [[2, 7], [3, 7], [4, 7], [2, 6], [3, 6], [4, 6], [3, 5]]
+  const left = Math.round(7 * (1 - Math.min(1, Math.max(0, used))))
+  const sand = used >= 0.95 ? '#E8577A' : '#E8C27A'
+  const x0 = HOME_SHELL_X + 2
+  const y0 = GROUND - 16
+  const cell = ([x, y]: number[], fill: string, cls = '') => `<rect${cls ? ` class="${cls}"` : ''} x="${x0 + (x ?? 0)}" y="${y0 + (y ?? 0)}" width="1" height="1" fill="${fill}"/>`
+  const glass = [[1, 1], [5, 1], [1, 2], [5, 2], [2, 3], [4, 3], [3, 4], [2, 5], [4, 5], [1, 6], [5, 6], [1, 7], [5, 7]]
+  return `<g class="hourglass" shape-rendering="crispEdges"><rect x="${x0}" y="${y0}" width="7" height="1" fill="#8A5A2B"/><rect x="${x0}" y="${y0 + 8}" width="7" height="1" fill="#8A5A2B"/>${glass.map(c => cell(c, '#CFE8F2')).join('')}${top.slice(0, left).map(c => cell(c, sand)).join('')}${bottom.slice(0, 7 - left).map(c => cell(c, sand)).join('')}${left > 0 && left < 7 ? cell([3, 4], sand, 'trk') : ''}</g>`
 }
 
 /** A rod in the sand for each line out, its float bobbing in the sea. */
@@ -471,9 +490,12 @@ const plantedSvg = (x: number, text: string, width: number): string => {
   return `<g><rect x="${x - 1}" y="${GROUND - 9}" width="2" height="10" fill="#A0703F" shape-rendering="crispEdges"/><g transform="translate(${left},${GROUND - 20})">${plank(text, 11)}</g></g>`
 }
 
-/** The sign it holds up: a plank where the bubble would be, on a pole down to its claws. */
-const heldSvg = (text: string, poleX: number): string =>
-  `<rect x="${poleX - 0.75}" y="11" width="1.5" height="9" fill="#A0703F" shape-rendering="crispEdges"/><g transform="translate(0,0.5)">${plank(text, 11)}</g>`
+/**
+ * The sign it holds up: a plank where the bubble would be, on a pole down to its claws.
+ * The red flag has a pennant on the pole under it that flutters, so a waiting window catches the eye.
+ */
+const heldSvg = (text: string, poleX: number, isFlag = false): string =>
+  `<rect x="${poleX - 0.75}" y="11" width="1.5" height="9" fill="#A0703F" shape-rendering="crispEdges"/>${isFlag ? `<path class="flag" d="M${r1(poleX + 0.75)} 12.2 l5 2 l-5 2 Z" fill="${FLAG}"/>` : ''}<g transform="translate(0,0.5)">${plank(text, 11, isFlag)}</g>`
 
 const bottleSvg = (x: number, now: number): string =>
   `<g class="btl" style="${wall(now, 3)}" shape-rendering="crispEdges"><rect x="${x}" y="${GROUND - 3}" width="6" height="3" fill="#6FB98F"/><rect x="${x + 1}" y="${GROUND - 2}" width="3" height="1" fill="#F4F3EE"/><rect x="${x + 6}" y="${GROUND - 2}" width="2" height="1" fill="#6FB98F"/><rect x="${x + 8}" y="${GROUND - 2}" width="1" height="1" fill="#A0703F"/></g>`
@@ -770,11 +792,11 @@ export const sceneSvg = (s: SceneInput): string => {
   return `<svg xmlns="http://www.w3.org/2000/svg" ${fit}><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
 <g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells, !!s.beach?.hasMark, own)}${footprints(pl, width, elapsed)}
-<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
+<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${s.beach?.usage !== undefined ? hourglassSvg(s.beach.usage) : ''}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
 <g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
 ${isGone ? '' : `<ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>`}
 <g class="ly" transform="translate(0,${Math.round(-here.lift)})"><g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}</g>
-${bubble ? `<g transform="translate(${r1(bubbleX)},-${CRAB_Y})">${bubble.svg}</g>` : ''}${signWords ? `<g transform="translate(${r1(signX)},-${CRAB_Y})">${heldSvg(signWords, CRAB_W / 2 - signX)}</g>` : ''}</g></g>
+${bubble ? `<g transform="translate(${r1(bubbleX)},-${CRAB_Y})">${bubble.svg}</g>` : ''}${signWords ? `<g transform="translate(${r1(signX)},-${CRAB_Y})">${heldSvg(signWords, CRAB_W / 2 - signX, !!s.beach?.isFlag)}</g>` : ''}</g></g>
 ${skyFront(width, s.timeOfDay, s.sky, s.now, top)}</g>
 </svg>`
 }
