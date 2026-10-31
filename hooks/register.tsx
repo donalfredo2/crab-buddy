@@ -125,7 +125,7 @@ const ASKS_YOU: ReadonlySet<string> = new Set(['AskUserQuestion', 'ExitPlanMode'
 // $.store keys: choices made with /crab and the pet itself outlive the session.
 const KEY = {
   hidden: 'isHidden', breaksOff: 'areBreaksOff', soundOff: 'isSoundOff', needs: 'needs', name: 'name',
-  firstMet: 'firstMet', bubbles: 'bubbles', signsOff: 'areSignsOff', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo', located: 'weatherLocated',
+  firstMet: 'firstMet', bubbles: 'bubbles', signsOff: 'areSignsOff', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo', located: 'weatherLocated', failed: 'weatherFailed', asked: 'weatherAsked',
   greeted: 'greetedDay', tank: 'isTank', fish: 'fishCaught', roam: 'isRoaming', logOff: 'isLogOff', earned: 'decorEarned',
   needsOff: 'areNeedsOff', tipsOff: 'areTipsOff', hourglassOff: 'isHourglassOff',
 } as const
@@ -583,25 +583,82 @@ type Geo = { place: string; lat: number; lon: number }
 type StoredWeather = { place: string; at: number; code: number; wind: number }
 const isGeo = (v: unknown): v is Geo => !!v && typeof v === 'object' && typeof (v as Geo).lat === 'number' && typeof (v as Geo).lon === 'number' && typeof (v as Geo).place === 'string'
 const isStoredWeather = (v: unknown): v is StoredWeather =>
-  !!v && typeof v === 'object' && typeof (v as StoredWeather).at === 'number' && typeof (v as StoredWeather).code === 'number' && typeof (v as StoredWeather).place === 'string'
+  !!v && typeof v === 'object' && typeof (v as StoredWeather).at === 'number' && typeof (v as StoredWeather).code === 'number' && typeof (v as StoredWeather).place === 'string' && Number.isFinite((v as StoredWeather).wind)
 const WEATHER_MS = 60 * MIN
+/** A request that hasn't answered by then has failed, so one hung request can't stop the weather. */
+const FETCH_TIMEOUT_MS = 10_000
+/** After a failure, that service is left alone this long, by every open session. */
+const BACKOFF_MS = 15 * MIN
 let isFetching = false
 
 export const toWeatherNow = (w: StoredWeather): WeatherNow => ({ kind: weatherOf(w.code), isWindy: (w.wind ?? 0) >= WINDY_KMH, at: w.at })
 
-async function getJson($: EngineInterface, url: string): Promise<unknown> {
-  const res = await $.http.fetch(url)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return JSON.parse(res.text) as unknown
+function withTimeout<T>($: EngineInterface, work: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = $.clock.after(ms, () => reject(new Error('timed out')))
+    work.then(
+      v => {
+        timer.cancel()
+        resolve(v)
+      },
+      (err: unknown) => {
+        timer.cancel()
+        reject(err)
+      },
+    )
+  })
 }
+
+/** When each service last failed, by host: shared in $.store, so one failure quiets every session. */
+async function failures($: EngineInterface): Promise<Record<string, number>> {
+  const v = await $.store.get(KEY.failed)
+  return v && typeof v === 'object' ? (v as Record<string, number>) : {}
+}
+
+/**
+ * JSON from one of the weather services, or a throw. A request that times out, an HTTP error, an answer that
+ * isn't JSON, or one `isUseful` turns down, all count as a failure, and that host is then left alone for a while.
+ */
+async function getJson($: EngineInterface, url: string, isUseful: (data: unknown) => boolean = () => true): Promise<unknown> {
+  const host = new URL(url).host
+  const now = await $.clock.now()
+  const failed = await failures($)
+  const lastFail = failed[host]
+  if (typeof lastFail === 'number' && now - lastFail >= 0 && now - lastFail < BACKOFF_MS) throw new Error(`${host} is resting`)
+  try {
+    const res = await withTimeout($, $.http.fetch(url), FETCH_TIMEOUT_MS)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = JSON.parse(res.text) as unknown
+    if (!isUseful(data)) throw new Error('no useful answer')
+    if (lastFail !== undefined) {
+      const { [host]: _, ...rest } = await failures($)
+      await $.store.set(KEY.failed, rest)
+    }
+    return data
+  } catch (err) {
+    await $.store.set(KEY.failed, { ...(await failures($)), [host]: now })
+    throw err
+  }
+}
+
+const isLatLon = (lat: unknown, lon: unknown): boolean =>
+  typeof lat === 'number' && typeof lon === 'number' && Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+
+type GeoAnswer = { results?: { latitude?: unknown; longitude?: unknown }[] } | null
+const geoHit = (data: unknown): { latitude: number; longitude: number } | null => {
+  const hit = (data as GeoAnswer)?.results?.[0]
+  return hit && isLatLon(hit.latitude, hit.longitude) ? (hit as { latitude: number; longitude: number }) : null
+}
+
+type ForecastAnswer = { current?: { weather_code?: unknown; wind_speed_10m?: unknown } } | null
+const hasCode = (data: unknown): boolean => typeof (data as ForecastAnswer)?.current?.weather_code === 'number'
 
 /** Coordinates for a city name, from Open-Meteo's geocoder, cached in $.store by name. */
 async function geocode($: EngineInterface, place: string): Promise<Geo | null> {
   const cached = await $.store.get(KEY.geo)
   if (isGeo(cached) && cached.place === place) return cached
-  const found = (await getJson($, `https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(place)}`)) as { results?: { latitude?: number; longitude?: number }[] }
-  const hit = found.results?.[0]
-  if (typeof hit?.latitude !== 'number' || typeof hit.longitude !== 'number') return null
+  const hit = geoHit(await getJson($, `https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(place)}`, d => geoHit(d) !== null))
+  if (!hit) return null
   const geo: Geo = { place, lat: hit.latitude, lon: hit.longitude }
   await $.store.set(KEY.geo, geo)
   return geo
@@ -618,6 +675,8 @@ async function systemZone($: EngineInterface): Promise<string | null> {
   }
 }
 
+const round2 = (n: number): number => Math.round(n * 100) / 100
+
 /**
  * Where the person is, for "auto" (the time zone's city) and "auto-ip" (an IP lookup,
  * falling back to the time zone). Looked up again every few hours or when the zone
@@ -631,8 +690,9 @@ async function locate($: EngineInterface, isIp: boolean, now: number): Promise<L
   const asked = isIp ? 'auto-ip' : 'auto'
   let found: Located | null = null
   if (isIp) {
-    const hit = parseIp(await getJson($, IP_URL).catch(() => null))
-    if (hit) found = { asked, source: 'ip', key: IP_SERVICE, ...hit, at: now }
+    const hit = parseIp(await getJson($, IP_URL, d => parseIp(d) !== null).catch(() => null))
+    // About a kilometre is plenty for the weather, and all that's kept.
+    if (hit) found = { asked, source: 'ip', key: IP_SERVICE, place: hit.place, lat: round2(hit.lat), lon: round2(hit.lon), at: now }
   }
   const city = zone ? cityOfZone(zone) : null
   if (!found && zone && city) {
@@ -644,6 +704,24 @@ async function locate($: EngineInterface, isIp: boolean, now: number): Promise<L
   return found
 }
 
+/** The weatherPlace this session last checked the store against: it looks once per setting, not every minute. */
+let checkedPlace: string | null = null
+
+/**
+ * When weatherPlace changes, or is emptied, what was found and fetched for the old one is dropped from $.store,
+ * so turning the weather off, or moving from "auto-ip" to a city, leaves no location behind. Once per session and
+ * setting: two sessions set differently (a project's own settings) then can't wipe each other's every minute.
+ */
+async function forgetOtherPlaces($: EngineInterface, asked: string): Promise<void> {
+  if (checkedPlace === asked) return
+  checkedPlace = asked
+  const before = await $.store.get(KEY.asked)
+  if (before === asked) return
+  // Before this version nothing was recorded: keep what a set place had, but an empty one still forgets.
+  if (before !== undefined || asked === '') for (const key of [KEY.weather, KEY.geo, KEY.located, KEY.failed]) await $.store.set(key, null)
+  await $.store.set(KEY.asked, asked)
+}
+
 /**
  * The real weather, at most once an hour, kept in $.store so every open session
  * shares it. For a place in the settings only its name and coordinates go out, to
@@ -652,6 +730,7 @@ async function locate($: EngineInterface, isIp: boolean, now: number): Promise<L
  */
 async function refreshWeather($: EngineInterface): Promise<void> {
   const mode = weatherMode(cfg.place)
+  await forgetOtherPlaces($, cfg.place)
   if (mode.kind === 'off') {
     await update($, weather, () => null)
     return
@@ -676,10 +755,11 @@ async function refreshWeather($: EngineInterface): Promise<void> {
     geo ??= await geocode($, place)
     if (!geo) return
     const { lat, lon } = geo
-    const data = (await getJson($, `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&current=weather_code,wind_speed_10m`)) as { current?: { weather_code?: number; wind_speed_10m?: number } }
-    const code = data.current?.weather_code
+    const data = (await getJson($, `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&current=weather_code,wind_speed_10m`, hasCode)) as ForecastAnswer
+    const code = data?.current?.weather_code
     if (typeof code !== 'number') return
-    const w: StoredWeather = { place, at: now, code, wind: data.current?.wind_speed_10m ?? 0 }
+    const wind = data?.current?.wind_speed_10m
+    const w: StoredWeather = { place, at: now, code, wind: typeof wind === 'number' && Number.isFinite(wind) ? wind : 0 }
     await $.store.set(KEY.weather, w)
     await update($, weather, () => toWeatherNow(w))
   } catch {

@@ -58,6 +58,7 @@ export const parseIp = (data: unknown): { place: string; lat: number; lon: numbe
   const d = data as { success?: boolean; city?: unknown; latitude?: unknown; longitude?: unknown }
   if (!d || typeof d !== 'object' || d.success === false) return null
   if (typeof d.latitude !== 'number' || typeof d.longitude !== 'number') return null
+  if (!Number.isFinite(d.latitude) || !Number.isFinite(d.longitude) || Math.abs(d.latitude) > 90 || Math.abs(d.longitude) > 180) return null
   const place = typeof d.city === 'string' ? clip(d.city, 80) : ''
   return { place: place || `${d.latitude.toFixed(1)}, ${d.longitude.toFixed(1)}`, lat: d.latitude, lon: d.longitude }
 }
