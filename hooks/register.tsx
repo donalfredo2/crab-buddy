@@ -1,3 +1,10 @@
+// The mod's engine side: every hook, the session's atoms, and the code that touches them. It stays one file
+// on purpose. The engine reads each file to list what it does, so an atom must be declared in the file that
+// reads or writes it, and $ may only be passed to functions declared in the same file or imported. Code that
+// starts the crab's next segment, sets a sign or raises the flag needs those atoms and the life driver, so it
+// lives here. What can be pure is kept out of it: life.ts, roam.ts, logbook.ts, signs.ts, scene.ts and the rest.
+// weather.ts is the one effectful part outside: it touches no atom and hands its result back.
+
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PaneCloseInput, PluginOptions, Register, Timer, ToolCallInput, ToolCallResult } from 'claude-code'
 
