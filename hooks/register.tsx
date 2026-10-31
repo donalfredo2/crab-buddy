@@ -5,7 +5,7 @@ import type { Activity, Antic, Beach, BreakState, Bubble, CatchKind, LifeMode, L
 import { reconcile, sameRods } from './fishing'
 import { FRESH_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, whereCrabIs } from './roam'
 import type { BeachRecord } from './roam'
-import { MARK_TIDE, MAX_RODS, TEMPERAMENTS, layoutOf, planOf, rideFits, shoreFrac, tideOf, whereAt } from './life'
+import { MARK_TIDE, MAX_RODS, NO_CONTEXT_SHORE, TEMPERAMENTS, layoutOf, planOf, rideFits, shoreFrac, tideOf, whereAt } from './life'
 import type { LifeEvent } from './life'
 import { line, signLine, themeLine, themeName } from './lines'
 import type { Moment } from './lines'
@@ -193,7 +193,8 @@ export const isBreakDue = (b: BreakState, now: number, limitMs: number): boolean
   limitMs > 0 && b.streakStart > 0 && now - b.lastActive < IDLE_MS && now - b.streakStart >= limitMs && now >= b.snoozedUntil
 
 export const cleanName = (raw: string): string =>
-  raw.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 16)
+  // Trimmed again after the cut, so a name cut at a space doesn't keep it.
+  raw.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 16).trim()
 
 const isNeeds = (v: unknown): v is Needs =>
   !!v && typeof v === 'object' && ['food', 'fun', 'energy', 'updatedAt'].every(k => typeof (v as Record<string, unknown>)[k] === 'number')
@@ -204,6 +205,8 @@ const numberOption = (options: PluginOptions, name: string, fallback: number): n
 }
 
 const hourOf = (now: number): number => new Date(now).getHours()
+/** Where the sea starts now for this tide, with the small tide of the hour on top. */
+const shoreAt = (level: number | null, now: number): number => shoreFrac(level, new Date(now).getHours() + new Date(now).getMinutes() / 60)
 
 /** Shells it takes to earn the crown. */
 export const KING_SHELLS = 50
@@ -421,7 +424,7 @@ async function startSegment($: EngineInterface, opts: { hold?: { pose: Pose; ms:
     mode: await desiredMode($), width: lastWidth, castle: tr.castle, shells: tr.shells, golden: tr.golden,
     food: n.food, fun: n.fun, energy: n.energy, timeOfDay: timeOfDay(hourOf(now)),
     weather: (await read($, weather))?.kind ?? 'clear',
-    shore: shoreFrac((await read($, tide))?.level ?? null, new Date(now).getHours() + new Date(now).getMinutes() / 60),
+    shore: shoreAt((await read($, tide))?.level ?? null, now),
     ride: await wearing($),
     ...(tr.layout === undefined ? {} : { layout: tr.layout }),
     ...(tr.earned === undefined ? {} : { earned: tr.earned }),
@@ -842,13 +845,35 @@ async function refreshContext($: EngineInterface): Promise<void> {
   // Idle compaction needs the one-hour cache. Limit windows are our stand-in for a subscription that has it.
   const mark = usage.rateLimits.length ? lines.idleMark : null
   const level = tideOf(tokens, lines.full, mark)
-  await update($, tide, t => (t?.tokens === tokens && t.mark === mark ? t : { tokens, level, mark }))
+  // The level too: the same tokens fill a smaller window further, after /model.
+  await update($, tide, t => (t?.tokens === tokens && t.mark === mark && t.level === level ? t : { tokens, level, mark }))
   await rearmTide($, level)
+  await followTide($)
   if (level >= TIDE_WARN && !(await read($, contextWarned))) {
     await update($, contextWarned, () => true)
     if (await read($, areSignsOff)) $.ui.toast(`Context is ${Math.round(percent ?? 0)}% full. A fresh session soon would help.`)
     else await plantSign($, 'context', CONTEXT_SIGN_MS)
   }
+}
+
+// The shoreline is part of a segment's plan, so the crab never stands in the sea, and a
+// segment lasts minutes (ten while it naps). So when the sea should stand somewhere else, a new
+// segment starts from where the crab is now; a held pose finishes first.
+async function followTide($: EngineInterface): Promise<void> {
+  const cur = await read($, life)
+  if (!cur) return
+  const now = await $.clock.now()
+  const left = cur.hold ? cur.startAt + cur.hold.ms - now : 0
+  if (left > 0) {
+    const id = cur.id
+    $.clock.after(left, async () => {
+      if ((await read($, life))?.id === id) await followTide($)
+    })
+    return
+  }
+  const shore = shoreAt((await read($, tide))?.level ?? null, now)
+  if (Math.round(lastWidth * shore) === Math.round(lastWidth * (cur.shore ?? NO_CONTEXT_SHORE))) return
+  await startSegment($)
 }
 
 // A compaction leaves no size until the next reply, but the local count has it as soon as it
@@ -1241,8 +1266,13 @@ export const register: Register = (on, options) => {
     if (word === 'breaks' || word === 'sound') {
       if (value !== 'on' && value !== 'off') return { text: `Use /crab ${word} on or /crab ${word} off.` }
       await setFlag($, word, value === 'on')
-      if (word === 'breaks') return { text: value === 'off' ? 'Break reminders are off.' : `Break reminders are on (every ${Math.round(cfg.breakMs / MIN) || 90} minutes).` }
-      return { text: value === 'off' ? 'The done chirp is off.' : 'The done chirp is on.' }
+      // A timer set to 0 in the settings stays off: say so rather than promise a reminder that never comes.
+      if (word === 'breaks') {
+        if (value === 'off') return { text: 'Break reminders are off.' }
+        return { text: cfg.breakMs > 0 ? `Break reminders are on (every ${Math.round(cfg.breakMs / MIN)} minutes).` : `Break reminders are on, but breakMinutes is 0 in the settings, so none will come. Set it with /plugin configure crab-buddy@crab-buddy.` }
+      }
+      if (value === 'off') return { text: 'The done chirp is off.' }
+      return { text: cfg.longMs > 0 ? 'The done chirp is on.' : 'The done chirp is on, but longTaskSeconds is 0 in the settings, so no task counts as long. Set it with /plugin configure crab-buddy@crab-buddy.' }
     }
     if (word && !isCostume(word)) {
       return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
@@ -1318,7 +1348,7 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // Fires during a turn too, so a long turn raises the tide; the sea shows it from the next segment.
+  // Fires during a turn too, so a long turn raises the tide, and the sea moves with it at once.
   on('session.measure', async ($, e, next) => {
     await refreshContext($)
     return next(e)
@@ -1355,6 +1385,8 @@ export const register: Register = (on, options) => {
       await update($, turnWork, () => [])
       await update($, contextWarned, () => false)
       await update($, contextHinted, () => false)
+      // A new conversation: the sea goes all the way out until its first reply measures it.
+      await update($, tide, () => null)
       $.clock.after(CLEAR_MS, async () => {
         await loadChoices($, options)
         await saveNeeds($, await currentNeeds($))
