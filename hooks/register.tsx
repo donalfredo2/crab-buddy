@@ -27,6 +27,7 @@ import type { Sky } from './sky'
 import { CLAY, COSTUMES, costumeOfDay, isCostume } from './sprites'
 import { beachCells } from './terminal'
 import { clip } from './text'
+import { NEWS, NEWS_LONG, REPO, VERSION, newsFor } from './news'
 import { KEY, MIN, cfg } from './state'
 import { refreshWeather, weatherText } from './weather'
 
@@ -360,6 +361,52 @@ async function holdUp($: EngineInterface, kind: HeldKind, opts: { time?: string;
   if (heldSign(await read($, life), now) || (await read($, needsYou))) await update($, signQueue, q => enqueue(q, { kind, text, at: now }))
   else await raiseSign($, kind, text, opts.first)
   return true
+}
+
+/** After an update, what's new goes up on a sign once, for every window together; a first install hears nothing. */
+async function announceNews($: EngineInterface, hasMet: boolean): Promise<void> {
+  const what = newsFor(await $.store.get(KEY.seenVersion), hasMet)
+  if (what === 'same') return
+  await $.store.set(KEY.seenVersion, VERSION)
+  if (what === 'updated') await holdUp($, 'news', { time: NEWS, isAlways: true })
+}
+
+/** What /crab help says: the few commands most people want, and where the rest are. */
+const HELP = [
+  `crab-buddy ${VERSION}. ${NEWS_LONG}`,
+  '',
+  '/crab feed, play or pet   look after it',
+  '/crab tank                a bigger beach in a pane of its own (/crab strip brings it back)',
+  '/crab weather             the real weather, and where it is for',
+  '/crab log                 what it noted about your work, for the summary',
+  '/crab roam on             one crab across all your windows',
+  '/crab <costume>           dress it up; a bare /crab picks one',
+  '',
+  'Switch a part off: /crab signs, needs, tips, hourglass, breaks or sound off.',
+  `Every command: ${REPO}#buttons-and-commands`,
+  'Tell the author what you think: /crab feedback',
+].join('\n')
+
+/** What /crab feedback says: where to write, and the facts worth pasting. Nothing is sent from here. */
+async function feedbackText($: EngineInterface): Promise<string> {
+  const off = [
+    (await read($, areSignsOff)) && 'signs',
+    (await read($, areNeedsOff)) && 'needs',
+    (await read($, areTipsOff)) && 'tips',
+    (await read($, isHourglassOff)) && 'hourglass',
+    (await read($, areBreaksOff)) && 'breaks',
+    (await read($, isSoundOff)) && 'sound',
+    (await readStore($, KEY.logOff, false)) && 'log',
+    (await readStore($, KEY.hidden, false)) && 'the crab itself',
+  ].filter((w): w is string => typeof w === 'string')
+  const facts = `crab-buddy ${VERSION}, roaming ${(await readStore($, KEY.roam, false)) ? 'on' : 'off'}, switched off: ${off.length ? off.join(', ') : 'nothing'}`
+  return [
+    'Thanks! Tell the author here, nothing is sent from this command:',
+    `${REPO}/issues/new/choose`,
+    '',
+    'Turned something off? That helps most: say what, and why.',
+    `Paste this along: ${facts}`,
+  ].join('\n')
 }
 
 async function raiseSign($: EngineInterface, kind: HeldKind, text: string, first?: Activity): Promise<void> {
@@ -1197,6 +1244,7 @@ export const register: Register = (on, options) => {
     if ((await read($, rods)).length) await checkLines($)
     const met = await $.store.get(KEY.firstMet)
     const metAt = typeof met === 'number' && met > 0 ? met : now
+    const hasMet = metAt !== now
     if (metAt === now) await $.store.set(KEY.firstMet, now)
     // A beach keeps what it already earned: only what comes after this count is its own.
     if (typeof (await $.store.get(KEY.earned)) !== 'number') {
@@ -1217,6 +1265,7 @@ export const register: Register = (on, options) => {
     if (timeOfDay(hourOf(now)) === 'morning') await say($, 'morning')
     void refreshWeather($, w => update($, weather, () => w))
     await startSegment($)
+    await announceNews($, hasMet)
     ticker?.cancel()
     ticker = $.clock.every(MIN, () => {
       void minuteTick($)
@@ -1233,6 +1282,8 @@ export const register: Register = (on, options) => {
     const [rawWord = '', ...rest] = args.split(/\s+/)
     const word = rawWord.toLowerCase()
     const value = (rest[0] ?? '').toLowerCase()
+    if (word === 'help' || word === '?') return { text: HELP }
+    if (word === 'feedback') return { text: await feedbackText($) }
     if (word === 'feed' || word === 'play' || word === 'pet') return { text: await doCare($, word) }
     if (word === 'name') {
       const name = cleanName(args.slice(rawWord.length))
@@ -1377,7 +1428,7 @@ export const register: Register = (on, options) => {
       return { text: cfg.longMs > 0 ? 'The done chirp is on.' : 'The done chirp is on, but longTaskSeconds is 0 in the settings, so no task counts as long. Set it with /plugin configure crab-buddy@crab-buddy.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}).` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}). /crab help lists the main ones.` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }

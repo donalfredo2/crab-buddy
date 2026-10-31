@@ -2,6 +2,12 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.23.0
+- `/crab help` lists the main commands, and an unknown word points to it.
+- After an update the crab holds up what's new, once, for all your windows. A first install hears nothing; `/crab signs off` keeps it down.
+- `/crab feedback` says where to tell the author what you think and prints the facts worth pasting. Nothing is sent.
+- Issue templates, including "I turned something off".
+
 ## 0.22.2
 - The README and the listing lead with what the crab shows you, with a moving demo at the top.
 - This changelog.

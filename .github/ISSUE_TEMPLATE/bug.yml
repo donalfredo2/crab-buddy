@@ -1,0 +1,30 @@
+name: Something's broken
+description: The crab did something wrong, or nothing at all.
+title: "Bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options: [Desktop app, VS Code, Terminal, Other]
+    validations:
+      required: true
+  - type: input
+    id: facts
+    attributes:
+      label: What /crab feedback printed
+      description: The line starting with "crab-buddy", and your Claude Code version (claude --version).
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      description: Optional, but it helps a lot.
