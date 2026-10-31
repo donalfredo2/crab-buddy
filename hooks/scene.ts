@@ -10,6 +10,7 @@ import { moonLit } from './sky'
 import type { Sky } from './sky'
 import { CLAY, CRAB_CSS, crab, overlay, propSvg, umbrellaSvg } from './sprites'
 import type { Costume, CrabLook } from './sprites'
+import { xml } from './text'
 
 export const SCENE_H = 40
 const GROUND = 35
@@ -47,7 +48,6 @@ export type SceneInput = {
 
 export const timeOfDay = (hour: number): TimeOfDay => (hour >= 22 || hour < 6 ? 'night' : hour < 9 ? 'morning' : hour >= 18 ? 'evening' : 'day')
 
-const xml = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
 const r1 = (n: number): string => String(Math.round(n * 10) / 10)
 
 const SCENE_CSS = `

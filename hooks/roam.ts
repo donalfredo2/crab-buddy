@@ -2,6 +2,8 @@
 // folder, and all of them work out who has the crab the same way: pure, so no session
 // has to be in charge and nothing has to be locked.
 
+import { clip } from './text'
+
 export type BeachRecord = {
   slot: string
   /** Whose slot this is: two sessions starting together can pick the same one. */
@@ -55,7 +57,7 @@ export const parseBeach = (text: string, slot: string): BeachRecord | null => {
   try {
     const b = JSON.parse(text) as Partial<BeachRecord>
     if (typeof b.at !== 'number' || typeof b.token !== 'string') return null
-    return { slot, token: b.token, at: b.at, repo: String(b.repo ?? ''), personAt: Number(b.personAt) || 0, doneAt: Number(b.doneAt) || 0, ...(b.isNeeds === true ? { isNeeds: true } : {}), canHold: b.canHold === true }
+    return { slot, token: b.token, at: b.at, repo: clip(String(b.repo ?? ''), 40), personAt: Number(b.personAt) || 0, doneAt: Number(b.doneAt) || 0, ...(b.isNeeds === true ? { isNeeds: true } : {}), canHold: b.canHold === true }
   } catch {
     return null
   }
