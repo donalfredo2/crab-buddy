@@ -90,7 +90,7 @@ Three meters, kept across sessions, never below 10, and it never dies:
 
 - **Food**: every finished turn +3, the 🍤 button +15 (5-minute cooldown). Hungry below 30: a thought bubble with a shrimp.
 - **Fun**: commits +10, passing tests +5, ✋ pet +5, 🎾 play +15.
-- **Energy**: drains while you work (twice as fast after 23:00), refills with a 15-minute break (+40) or a night away (full).
+- **Energy**: drains while you work, down to 30 (twice as fast after 23:00), and refills with a 15-minute break (+40) or a night away (full).
 
 Food and Fun fade 5 points an hour, counted only while a session is open. **While Claude works, no meter drops below 30**: working never makes it hungry, bored, sleepy or grumpy. Hunger and a grump come only from leaving it alone with a session open (hungry under 30, grumpy under 25), and a press of a button puts them right.
 
@@ -114,7 +114,7 @@ Three small helps, all free: nothing goes to the model, and the crab never answe
 
 The crab logs the session's work as it happens: files changed since the last commit, including by subagents, the last test and build results, and recent commits. Keeping the log costs nothing. `/crab log` shows it.
 
-- **The bottle:** before each compaction the log goes to the summarizer, as a note of up to 600 characters asking it to keep those facts. The note says it is recorded data, not instructions, and its lines sit in a `<crab-log>` block that nothing logged can close, because commit titles and file names are written by whoever made them. A bottle then washes up at the waterline. This is the one thing the mod adds to what Claude reads, so it costs a few tokens and it's disclosed here. It's on by default, and `/crab log off` turns it off. The summarizer can still leave things out, so it improves the odds and guarantees nothing.
+- **The bottle:** before each compaction the log goes to the summarizer, as a note of up to 600 characters asking it to keep those facts. The note says it is recorded data, not instructions, and its lines sit in a `<crab-log>` block that nothing logged can close, because commit titles and file names are written by whoever made them. A bottle then washes up at the waterline. This is the one thing the mod adds on its own to what Claude reads, so it costs a few tokens and it's disclosed here. It's on by default, and `/crab log off` turns it off. The summarizer can still leave things out, so it improves the odds and guarantees nothing.
 - **The good moment sign:** when a turn ends on a commit or passing tests with the tide past the mark, the crab plants a sign. The work is at a clean break, so it's a good moment to `/compact`. It shows once, and again once the sea has gone well back and come in again. A ready `/compact` waits in the prompt box with it: see [Lending a claw](#lending-a-claw).
 
 ## The tide
@@ -157,6 +157,7 @@ News goes on a plank, one sign at a time, about 7 seconds each. Bubbles are the 
 - **Held up:** task done, with how long it took. Committed, pushed, PR or MR opened, merged. Green again, when tests pass after a failure. Plain test passes get no sign.
 - **Coffee, then a walk:** held up from home while the break is due.
 - **Planted in the sand:** the good moment to `/compact`, and the sea nearly at the top. They stay up for a while, and the crab carries on.
+- **What's new:** after an update, "new: …" once, shared by all your windows. A first install gets none.
 
 Signs wait in line if several arrive together, and your message clears the line. Your care actions always get their answer. It sees `git`, `gh` and `glab` commands, and connected tools that create or merge a PR or MR. `/crab signs off` goes back to bubbles and toasts; `/crab bubbles off` leaves signs on.
 
@@ -164,7 +165,7 @@ Signs wait in line if several arrive together, and your message clears the line.
 
 Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 
-- `/crab help`: the main commands, and what's new in this version
+- `/crab help` (or `/crab ?`): the main commands, and what's new in this version
 - `/crab feedback`: where to tell the author what you think, with the facts worth pasting (nothing is sent)
 - `/crab feed`, `/crab play`, `/crab pet`
 - `/crab ride`: sends it off on its gadget right now
@@ -209,9 +210,9 @@ What goes out, and only when you set `weatherPlace`:
 | [Open-Meteo](https://open-meteo.com) | a city name (yours, or your time zone's), then coordinates rounded to about 1 km | once per place, then hourly for the weather |
 | [ipwho.is](https://ipwho.is), `auto-ip` only | the request itself, so your IP address | every 3 hours |
 
-Nothing else leaves your machine. What stays on it:
+Nothing else leaves your machine: `/crab feedback` only prints a link and a line for you to paste. What stays on it:
 
-- **In Claude Code's plugin store:** your crab (name, needs, shells, castle, fish, decor), your `/crab` choices, and with weather on, the place found, its coordinates (to about 1 km, never your IP) and the last weather. Emptying `weatherPlace`, or changing it, wipes the place and weather it had found.
+- **In Claude Code's plugin store:** your crab (name, needs, shells, castle, fish, decor), your `/crab` choices, the last version you saw (for the what's-new sign), and with weather on, the place found, its coordinates (to about 1 km, never your IP) and the last weather. Emptying `weatherPlace`, or changing it, wipes the place and weather it had found.
 - **In the session only:** the logbook (file paths, test and build results, commit titles), which goes to the summarizer as described in [The logbook](#the-logbook). `/clear` empties it, and `/crab log off` keeps it out of the summary.
 - **On disk, with roaming on:** a small file per window in `crab-buddy/beaches/` in your Claude folder (see [One crab, many beaches](#one-crab-many-beaches)). These files aren't deleted when you turn roaming off or uninstall: delete the folder to remove them.
 
@@ -220,6 +221,10 @@ Nothing else leaves your machine. What stays on it:
 The terminal draws no pictures, so there the beach is coloured half-block characters: three rows above the prompt with the buttons beside it, and a taller beach in the tank when the terminal docks panes (fullscreen). The same life plan drives it, so the crab does what it does on the desktop: walks, naps, builds its castle, watches the sea creep in with your context, and talks beside its head. The decor your shells unlock shows from about 63 columns, and the house from about 80. Empty cells keep your terminal's own colours. It is repainted four times a second (once a second while it naps) only while it is on screen. It needs Claude Code 2.1.309 or later; `claude update` gets you there.
 
 On the desktop and in VS Code the animation is CSS only, costs no tokens, and stops when macOS "Reduce motion" is on. The chirp is an original sound synthesized for this mod.
+
+## Feedback
+
+`/crab feedback` gives you the link and a line worth pasting. [Issues](https://github.com/donalfredo2/crab-buddy/issues/new/choose) have templates for a bug, an idea, and **"I turned something off"**: if a part of the crab bothered you enough to switch it off, that's the most useful thing to hear, and why.
 
 ## Development
 
@@ -233,7 +238,11 @@ bun scripts/check-animations.ts   # the beach in a real browser (needs playwrigh
 
 `CRAB_SHOTS=/tmp/crab` also saves a PNG per animation scenario, and `CRAB_ONLY=<name>` runs just one.
 
-`bun scripts/make-demo.ts` redraws `docs/demo.gif` (it also needs ffmpeg) and `bun scripts/make-icon.ts` the icon. Every version bump adds an entry to `CHANGELOG.md`.
+CI runs these on the Claude Code version it's pinned to, which is the gate for merging. A canary job runs the same tests on the newest Claude Code, on every push and pull request and once a week; it never blocks a merge, and when it alone goes red, a new Claude Code release changed something the crab relies on.
+
+A release bumps `version` in `.claude-plugin/plugin.json` and, to match, `VERSION` in `hooks/news.ts` (CI fails if they differ), with the line the crab holds up after the update (`NEWS`, 17 characters at most) and a longer one for `/crab help` (`NEWS_LONG`). It also adds an entry to `CHANGELOG.md`.
+
+`bun scripts/make-demo.ts` redraws `docs/demo.gif` (it also needs ffmpeg) and `bun scripts/make-icon.ts` the icon.
 
 ## Credits
 
