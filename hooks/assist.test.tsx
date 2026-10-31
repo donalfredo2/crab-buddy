@@ -396,6 +396,7 @@ test('the /compact keeps files, the last commit and anything failing, in a short
   expect(line.length).toBeLessThanOrEqual(240)
   expect(line).toMatch(/very-long-file-name-29/)
   expect(line).toMatch(/the build is failing/)
+  expect(compactKeep({ ...EMPTY_LOG, commits: ['say "hi" back'] })).toBe(`/compact Keep the last commit "say 'hi' back"`)
 })
 
 // --- the hourglass

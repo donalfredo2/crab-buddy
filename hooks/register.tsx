@@ -11,7 +11,7 @@ import { line, needsLine, signLine, themeLine, themeName } from './lines'
 import type { Moment } from './lines'
 import { care, cooldownLeft, freshNeeds, gain, isHungry, isSleepy, petMood, rest, tick } from './pet'
 import type { Care } from './pet'
-import { EMPTY_LOG, commitTitle, compactKeep, logCheck, logCommit, logFile, logNote, logText } from './logbook'
+import { COMMIT, EMPTY_LOG, commitTitle, compactKeep, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { SCENE_H, sceneSvg, timeOfDay } from './scene'
 import { SIGN_MOOD, breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import type { HeldKind } from './signs'
@@ -21,6 +21,7 @@ import type { Located } from './locate'
 import type { Sky } from './sky'
 import { CLAY, COSTUMES, costumeOfDay, isCostume } from './sprites'
 import { beachCells } from './terminal'
+import { clip } from './text'
 import { nextUsage, usageMark, usageSign, usageStat } from './usage'
 import type { Costume, CrabLook } from './sprites'
 
@@ -146,7 +147,6 @@ const ACT_WORD: Partial<Record<Activity, string>> = {
 }
 
 // git's own options may sit before the subcommand: `git -c user.name=x -C repo --no-pager commit`.
-const COMMIT = /\bgit(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+commit\b/
 const PUSH = /\bgit(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+push\b/
 const MERGED = /\b(?:gh\s+pr|glab\s+mr)\s+merge\b/
 const PR_OPEN = /\bgh\s+pr\s+create\b/
@@ -206,8 +206,7 @@ export const isBreakDue = (b: BreakState, now: number, limitMs: number): boolean
   limitMs > 0 && b.streakStart > 0 && now - b.lastActive < IDLE_MS && now - b.streakStart >= limitMs && now >= b.snoozedUntil
 
 export const cleanName = (raw: string): string =>
-  // Trimmed again after the cut, so a name cut at a space doesn't keep it.
-  raw.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 16).trim()
+  clip(raw, 16)
 
 const isNeeds = (v: unknown): v is Needs =>
   !!v && typeof v === 'object' && ['food', 'fun', 'energy', 'updatedAt'].every(k => typeof (v as Record<string, unknown>)[k] === 'number')
@@ -1308,7 +1307,7 @@ export const register: Register = (on, options) => {
   cfg.longMs = numberOption(options, 'longTaskSeconds', 120) * 1000
   cfg.breakMs = numberOption(options, 'breakMinutes', 90) * MIN
   cfg.budgetUsd = numberOption(options, 'budgetUsd', 0)
-  cfg.place = String(options.weatherPlace ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80)
+  cfg.place = clip(String(options.weatherPlace ?? ''), 80)
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)

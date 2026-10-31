@@ -2,6 +2,10 @@
 // engine's list of agents: pure, so what counts as running or finished is easy to test.
 
 import type { CatchKind, Rod } from '../types'
+import { clip } from './text'
+
+// A subagent's description is free text; a rod keeps a short line of it.
+const DESCRIPTION_MAX = 60
 
 type Agent = { id: string; status: string; type: string; teammateId?: string; description: string }
 
@@ -17,7 +21,7 @@ export const reconcile = (rods: readonly Rod[], agents: readonly Agent[]): { rod
   const own = agents.filter(a => a.type !== 'teammate' && !a.teammateId)
   const statusOf = new Map(own.map(a => [a.id, a.status]))
   return {
-    rods: own.filter(a => RUNNING.has(a.status)).map(a => ({ id: a.id, description: a.description })),
+    rods: own.filter(a => RUNNING.has(a.status)).map(a => ({ id: a.id, description: clip(String(a.description ?? ''), DESCRIPTION_MAX) })),
     hauls: rods.filter(r => !RUNNING.has(statusOf.get(r.id) ?? '')).map(r => (LOST.has(statusOf.get(r.id) ?? '') ? 'boot' : 'fish')),
   }
 }

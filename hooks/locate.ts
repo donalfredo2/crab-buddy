@@ -2,6 +2,8 @@
 // it with "auto" or "auto-ip", where they are now. Pure parts here; register.tsx
 // does the fetching through $.
 
+import { clip } from './text'
+
 /** What the `weatherPlace` setting asks for. */
 export type WeatherMode = { kind: 'off' } | { kind: 'place'; place: string } | { kind: 'auto'; isIp: boolean }
 
@@ -56,7 +58,7 @@ export const parseIp = (data: unknown): { place: string; lat: number; lon: numbe
   const d = data as { success?: boolean; city?: unknown; latitude?: unknown; longitude?: unknown }
   if (!d || typeof d !== 'object' || d.success === false) return null
   if (typeof d.latitude !== 'number' || typeof d.longitude !== 'number') return null
-  const place = typeof d.city === 'string' ? d.city.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80) : ''
+  const place = typeof d.city === 'string' ? clip(d.city, 80) : ''
   return { place: place || `${d.latitude.toFixed(1)}, ${d.longitude.toFixed(1)}`, lat: d.latitude, lon: d.longitude }
 }
 

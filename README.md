@@ -108,7 +108,7 @@ Three small helps, all free: nothing goes to the model, and the crab never answe
 
 The crab logs the session's work as it happens: files changed since the last commit, including by subagents, the last test and build results, and recent commits. Keeping the log costs nothing. `/crab log` shows it.
 
-- **The bottle:** before each compaction the log goes to the summarizer, as a note of up to 600 characters asking it to keep those facts. A bottle then washes up at the waterline. This is the one thing the mod adds to what Claude reads, so it costs a few tokens and it's disclosed here. It's on by default, and `/crab log off` turns it off. The summarizer can still leave things out, so it improves the odds and guarantees nothing.
+- **The bottle:** before each compaction the log goes to the summarizer, as a note of up to 600 characters asking it to keep those facts. The note says it is recorded data, not instructions, and its lines sit in a `<crab-log>` block that nothing logged can close, because commit titles and file names are written by whoever made them. A bottle then washes up at the waterline. This is the one thing the mod adds to what Claude reads, so it costs a few tokens and it's disclosed here. It's on by default, and `/crab log off` turns it off. The summarizer can still leave things out, so it improves the odds and guarantees nothing.
 - **The good moment sign:** when a turn ends on a commit or passing tests with the tide past the mark, the crab plants a sign. The work is at a clean break, so it's a good moment to `/compact`. It shows once, and again once the sea has gone well back and come in again. A ready `/compact` waits in the prompt box with it: see [Lending a claw](#lending-a-claw).
 
 ## The tide
