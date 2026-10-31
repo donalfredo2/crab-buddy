@@ -464,6 +464,20 @@ test('a ride cut short ends in a puff of dust, from where it was', () => {
   expect(whereAt(mid, ((flying?.t0 ?? 0) + (flying?.t1 ?? 0)) / 2).pose).toBe('ride')
 })
 
+test('a ride you call for leaves at once, wherever it stands', () => {
+  for (const ride of ALL) {
+    const { kind } = RIDES[ride]
+    for (const mode of ['idle', 'work'] as const) {
+      for (const [i, seed] of SEEDS.slice(0, 20).entries()) {
+        const pl = plan(seg({ seed, ride, mode, width: 900, shore: 0.8, first: 'ride', startP: (i % 8) / 10 }))
+        expect(pl.beats[0]?.act).toBe('ride')
+        // Only the wave and the sub need the water's edge first.
+        expect(pl.beats.find(b => b.pose === 'ride')?.t0).toBeLessThan(kind === 'surf' || kind === 'sub' ? 10_000 : 1)
+      }
+    }
+  }
+})
+
 test('rides need room: a track, and water for the sub', () => {
   expect(trackSpan(220)).toBeLessThan(200)
   expect(rideFits(seg({ ride: 'racer', width: 220 }))).toBe(false)

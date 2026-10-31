@@ -643,8 +643,10 @@ export const plan = (seg: Segment): Plan => {
 
   let first: Activity | undefined = seg.first === 'arrive' ? undefined : seg.first
   // Lines are errands: it hurries to the water's edge, however far off it is.
-  if (first === 'cast' || first === 'reel') {
-    walkTo(at.limit, first, 'chase', Math.max(70, (Math.abs(at.limit - p) * span) / 6))
+  // A ride you called for is one too, and most gadgets leave from where it stands.
+  if (first === 'cast' || first === 'reel' || first === 'ride') {
+    const spot = first === 'ride' ? where.ride : at.limit
+    if (spot !== undefined) walkTo(spot, first, 'chase', Math.max(70, (Math.abs(spot - p) * span) / 6))
     run(first)
     done.add(first)
     last = first
