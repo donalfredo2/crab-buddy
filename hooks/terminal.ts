@@ -276,6 +276,13 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   const pile = ['#F2B8A0', '#F5D58A', '#C9D8F0', '#E8B4C8', '#D9C493']
   for (let i = 0; i < Math.min(5, t.seg.shells); i++) put(4 + i, G - 1, pile[i % pile.length] ?? '#F2B8A0')
   if ((t.seg.golden ?? 0) > 0) put(9, G - 1, '#F5C542')
+  // The hourglass on the home shell: the top cell is sand while most is left, the bottom once most is gone.
+  if (t.beach?.usage !== undefined && G >= 4) {
+    const sand = t.beach.usage >= 0.95 ? '#E8577A' : '#E8C27A'
+    put(1, G - 4, t.beach.usage < 0.5 ? sand : '#CFE8F2')
+    put(1, G - 3, t.beach.usage > 0 && t.beach.usage < 1 && sec % 2 ? sand : '#8A5A2B')
+    put(1, G - 2, t.beach.usage >= 0.5 ? sand : '#CFE8F2')
+  }
   const c = Math.round(W * 0.3)
   const stage = Math.min(5, t.seg.castle)
   if (stage >= 1) for (const dx of [-1, 0, 1]) put(c + dx, G - 1, '#C9A86A')
@@ -374,7 +381,7 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
   if (isNap && G >= 5 && sec % 2) put(x0 + (here.face === 1 ? 6 : 0), G - 5, '#C9CCD2')
   // The pole of the sign it holds up, on the side the words go.
   const held = t.beach?.sign && !t.bubble && !isGone ? cellText(t.beach.sign) : ''
-  if (held) for (let y = G - 3; y <= G; y++) put(wordsAt(x0, held.length, W) - 1, y, '#A0703F')
+  if (held) for (let y = G - 3; y <= G; y++) put(wordsAt(x0, held.length, W) - 1, y, t.beach?.isFlag ? '#D9435E' : '#A0703F')
 
   // Rain and snow fall in front of everything.
   if (sky.weather === 'rain' || sky.weather === 'storm' || sky.weather === 'snow') {
@@ -447,6 +454,7 @@ export const beachCells = (t: TerminalInput): string => {
   const text = t.bubble ? cellText(t.bubble) : ''
   const held = !text && t.beach?.sign ? cellText(t.beach.sign) : ''
   if (text) write(text, wordsAt(crabX, text.length, W), row, NONE, NONE)
-  if (held) write(held, wordsAt(crabX, held.length, W), row, PLANK_INK, PLANK)
+  // The red flag: white on red, so a waiting window stands out in a row of terminals.
+  if (held) write(held, wordsAt(crabX, held.length, W), row, t.beach?.isFlag ? 0xFFFFFF : PLANK_INK, t.beach?.isFlag ? 0xD9435E : PLANK)
   return toBase64(new Uint8Array(words.buffer))
 }

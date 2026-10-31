@@ -11,8 +11,10 @@ export type BeachRecord = {
   repo: string
   /** When you last spoke here. */
   personAt: number
-  /** When a long task last finished here. */
+  /** When a long task last finished here, or Claude here started waiting for you. */
   doneAt: number
+  /** It was waiting for you, not done: its note says so. */
+  isNeeds?: boolean
   canHold: boolean
 }
 
@@ -53,11 +55,14 @@ export const parseBeach = (text: string, slot: string): BeachRecord | null => {
   try {
     const b = JSON.parse(text) as Partial<BeachRecord>
     if (typeof b.at !== 'number' || typeof b.token !== 'string') return null
-    return { slot, token: b.token, at: b.at, repo: String(b.repo ?? ''), personAt: Number(b.personAt) || 0, doneAt: Number(b.doneAt) || 0, canHold: b.canHold === true }
+    return { slot, token: b.token, at: b.at, repo: String(b.repo ?? ''), personAt: Number(b.personAt) || 0, doneAt: Number(b.doneAt) || 0, ...(b.isNeeds === true ? { isNeeds: true } : {}), canHold: b.canHold === true }
   } catch {
     return null
   }
 }
+
+/** What the crab says about a window that wants it while it stays with you. */
+export const wantsNote = (b: BeachRecord): string => `${b.repo.slice(0, 16) || 'other'} ${b.isNeeds ? 'needs you' : 'is done'}`
 
 /** Where the crab is, in the words of a sign. */
 export const whereCrabIs = (holderRepo: string, myRepo: string): string =>
