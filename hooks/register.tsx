@@ -69,11 +69,14 @@ const areNeedsOff = atom({ plugin: 'crab-buddy', key: 'areNeedsOff' } as const, 
 const areTipsOff = atom({ plugin: 'crab-buddy', key: 'areTipsOff' } as const, false)
 const usage = atom({ plugin: 'crab-buddy', key: 'usage' } as const, null)
 const isHourglassOff = atom({ plugin: 'crab-buddy', key: 'isHourglassOff' } as const, false)
+const spend = atom({ plugin: 'crab-buddy', key: 'spend' } as const, EMPTY_SPEND)
+const isSpendOff = atom({ plugin: 'crab-buddy', key: 'isSpendOff' } as const, false)
 
 // savvy-progress draws its own crab in its bar: ours steps aside while that bar is up. Written here, where it's
 // read: the engine lists what a module reads from $.state, so the reference must be a literal in this file.
 const savvyFlow = { plugin: 'savvy-progress', key: 'flow' } as const
 import { nextUsage, usageMark, usageSign, usageStat } from './usage'
+import { EMPTY_SPEND, addTurn, measureSpend, nextMilestone, spendDetail, spendSign, spendStat } from './spend'
 import type { Costume, CrabLook } from './sprites'
 
 
@@ -379,10 +382,11 @@ const HELP = [
   '/crab tank                a bigger beach in a pane of its own (/crab strip brings it back)',
   '/crab weather             the real weather, and where it is for',
   '/crab log                 what it noted about your work, for the summary',
+  '/crab cost                what this session has cost, in dollars and tokens',
   '/crab roam on             one crab across all your windows',
   '/crab <costume>           dress it up; a bare /crab picks one',
   '',
-  'Switch a part off: /crab signs, needs, tips, hourglass, breaks or sound off.',
+  'Switch a part off: /crab signs, needs, tips, hourglass, cost, breaks or sound off.',
   `Every command: ${REPO}#buttons-and-commands`,
   'Tell the author what you think: /crab feedback',
 ].join('\n')
@@ -394,6 +398,7 @@ async function feedbackText($: EngineInterface): Promise<string> {
     (await read($, areNeedsOff)) && 'needs',
     (await read($, areTipsOff)) && 'tips',
     (await read($, isHourglassOff)) && 'hourglass',
+    (await read($, isSpendOff)) && 'cost signs',
     (await read($, areBreaksOff)) && 'breaks',
     (await read($, isSoundOff)) && 'sound',
     (await readStore($, KEY.logOff, false)) && 'log',
@@ -895,11 +900,25 @@ async function refreshUsage($: EngineInterface, limits: readonly { kind: string;
   else await plantSign($, next.kind, mark >= 95 ? CONTEXT_SIGN_MS : SIGN_MS, words)
 }
 
+// What the session costs: Claude Code's dollar total, and a sign at $5, $10, $25, $50, $100, then every 100,
+// once each. Not while a budget hourglass counts the same money, which has its own signs.
+async function refreshSpend($: EngineInterface, limits: readonly { kind: string }[], usd: number | undefined): Promise<void> {
+  const prev = await read($, spend)
+  const measured = measureSpend(prev, limits, usd)
+  const mark = measured.usd === null ? null : nextMilestone(measured.usd, measured.signed)
+  const next = mark === null ? measured : { ...measured, signed: mark }
+  if (next !== prev) await update($, spend, () => next)
+  if (mark === null || (await read($, isSpendOff)) || (cfg.budgetUsd > 0 && !next.isEstimate)) return
+  const words = spendSign(mark, next.isEstimate)
+  if (!(await holdUp($, 'spend', { time: words }))) $.ui.toast(`${words} so far this session${next.isEstimate ? ', at API prices' : ''}. /crab cost has the details.`)
+}
+
 // The context as a tide; the plain call is free. Warns once per session near the top.
 async function refreshContext($: EngineInterface): Promise<void> {
   const usage = await $.session.usage().catch(() => null)
   if (!usage) return
   await refreshUsage($, usage.rateLimits, usage.cost?.usd)
+  await refreshSpend($, usage.rateLimits, usage.cost?.usd)
   const { tokens, percent, window } = usage.context
   if (tokens === undefined) {
     await update($, tide, t => (t?.isCounted ? t : null))
@@ -1167,6 +1186,8 @@ async function loadChoices($: EngineInterface, options: PluginOptions): Promise<
   await update($, areNeedsOff, () => needsOff)
   await update($, areTipsOff, () => tipsOff)
   await update($, isHourglassOff, () => hourglassOff)
+  const spendOff = await readStore($, KEY.spendOff, false)
+  await update($, isSpendOff, () => spendOff)
   const storedMode = await $.store.get(KEY.bubbles)
   const mode = storedMode === 'often' || storedMode === 'rare' || storedMode === 'off' ? storedMode : options.bubbles === 'often' || options.bubbles === 'off' ? String(options.bubbles) : 'rare'
   await update($, bubbleMode, () => mode)
@@ -1235,8 +1256,8 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await $.command.register({
       name: 'crab',
-      description: 'Crab buddy: feed, play, pet, name, stats, weather, lines, log, theme, tank or strip, breaks, sound, bubbles, signs, roam, costume',
-      argumentHint: '[feed | play | pet | name <name> | stats | weather | lines | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | needs on|off | tips on|off | hourglass on|off | roam on|off | here | where | off | on | restart | today | <costume>]',
+      description: 'Crab buddy: feed, play, pet, name, stats, cost, weather, lines, log, theme, tank or strip, breaks, sound, bubbles, signs, roam, costume',
+      argumentHint: '[feed | play | pet | name <name> | stats | cost [on|off] | weather | lines | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | needs on|off | tips on|off | hourglass on|off | roam on|off | here | where | off | on | restart | today | <costume>]',
     })
     const now = await $.clock.now()
     await loadChoices($, options)
@@ -1308,6 +1329,15 @@ export const register: Register = (on, options) => {
       })
       return { text: `${await read($, petName)} will be back in ${RESTART_MS / 1000} seconds, freshly drawn.` }
     }
+    if (word === 'cost') {
+      if (value === 'on' || value === 'off') {
+        await update($, isSpendOff, () => value === 'off')
+        await $.store.set(KEY.spendOff, value === 'off')
+        return { text: value === 'off' ? 'No signs for money spent. /crab cost still tells you.' : 'A sign goes up at $5, $10, $25, $50 and $100 spent, then every $100.' }
+      }
+      const startedAt = await $.session.usage().then(u => u.startedAt, () => 0)
+      return { text: spendDetail(await read($, spend), startedAt, await read($, isSpendOff)) }
+    }
     if (word === 'log') {
       if (value === 'on' || value === 'off') {
         await $.store.set(KEY.logOff, value === 'off')
@@ -1339,7 +1369,8 @@ export const register: Register = (on, options) => {
       const fish = await $.store.get(KEY.fish)
       const { temperament } = layoutOf(tr.layout)
       const used = await read($, usage)
-      return { text: `${v.summary}${used ? ` · ${usageStat(used, v.now)}` : ''} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''}${typeof fish === 'number' && fish > 0 ? ` · ${fish} fish` : ''}${temperament ? ` · ${TEMPERAMENTS[temperament].word}` : ''} · ${themeAt(v.now)}` }
+      const cost = spendStat(await read($, spend), used?.kind === 'budget')
+      return { text: `${v.summary}${used ? ` · ${usageStat(used, v.now)}` : ''}${cost ? ` · ${cost}` : ''} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''}${typeof fish === 'number' && fish > 0 ? ` · ${fish} fish` : ''}${temperament ? ` · ${TEMPERAMENTS[temperament].word}` : ''} · ${themeAt(v.now)}` }
     }
     if (word === 'weather') return { text: await weatherText($, await read($, weather)) }
     if (word === 'lines') {
@@ -1428,7 +1459,7 @@ export const register: Register = (on, options) => {
       return { text: cfg.longMs > 0 ? 'The done chirp is on.' : 'The done chirp is on, but longTaskSeconds is 0 in the settings, so no task counts as long. Set it with /plugin configure crab-buddy@crab-buddy.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}). /crab help lists the main ones.` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, cost, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}). /crab help lists the main ones.` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }
@@ -1470,6 +1501,11 @@ export const register: Register = (on, options) => {
 
   // The main conversation's turns only: subagents finishing do not set it off.
   on('turn.complete', async ($, e, next) => {
+    const used = e.usage
+    if (used) {
+      const at = await $.clock.now()
+      await update($, spend, s => addTurn(s, used, !!e.agentId, at))
+    }
     if (!e.agentId) {
       isTurnRunning = false
       await lowerFlag($)
@@ -1542,6 +1578,8 @@ export const register: Register = (on, options) => {
       await update($, contextHinted, () => false)
       // A new conversation: the sea goes all the way out until its first reply measures it.
       await update($, tide, () => null)
+      // A new conversation costs from nothing again.
+      await update($, spend, () => EMPTY_SPEND)
       compactTip = { isShown: false, tries: 0 }
       $.clock.after(CLEAR_MS, async () => {
         await loadChoices($, options)

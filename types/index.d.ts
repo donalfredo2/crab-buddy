@@ -23,7 +23,7 @@ export type Pose =
 export type LifeMode = 'idle' | 'work' | 'sleep' | 'stretch' | 'away'
 
 /** News the crab shows on a sign. */
-export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact' | 'fish' | 'boot' | 'limit' | 'budget' | 'news'
+export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact' | 'fish' | 'boot' | 'limit' | 'budget' | 'spend' | 'news'
 
 /** A sign waiting its turn; `at` is when it was asked for. */
 export type QueuedSign = { kind: SignKind; text: string; at: number }
@@ -115,6 +115,16 @@ export type NeedsYou = { what: string; id: string; since: number } | null
  * `samples` are [ms, percent] for the forecast; `signed` is the highest mark (80, 95) signed in this window.
  */
 export type Usage = { kind: 'limit' | 'budget'; percent: number; resetsAt: number | null; usd?: number; budget?: number; samples: [number, number][]; signed: number } | null
+
+/** Token counts: new prompt tokens, generated ones, and the prompt cache's reads and writes. */
+export type Tokens = { fresh: number; out: number; cacheRead: number; cacheWrite: number }
+
+/**
+ * What the session costs. `usd` is Claude Code's own total (null until reported), an estimate at API prices
+ * on a subscription. The tokens are counted turn by turn from `since`, the main loop's and the helpers'
+ * apart, and by model. `signed` is the highest dollar mark already signed.
+ */
+export type Spend = { usd: number | null; isEstimate: boolean; main: Tokens; helpers: Tokens; byModel: Record<string, Tokens>; since: number; signed: number }
 
 /** A prop in its claw that mirrors the tool Claude is using. */
 export type Prop = 'scroll' | 'magnifier' | 'hammer' | 'keyboard' | 'binoculars' | 'rod'
@@ -225,6 +235,9 @@ declare module 'claude-code' {
       areTipsOff: boolean
       usage: Usage
       isHourglassOff: boolean
+      spend: Spend
+      /** No dollar milestone signs. */
+      isSpendOff: boolean
     }
     /** Read only: savvy-progress's flow, non-null while its bar is up. */
     'savvy-progress': {

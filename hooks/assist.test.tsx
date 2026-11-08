@@ -557,3 +557,102 @@ test('the terminal draws the hourglass on the home shell: sand on top while most
   expect(JSON.stringify(fresh)).not.toBe(JSON.stringify(gone))
   expect(px(0.97)).toContain(0xE8577A)
 })
+
+// --- what it costs
+
+const USED = { input_tokens: 100, output_tokens: 2_000, cache_read_input_tokens: 50_000, cache_creation_input_tokens: 5_000, model: 'model-a' }
+const heldSign = async ($: Tester): Promise<string | null> => /holding up a sign saying ([^,]+)/.exec((await band($)).alt)?.[1] ?? null
+
+test('stats and /crab cost say what the session cost, with its tokens, the helpers apart', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 100_000, usd: 0.4 }
+  engine(on, ctx)
+  await start($)
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  await $.turn.complete({ ...TURN, agentId: 'a1', usage: { ...USED, model: 'model-b' } } as never)
+  expect(await said($, 'stats')).toContain('cost $0.40 · 4k out, 10k in, 100k cached')
+  const cost = await said($, 'cost')
+  expect(cost).toContain("This session: $0.40, Claude Code's own total")
+  expect(cost).toContain('helpers (subagents): 2k out, 5k in, 50k cached')
+  expect(cost).toContain('model-b: ')
+})
+
+test('on a subscription the dollars are an estimate at API prices', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on, { tokens: 100_000, usd: 3.2, rateLimits: [{ kind: 'five_hour', percentUsed: 10, resetsAt: RESET }] })
+  await start($)
+  expect(await said($, 'stats')).toContain('≈ $3.20 at API prices')
+  expect(await said($, 'cost')).toContain('Your subscription covers it')
+})
+
+test('a sign at each dollar mark, once; none for what was spent before the crab looked', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 100_000, usd: 5.5 }
+  engine(on, ctx)
+  await start($)
+  // $5 was passed before the first reading: no sign for it.
+  expect(await heldSign($)).toBe(null)
+  ctx.usd = 10.1
+  await clock.advance(MIN)
+  await $.session.measure({ context: { window: 1_000_000, tokens: 100_000 }, rateLimits: [], cost: { usd: 10.1 }, changed: ['cost'] } as never)
+  expect(await heldSign($)).toMatch(/^\$10 (so far|this session)$/)
+  // Still past $10 a while later: no second sign.
+  await clock.advance(MIN)
+  ctx.usd = 12
+  await $.session.measure({ context: { window: 1_000_000, tokens: 100_000 }, rateLimits: [], cost: { usd: 12 }, changed: ['cost'] } as never)
+  expect(await heldSign($)).toBe(null)
+})
+
+test('/crab cost off keeps the signs down and outlives the session; with signs off a mark is a toast', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 100_000, usd: 0.5 }
+  const { toasts } = engine(on, ctx)
+  await start($)
+  expect(await said($, 'cost off')).toBe('No signs for money spent. /crab cost still tells you.')
+  // A new session keeps the choice.
+  await start($)
+  expect(await said($, 'cost')).toContain(': off (/crab cost on|off)')
+  ctx.usd = 5.2
+  await clock.advance(MIN)
+  await $.session.measure({ context: { window: 1_000_000, tokens: 100_000 }, rateLimits: [], cost: { usd: 5.2 }, changed: ['cost'] } as never)
+  expect(await heldSign($)).toBe(null)
+  expect(toasts.some(t => t.includes('so far this session'))).toBe(false)
+  await said($, 'cost on')
+  await said($, 'signs off')
+  ctx.usd = 10.5
+  await clock.advance(MIN)
+  await $.session.measure({ context: { window: 1_000_000, tokens: 100_000 }, rateLimits: [], cost: { usd: 10.5 }, changed: ['cost'] } as never)
+  expect(toasts).toContain('$10 so far this session. /crab cost has the details.')
+})
+
+test('with a budget hourglass the dollar marks stay down: its own signs count the same money', { options: { budgetUsd: 100 } }, async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 100_000, usd: 0.5 }
+  engine(on, ctx)
+  await start($)
+  ctx.usd = 5.5
+  await clock.advance(MIN)
+  await $.session.measure({ context: { window: 1_000_000, tokens: 100_000 }, rateLimits: [], cost: { usd: 5.5 }, changed: ['cost'] } as never)
+  expect(await heldSign($)).toBe(null)
+  expect(await said($, 'stats')).toContain('spent $5.50 of $100')
+  expect(await said($, 'stats')).not.toContain('cost $5.50')
+})
+
+test('/clear starts the count again', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 100_000, usd: 2 }
+  engine(on, ctx)
+  await start($)
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  expect(await said($, 'stats')).toContain('2k out')
+  ctx.usd = undefined
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } } as never)
+  await clock.advance(1500)
+  expect(await said($, 'cost')).toContain('No tokens counted yet.')
+})
