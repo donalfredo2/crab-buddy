@@ -8,7 +8,7 @@ export const VERSION = '0.24.0'
 export const NEWS = '/crab cost'
 
 /** The longer line, in /crab help. */
-export const NEWS_LONG = 'New in 0.24.0: what the session costs, in dollars and tokens: /crab cost, /crab stats, and a sign at $1, $5, $10 and up.'
+export const NEWS_LONG = 'New in 0.24.0: what the session costs, in dollars and tokens: /crab cost, /crab stats, and a sign at $5, $10 and up.'
 
 export const REPO = 'https://github.com/donalfredo2/crab-buddy'
 

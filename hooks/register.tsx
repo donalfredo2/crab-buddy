@@ -900,7 +900,7 @@ async function refreshUsage($: EngineInterface, limits: readonly { kind: string;
   else await plantSign($, next.kind, mark >= 95 ? CONTEXT_SIGN_MS : SIGN_MS, words)
 }
 
-// What the session costs: Claude Code's dollar total, and a sign at $1, $5, $10, $25, $50, $100, then every 100,
+// What the session costs: Claude Code's dollar total, and a sign at $5, $10, $25, $50, $100, then every 100,
 // once each. Not while a budget hourglass counts the same money, which has its own signs.
 async function refreshSpend($: EngineInterface, limits: readonly { kind: string }[], usd: number | undefined): Promise<void> {
   const prev = await read($, spend)
@@ -1333,7 +1333,7 @@ export const register: Register = (on, options) => {
       if (value === 'on' || value === 'off') {
         await update($, isSpendOff, () => value === 'off')
         await $.store.set(KEY.spendOff, value === 'off')
-        return { text: value === 'off' ? 'No signs for money spent. /crab cost still tells you.' : 'A sign goes up at $1, $5, $10, $25, $50 and $100 spent, then every $100.' }
+        return { text: value === 'off' ? 'No signs for money spent. /crab cost still tells you.' : 'A sign goes up at $5, $10, $25, $50 and $100 spent, then every $100.' }
       }
       const startedAt = await $.session.usage().then(u => u.startedAt, () => 0)
       return { text: spendDetail(await read($, spend), startedAt, await read($, isSpendOff)) }

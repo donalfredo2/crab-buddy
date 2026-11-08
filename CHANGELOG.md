@@ -4,7 +4,7 @@ What changed in each version, newest first. To update: `/plugin marketplace upda
 
 ## 0.24.0
 - What the session costs: `/crab stats` adds the dollars and the tokens (out, in, cached), and `/crab cost` gives the whole picture: cache reads and writes, the helpers' (subagents') share, and each model. On a subscription the dollars are marked as an estimate at API prices.
-- A sign goes up at $1, $5, $10, $25, $50 and $100 spent, then every $100, once each. Not while a budget hourglass counts the same money. `/crab cost off` keeps them down.
+- A sign goes up at $5, $10, $25, $50 and $100 spent, then every $100, once each. Not while a budget hourglass counts the same money. `/crab cost off` keeps them down.
 
 ## 0.23.1
 - Working never makes the crab hungry, bored or tired any more: while Claude works, no need drops below 30. Time away still fades food and fun, and caring for it works as before.

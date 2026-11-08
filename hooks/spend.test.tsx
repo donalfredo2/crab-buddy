@@ -27,9 +27,11 @@ test('nonsense counts add nothing', () => {
 })
 
 test('milestones: the highest passed, once, and every 100 past the last', () => {
-  expect(nextMilestone(0.99, 0)).toBe(null)
-  expect(nextMilestone(1, 0)).toBe(1)
-  expect(nextMilestone(4.99, 1)).toBe(null)
+  // Nothing under $5: a dollar or two is noise.
+  expect(nextMilestone(1, 0)).toBe(null)
+  expect(nextMilestone(4.99, 0)).toBe(null)
+  expect(nextMilestone(5, 0)).toBe(5)
+  expect(nextMilestone(9.99, 5)).toBe(null)
   // A jump past several gives one sign, the highest.
   expect(nextMilestone(12, 0)).toBe(10)
   expect(nextMilestone(12, 10)).toBe(null)

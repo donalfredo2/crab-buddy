@@ -14,7 +14,7 @@ export type TurnTokens = {
 }
 
 /** The dollar marks a sign goes up at, once each per session; past the last, every 100. */
-export const SPEND_MARKS = [1, 5, 10, 25, 50, 100] as const
+export const SPEND_MARKS = [5, 10, 25, 50, 100] as const
 
 export const NO_TOKENS: Tokens = { fresh: 0, out: 0, cacheRead: 0, cacheWrite: 0 }
 export const EMPTY_SPEND: Spend = { usd: null, isEstimate: false, main: NO_TOKENS, helpers: NO_TOKENS, byModel: {}, since: 0, signed: 0 }
@@ -44,9 +44,9 @@ export const addTurn = (prev: Spend, u: TurnTokens, isHelper: boolean, now: numb
   }
 }
 
-/** The highest mark at or under `usd`: 0 under $1. */
+/** The highest mark at or under `usd`: 0 under $5. */
 export const markOf = (usd: number): number => {
-  if (!(usd >= 1)) return 0
+  if (!(usd >= SPEND_MARKS[0])) return 0
   if (usd >= 200) return Math.floor(usd / 100) * 100
   return [...SPEND_MARKS].reverse().find(m => usd >= m) ?? 0
 }
@@ -113,6 +113,6 @@ export const spendDetail = (s: Spend, startedAt: number, isSignsOff: boolean): s
     if (s.since && startedAt && s.since - startedAt > 60_000) lines.push(`Tokens counted since ${clockOf(s.since)}; the dollars cover the whole session.`)
     lines.push("Tokens count the model's turns; the dollars also cover side calls, like a compaction's summary.")
   }
-  lines.push(`Signs at $1, $5, $10, $25, $50, $100: ${isSignsOff ? 'off' : 'on'} (/crab cost on|off).`)
+  lines.push(`Signs at $5, $10, $25, $50, $100: ${isSignsOff ? 'off' : 'on'} (/crab cost on|off).`)
   return lines.join('\n')
 }
