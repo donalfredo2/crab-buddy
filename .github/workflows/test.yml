@@ -63,12 +63,33 @@ jobs:
     name: animation check
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Pinned so the cache key holds. Bump on purpose.
+      BUN_VERSION: 1.4.4
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: oven-sh/setup-bun@v2
+      # Bun from the cache, else from npm (Bun's own @oven/bun-linux-x64 package, integrity-checked by npm pack).
+      # Not from GitHub's release downloads, which setup-bun uses: they have answered 504 for a while at a time
+      # and failed the job before any check ran.
+      - name: Cache Bun
+        id: bun-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/bin
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}
+      - name: Install Bun from npm
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ runner.temp }}
+        run: |
+          npm pack --silent "@oven/bun-linux-x64@$BUN_VERSION"
+          tar xzf "oven-bun-linux-x64-$BUN_VERSION.tgz"
+          mkdir -p ~/.bun/bin
+          install -m 755 package/bin/bun ~/.bun/bin/bun
+      - run: echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+      - run: bun --version
       # The script imports playwright; there is no package.json, so install it without one.
       - run: npm install --no-save --no-package-lock playwright@1.63.0
       - run: npx playwright install --with-deps chromium
