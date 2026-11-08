@@ -85,6 +85,7 @@ const SIGNS: Record<SignKind, readonly string[]> = {
   boot: ['old boot: it failed', 'a boot! it failed', 'no fish: it failed'],
   limit: ['limit {time}'],
   budget: ['budget {time}'],
+  spend: ['{time} so far', '{time} this session'],
   news: ['new: {time}'],
 }
 
