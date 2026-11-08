@@ -645,6 +645,20 @@ const art = ([x, y, rows, cls]: Art): string => {
 /** The car's headlights after dark: a fan of light from the nose. */
 const BEAM = '<polygon points="40,20 98,10 98,28" fill="#FFF3B0" opacity=".3"/>'
 
+/** A gadget's pixels, for a surface with no CSS: one rect per pixel, the flickering sparks and dust left out. */
+export type GadgetRect = { x: number; y: number; w: number; h: number; c: string; cls: string }
+export type GadgetPixels = { back: GadgetRect[]; front: GadgetRect[]; hideCrab?: boolean; legs?: boolean; bare?: boolean; dy?: number }
+
+const FLICKER = /\b(spark|dust)\b/
+const pixelsOf = (arts: readonly Art[]): GadgetRect[] =>
+  arts.flatMap(([x, y, rows, cls = '']) =>
+    FLICKER.test(cls) ? [] : rows.flatMap((row, dy) => [...row].flatMap((c, dx) => (INK[c] ? [{ x: x + dx, y: y + dy, w: 1, h: 1, c: INK[c] ?? '', cls }] : []))))
+
+export const gadgetPixels = (costume: Costume): GadgetPixels => {
+  const { back = [], front, ...rest } = SPECS[costume]
+  return { ...rest, back: pixelsOf(back), front: pixelsOf(front) }
+}
+
 export const gadgetOf = (costume: Costume, isDark = false): Gadget => {
   const { back = [], front, ...rest } = SPECS[costume]
   return { ...rest, back: back.map(art).join(''), front: `${costume === 'racer' && isDark ? BEAM : ''}${front.map(art).join('')}` }

@@ -16,7 +16,8 @@ import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, new
 import { sceneSvg, timeOfDay, unlocked } from './scene'
 import { breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
-import { COSTUMES, SPECIAL_COSTUMES, costumeOfDay } from './sprites'
+import { COSTUMES, SPECIAL_COSTUMES, costumeOfDay, crab as crabArt, crabRects } from './sprites'
+import { CRAB_CELLS, cellsOf as spriteCells, downsample } from './pixelart'
 import type { Costume } from './sprites'
 import { beachCells, beachPixels, cellText, decodeCells } from './terminal'
 import { clip, oneLine, xml } from './text'
@@ -543,7 +544,7 @@ test('every gadget has lines of its own, and no brand gets near them', () => {
 })
 
 test('the terminal shows the gadget, and a rocket leaves the top', () => {
-  const base = { columns: 80, rows: 3, timeOfDay: 'day', sky: skyFor(T0), bubble: null } as const
+  const base = { columns: 80, rows: 4, timeOfDay: 'day', sky: skyFor(T0), bubble: null } as const
   const at = (ride: Segment['ride'], k: number) => {
     const s = seg({ ride, width: 900, first: 'ride' })
     const pl = plan(s)
@@ -553,7 +554,7 @@ test('the terminal shows the gadget, and a rocket leaves the top', () => {
   }
   const has = (px: number[], c: number) => px.includes(c)
   expect(has(at('racer', 0.5), 0x1d9e75)).toBe(true)
-  expect(has(at('viking', 0.5), 0x8a5a2b)).toBe(true)
+  expect(has(at('viking', 0.5), 0x6b4423)).toBe(true)
   expect(has(at('diver', 0.5), 0xf5c542)).toBe(true)
   // Up off the top: the rocket's white is gone from the raster.
   expect(has(at('astronaut', 0.05), 0xf4f3ee)).toBe(true)
@@ -675,9 +676,9 @@ test('a crab leans its own way, and its life keeps the rules and the pace', () =
 })
 
 test('the terminal shows the same things where this beach has them', () => {
-  const G = 5
+  const G = 7
   const pixelsOf = (columns: number, over: Partial<Segment>) =>
-    beachPixels({ columns, rows: 3, now: T0 + 1000, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null, seg: seg({ width: columns * 8, startP: 0.95, ...over }) }).px
+    beachPixels({ columns, rows: 4, now: T0 + 1000, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null, seg: seg({ width: columns * 8, startP: 0.95, ...over }) }).px
   const columnsOf = (px: number[], W: number, color: number) => [...new Set(px.flatMap((c, i) => (c === color ? [i % W] : [])))]
   for (const layout of LAYOUTS.slice(0, 40)) {
     const own = layoutOf(layout)
@@ -835,9 +836,9 @@ test('after dark the new shelters and the lamp light up, and nothing else moves'
 })
 
 test('the terminal draws them all, in their own few cells', () => {
-  const G = 5
+  const G = 7
   const pixelsOf = (columns: number, over: Partial<Segment>) =>
-    beachPixels({ columns, rows: 3, now: T0 + 1000, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null, seg: seg({ width: columns * 8, startP: 0.95, earned: 0, ...over }) }).px
+    beachPixels({ columns, rows: 4, now: T0 + 1000, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null, seg: seg({ width: columns * 8, startP: 0.95, earned: 0, ...over }) }).px
   // Cells that differ, left of where the crab stands.
   const cellsOf = (W: number, a: number[], b: number[]) => a.flatMap((c, i) => (c !== b[i] && i % W < W * 0.85 ? [{ x: i % W, y: Math.floor(i / W) }] : []))
   for (const W of [63, 80, 120]) {
@@ -1814,21 +1815,21 @@ const cellsOf = (cells: string) => {
   return Array.from({ length: words.length / 3 }, (_, i) => ({ ch: words[i * 3] ?? 0, fg: words[i * 3 + 1] ?? 0, bg: words[i * 3 + 2] ?? 0 }))
 }
 const TSEG = { id: 1, seed: 11, startAt: T0, startP: 0.45, startFace: 1, mode: 'idle', width: 725, castle: 3, shells: 4, food: 60, fun: 60, energy: 60, timeOfDay: 'day', shore: 0.7 } as const
-const TBASE = { columns: 82, rows: 3, now: T0 + 1000, seg: TSEG, costume: 'pirate', timeOfDay: 'day', sky: skyFor(T0), bubble: null } as const
+const TBASE = { columns: 82, rows: 4, now: T0 + 1000, seg: TSEG, costume: 'pirate', timeOfDay: 'day', sky: skyFor(T0), bubble: null } as const
 
 test('the terminal beach is half blocks of colour, see-through where empty', () => {
   const cells = cellsOf(beachCells(TBASE))
-  expect(cells.length).toBe(82 * 3)
+  expect(cells.length).toBe(82 * 4)
   // Only spaces and half blocks; empty cells keep the terminal's own colours.
   for (const c of cells) expect([0x20, 0x2580, 0x2584]).toContain(c.ch)
   expect(cells.some(c => c.ch === 0x20 && c.fg === NONE && c.bg === NONE)).toBe(true)
-  const bottom = cells.slice(2 * 82)
+  const bottom = cells.slice(3 * 82)
   expect(bottom.some(c => c.bg === 0xD9C08A)).toBe(true)
   // The sea starts where the context put the shore, give or take the tide.
   expect(bottom.slice(60).every(c => c.bg === 0x4FA3CC || c.bg === 0xFFFFFF || c.fg === 0x8FCFE6)).toBe(true)
   expect(cells.some(c => c.fg === 0xD97757 || c.bg === 0xD97757)).toBe(true)
-  // The pirate wears its hat.
-  expect(cells.some(c => c.fg === 0x2B2A28 || c.bg === 0x2B2A28)).toBe(true)
+  // The pirate wears its hat, the desktop's own, scaled down.
+  expect(cells.some(c => c.fg === 0x55514C || c.bg === 0x55514C)).toBe(true)
 })
 
 test('the terminal crab walks where the plan says, and talks beside its head in narrow characters', () => {
@@ -1857,13 +1858,55 @@ test('in the terminal the strip is a Raster beside the buttons, and the tank a t
   const strip = await $.ui.mount({ ...BAND, surface: 'terminal' })
   const raster = await strip.find({ type: 'Raster' })
   expect(raster?.props.columns).toBe(82)
-  expect(raster?.props.rows).toBe(3)
+  expect(raster?.props.rows).toBe(4)
   expect(await strip.find({ key: 'crab-feed' })).toBeDefined()
   await strip.unmount()
   await crab($, 'tank')
   const pane = await tank($, 'terminal')
   expect((await pane.find({ type: 'Raster' }))?.props.rows).toBe(14)
   await pane.unmount()
+})
+
+test("the terminal crab is the desktop's own art, scaled down: every costume keeps its eyes and fits its cells", () => {
+  const ALL: Costume[] = [...COSTUMES, ...SPECIAL_COSTUMES]
+  for (const costume of ALL) {
+    // The desktop draws the same rects the terminal scales down.
+    const svg = crabArt(costume, 'stand')
+    for (const r of crabRects(costume, 'stand')) expect(svg).toContain(`<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${r.c}"/>`)
+    for (const fineness of ['strip', 'tank'] as const) {
+      const cells = spriteCells(downsample(crabRects(costume, 'stand'), fineness), 1)
+      const w = CRAB_CELLS[fineness]
+      expect(cells.length).toBeGreaterThan(fineness === 'strip' ? 25 : 60)
+      // Its own body within its width, its feet on the row above the ground.
+      const body = cells.filter(c => c.c === 0xD97757)
+      if (costume !== 'ghost') expect(body.length).toBeGreaterThan(10)
+      for (const c of body) expect(c.dx >= -w / 2 && c.dx < w / 2 && c.dy < 0).toBe(true)
+      expect(Math.max(...cells.map(c => c.dy))).toBe(-1)
+      // Its eyes survive the scaling, unless something covers them.
+      if (costume !== 'surfer' && costume !== 'diver') expect(cells.filter(c => c.c === 0x1F1E1D).length).toBeGreaterThanOrEqual(2)
+    }
+  }
+})
+
+test("the terminal strip draws the crab from the desktop's art, its ink dark enough for a dark terminal, and turned round mirrored", () => {
+  const base = { columns: 80, rows: 4, now: T0 + 1000, timeOfDay: 'day', sky: skyFor(T0), bubble: null } as const
+  const s = seg({ width: 640, mode: 'idle', hold: { pose: 'stand', ms: 60_000 }, startP: 0.5 })
+  const right = beachPixels({ ...base, seg: s, costume: 'pirate' })
+  expect(right.crabW).toBe(10)
+  expect(right.headRow).toBe(1)
+  // The desktop's near-black eyes are drawn in the terminal's ink, never the background's colour.
+  expect(right.px).toContain(0x3A3936)
+  expect(right.px).not.toContain(0x1F1E1D)
+  // Turned round, the same cells mirrored about its middle.
+  for (const fineness of ['strip', 'tank'] as const) {
+    const sprite = downsample(crabRects('pirate', 'stand'), fineness)
+    const key = (c: { dx: number; dy: number; c: number }) => `${c.dx},${c.dy},${c.c}`
+    expect(spriteCells(sprite, -1).map(key).sort()).toEqual(spriteCells(sprite, 1).map(c => key({ ...c, dx: -c.dx - 1 })).sort())
+  }
+  // Walking, one set of legs is up while the other is down.
+  const walk = seg({ width: 640, mode: 'idle', hold: { pose: 'wander', ms: 60_000 }, startP: 0.5 })
+  const legs = (now: number) => beachPixels({ ...base, now, seg: walk, costume: 'plain' }).px.slice(6 * 80, 7 * 80).filter(c => c === 0xD97757).length
+  expect(legs(T0 + 1000)).not.toBe(legs(T0 + 1250))
 })
 
 test('the terminal beach repaints four times a second while awake, once while it naps, and stops when gone', async ($, on) => {
@@ -2512,7 +2555,7 @@ test('a compaction takes the planted sign down, with or without a log', async ($
 })
 
 test('signs show on every drawn beach, the words on a plank', () => {
-  const base = { columns: 80, rows: 3, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
+  const base = { columns: 80, rows: 4, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
   const cells = decodeCells(beachCells({ ...base, beach: { sign: 'pushed!' } }))
   const text = Array.from({ length: cells.length / 3 }, (_, i) => String.fromCodePoint(cells[i * 3] ?? 32)).join('')
   expect(text).toContain('pushed!')
@@ -2698,7 +2741,7 @@ test('the Agent tool puts a rod in its claw, and the neighbour stays home', asyn
 })
 
 test('rods and a catch show on the terminal beach too', () => {
-  const base = { columns: 80, rows: 3, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0, shore: 0.8 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
+  const base = { columns: 80, rows: 4, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0, shore: 0.8 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
   expect(beachPixels({ ...base, beach: { rods: 2 } }).px).not.toEqual(beachPixels(base).px)
   const reeling = seg({ width: 800, startP: 0.7, shore: 0.8, first: 'reel', haul: 'fish' })
   const mark = plan(reeling).marks.find(m => m.kind === 'catch')
@@ -2775,7 +2818,7 @@ test('an empty beach draws no crab anywhere', () => {
   const svg = sceneSvg({ width: 800, costume: 'plain', look: {}, timeOfDay: 'day', bubble: null, now: T0 + 1000, seg: empty, prop: 'hammer', sky: skyFor(T0), work: [], hour: 12, beach: { planted: 'at web' } })
   expect(svg).not.toContain('opacity=".12"')
   expect(svg).toContain('at web')
-  const base = { columns: 80, rows: 3, now: T0 + 1000, costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
+  const base = { columns: 80, rows: 4, now: T0 + 1000, costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
   expect(beachPixels({ ...base, seg: empty }).px).not.toContain(parseInt('D97757', 16))
   expect(beachPixels({ ...base, seg: seg({ shore: 0.8 }) }).px).toContain(parseInt('D97757', 16))
 })
@@ -2926,7 +2969,7 @@ test('a headless session never joins the roster', async ($, on) => {
 })
 
 test('the bottle and sign show on the terminal beach too', () => {
-  const base = { columns: 80, rows: 3, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
+  const base = { columns: 80, rows: 4, now: T0, seg: seg({ width: 800, mode: 'sleep', startP: 0 }), costume: 'plain' as const, timeOfDay: 'day' as const, sky: skyFor(T0), bubble: null }
   const plain = beachPixels(base).px
   expect(beachPixels({ ...base, beach: { hasBottle: true } }).px).not.toEqual(plain)
   expect(beachPixels({ ...base, beach: { hasMark: true } }).px).not.toEqual(plain)

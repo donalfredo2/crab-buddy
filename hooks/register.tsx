@@ -321,7 +321,10 @@ export const tankSize = (bodyColumns: number, placement: 'dock' | 'inline') => {
   return { width, height, sceneWidth: Math.round(width / scale), sceneHeight: Math.max(SCENE_H, Math.round(height / scale)) }
 }
 
-/** The terminal's strip: three rows, leaving room for the buttons beside it. */
+/** The terminal's strip is four rows: eight pixels tall, room for the crab drawn from the desktop's own art. */
+export const STRIP_ROWS = 4
+
+/** The terminal's strip, leaving room for the buttons beside it. */
 export const terminalColumns = (bodyColumns: number, isDue: boolean): number => Math.max(20, (bodyColumns || 100) - (isDue ? 30 : 18))
 
 /** The tank in a terminal: docked, as tall as the dock allows up to 14 rows; inline, 4. */
@@ -1085,7 +1088,7 @@ const sceneOf = (site: 'band' | 'tank', surface: string, v: View, b: Bubble, wor
 
 async function beachFor($: EngineInterface, v: View, size: { columns: number; rows: number }): Promise<string> {
   const b = await read($, bubble)
-  return beachCells({ ...size, now: v.now, seg: v.seg, costume: v.costume, timeOfDay: timeOfDay(hourOf(v.now)), sky: v.sky, bubble: b && b.until > v.now ? b.text : null, beach: v.beach })
+  return beachCells({ ...size, now: v.now, seg: v.seg, costume: v.costume, timeOfDay: timeOfDay(hourOf(v.now)), sky: v.sky, bubble: b && b.until > v.now ? b.text : null, beach: v.beach, look: v.look })
 }
 
 // The repaint timer runs only while a terminal beach is drawn somewhere.
@@ -1696,7 +1699,7 @@ export const register: Register = (on, options) => {
 
     if ('Raster' in ui) {
       const { Raster } = ui
-      const size = { columns: terminalColumns(e.props.bodyColumns, v.isDue), rows: 3 }
+      const size = { columns: terminalColumns(e.props.bodyColumns, v.isDue), rows: STRIP_ROWS }
       lastWidth = stripWidth(e.props.bodyColumns, v.isDue)
       lastBand = { surface: e.surface, columns: e.props.bodyColumns, viewport: e.viewport?.columns, width: lastWidth }
       rasters.set(e.requestId, size)

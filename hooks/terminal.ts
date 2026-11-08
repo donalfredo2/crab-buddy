@@ -3,13 +3,16 @@
 // scaled to the terminal's width, so the crab does what it does on the desktop.
 // Empty cells keep the terminal's own colours, so it stays see-through.
 
-import type { Beach, Segment, TimeOfDay } from '../types'
+import type { Beach, Pose, Segment, TimeOfDay } from '../types'
 import { CRAB_W, MARK_SHORE, MAX_RODS, NO_CONTEXT_SHORE, ZONES, hasDecor, isWalking, layoutOf, planOf, whereAt, xOf } from './life'
 import type { Layout } from './life'
 import { moonLit } from './sky'
 import type { Sky } from './sky'
-import { CLAY } from './sprites'
-import type { Costume } from './sprites'
+import { gadgetPixels } from './gadgets'
+import { CRAB_CELLS, cellsOf, downsample } from './pixelart'
+import type { Fineness, Rect, Sprite } from './pixelart'
+import { INK, crabRects, isSeated } from './sprites'
+import type { Costume, CrabLook } from './sprites'
 
 /** The terminal's own colour, for a cell or half a cell with nothing in it. */
 const NONE = 0x01000000
@@ -29,44 +32,51 @@ export type TerminalInput = {
   sky: Sky
   bubble: string | null
   beach?: Beach
+  /** How it looks: tired, grumpy, hungry. */
+  look?: CrabLook
 }
 
-const HAT: Partial<Record<Costume, string>> = {
-  astronaut: '#C9CCD2', detective: '#8A5A3B', engineer: '#F5C542', chef: '#FFFFFF', racer: '#1D9E75', pirate: '#2B2A28', santa: '#D8352B',
-  surfer: '#378ADD', diver: '#F28C3A', viking: '#8E929A', wizard: '#534AB7', dj: '#D85A30', oktoberfest: '#3B6D11', raincoat: '#F5C542', king: '#F5C542',
-}
-// Claws up, eyes set in the shell so they show on light and dark terminals alike.
-const STAND = ['d.....d', 'dbebebd', '.bbbbb.', '.d.d.d.']
-const STEP = ['d.....d', 'dbebebd', '.bbbbb.', 'd.d.d.d']
-const NAP = ['.......', '.......', '.bdbdb.', 'dbbbbbd']
 const BOUNCY = new Set(['dance', 'wave', 'cheer', 'party', 'play', 'love'])
 
-// Its gadget, the crab's own 7 columns plus 3 either side, facing right; `show` leaves
-// the crab's pixels showing through where the gadget is empty. A cell is too coarse for
-// more: each is a shape and a colour or two.
-type Cells = { rows: readonly string[]; show?: boolean }
-const GADGET: Record<Costume, Cells> = {
-  racer: { show: true, rows: ['.............', '.............', 'ggggggggggggg', '..kk.....kk..'] },
-  viking: { show: true, rows: ['.............', 'h...........h', 'hhhhhhhhhhhhh', '.hhhhhhhhhhh.'] },
-  engineer: { show: true, rows: ['..........yy.', '..........y.y', 'yyyyyyyyyy..y', 'ddddddddddd..'] },
-  chef: { show: true, rows: ['.........rrrr', '.........a..a', '.........wwww', '..........k.k'] },
-  plain: { show: true, rows: ['.............', '.............', '.............', '..qqqqqqqqq..'] },
-  detective: { rows: ['...wwwwwww...', '...wewwwew...', '...wwwwwww...', '....b.b.b....'] },
-  oktoberfest: { show: true, rows: ['.............', '.............', '.............', '...aaaaaaa...'] },
-  raincoat: { show: true, rows: ['.............', '.............', 'wwwwwwwwwwwww', '..wwwwwwwww..'] },
-  king: { show: true, rows: ['.............', '.............', 'hhhhhhhhhhhhh', '.l.l.....l.l.'] },
-  wizard: { show: true, rows: ['.............', '.............', 'yynnnnnnnnnnn', '.............'] },
-  santa: { show: true, rows: ['.............', '.............', 'rrrrrrrrrrrnn', 'SSSSSSSSSSSnn'] },
-  ghost: { show: true, rows: ['.............', '.............', '..........o..', '.............'] },
-  astronaut: { rows: ['......r......', '.....www.....', '.....wbw.....', '....rwwwr....'] },
-  surfer: { show: true, rows: ['t............', 'tt...........', 'ttt..........', 'tttBBBBBBBBB.'] },
-  diver: { rows: ['.......y.....', '.......y.....', '..yyyyyyyyy..', '.yyybyyybyyy.'] },
-  dj: { show: true, rows: ['.............', '.............', '..xxxxxxxxx..', '..x.......x..'] },
-  pirate: { show: true, rows: ['.............', '.............', '.........dddd', '.........nn..'] },
-}
-const GADGET_INK: Record<string, string> = {
-  g: '#1D9E75', k: '#1F1E1D', h: '#8A5A2B', y: '#F5C542', d: '#3A3936', r: '#D8433B', a: '#A0703F', w: '#F4F3EE', q: '#D85A30',
-  e: '#3A3936', b: '#B85C3E', l: '#5B8FD9', n: '#7A4A26', S: '#8E929A', o: '#F28C3A', t: '#6BB8D6', B: '#378ADD', x: '#5F5E5A',
+// Rows above the ground to the crab's eyes, where words beside its head go.
+const EYES: Record<Fineness, number> = { strip: 4, tank: 7 }
+// How high a lifted leg goes in the crab's grid: enough to leave its cell, a step.
+const STEP_UP: Record<Fineness, number> = { strip: 3, tank: 2 }
+
+const TERMINAL_INK = '#3A3936'
+const sprites = new Map<string, Sprite>()
+
+/** The crab as the desktop draws it, scaled to cells: its costume, its pose, its gadget. */
+const spriteOf = (costume: Costume, pose: Pose, look: CrabLook, fineness: Fineness, isStep: boolean, ride: Costume | null): Sprite => {
+  const key = JSON.stringify([costume, pose, look, fineness, isStep, ride])
+  const kept = sprites.get(key)
+  if (kept) return kept
+  const rects: Rect[] = []
+  if (ride) {
+    const g = gadgetPixels(ride)
+    rects.push(...g.back)
+    if (!g.hideCrab) {
+      for (const r of crabRects(costume, 'ride', look)) {
+        const isLeg = r.cls === 'la' || r.cls === 'lb'
+        if ((isLeg && !g.legs) || (g.bare && r.cls === 'it')) continue
+        rects.push({ ...r, y: r.y + (g.dy ?? 0) })
+      }
+    }
+    rects.push(...g.front)
+  } else {
+    const seated = isSeated(pose)
+    for (const r of crabRects(costume, pose, look)) {
+      const isLeg = r.cls === 'la' || r.cls === 'lb'
+      if (isLeg && seated) continue
+      // Sitting, it sinks onto the sand; walking, one set of legs is up while the other is down.
+      rects.push({ ...r, y: r.y + (seated ? 3 : 0) - (isStep && r.cls === 'la' ? STEP_UP[fineness] : 0) })
+    }
+  }
+  // The desktop's near-black ink vanishes on a dark terminal; this one shows on dark and light alike.
+  const sprite = downsample(rects.map(r => (r.c === INK ? { ...r, c: TERMINAL_INK } : r)), fineness)
+  if (sprites.size > 400) sprites.clear()
+  sprites.set(key, sprite)
+  return sprite
 }
 
 /** A speech bubble as cells: one character each, so only narrow ones, and no emoji. */
@@ -74,8 +84,8 @@ export const cellText = (text: string): string =>
   [...text.replace(/♥/g, '<3')].filter(c => (c.codePointAt(0) ?? 0) < 0x2100 && c !== '️').join('').replace(/\s+/g, ' ').trim()
 
 /** Where words beside the crab's head start: right of it when there's room, else left. */
-const wordsAt = (crabX: number, length: number, W: number): number =>
-  crabX + 9 + length <= W ? crabX + 9 : Math.max(0, crabX - length - 2)
+const wordsAt = (crabX: number, crabW: number, length: number, W: number): number =>
+  crabX + crabW + 2 + length <= W ? crabX + crabW + 2 : Math.max(0, crabX - length - 2)
 
 // What the shells unlocked, in a few cells each.
 type Put = (x: number, y: number, c: string) => void
@@ -212,7 +222,7 @@ const fortyShells = (put: Put, own: Layout, x: number, G: number): void => {
 }
 
 /** The pixels of the beach, `columns` wide and `rows * 2` tall, NONE where empty, and where the crab is. */
-export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } => {
+export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number; crabW: number; headRow: number } => {
   const W = Math.max(8, Math.round(t.columns))
   const H = Math.max(2, Math.round(t.rows)) * 2
   const G = H - 1
@@ -349,39 +359,28 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
     const to = (xOf(caught.p0, t.seg.width) + CRAB_W / 2) * f
     put(shore + 4 + (to - shore - 4) * k, Math.max(0, Math.round(G - 1 - 4 * G * k * (1 - k))), caught.variant === 'boot' ? '#6B4A2E' : '#F28C3A')
   }
-  const x0 = Math.max(0, Math.min(W - 7, Math.round((xOf(here.p, t.seg.width) + CRAB_W / 2) * f - 3.5)))
+  // The tank's taller beach has room for the crab at half the desktop's size; the strip, a third.
+  const fineness: Fineness = H >= 18 ? 'tank' : 'strip'
+  const crabW = CRAB_CELLS[fineness]
+  const mid = Math.max(crabW / 2, Math.min(W - crabW / 2, Math.round((xOf(here.p, t.seg.width) + CRAB_W / 2) * f)))
+  const x0 = mid - crabW / 2
   const isNap = here.pose === 'nap'
   const isGone = here.pose === 'gone'
-  const rows = isGone ? [] : isNap ? NAP : isWalking(here.pose) && tick % 2 ? STEP : STAND
-  const ghost = t.costume === 'ghost'
-  const hat = isGone ? undefined : HAT[t.costume]
-  const colors: Record<string, string> = { e: '#3A3936', b: ghost ? '#F2F2EE' : CLAY, d: ghost ? '#C9CCD2' : '#B85C3E' }
   const lift = BOUNCY.has(here.pose) && tick % 2 && G >= 5 ? 1 : 0
   // Up with the gadget, one half-cell per pixel of the strip's scale; a rocket leaves the top.
   const up = Math.round((here.lift * H) / 40)
   const flyUp = lift + (here.lift > 40 ? up : Math.min(up, Math.max(0, G - 4)))
-  const riding = here.pose === 'ride' && t.seg.ride ? GADGET[t.seg.ride] : null
-  if (!riding || riding.show) {
-    rows.forEach((row, dy) => {
-      for (let dx = 0; dx < 7; dx++) {
-        const k = row[here.face === 1 ? dx : 6 - dx] ?? '.'
-        const color = colors[k]
-        if (color) put(x0 + dx, G - 4 + dy - flyUp, color)
-      }
-    })
-    if (hat && !isNap) for (const dx of [2, 3, 4]) put(x0 + dx, G - 4 - flyUp, hat)
+  if (!isGone) {
+    const isDark = t.timeOfDay === 'night' || t.timeOfDay === 'evening'
+    const look: CrabLook = { ...t.look, hasNightcap: t.timeOfDay === 'night' && isNap, isDark }
+    const ride = here.pose === 'ride' ? (t.seg.ride ?? t.costume) : null
+    const sprite = spriteOf(t.costume, here.pose, look, fineness, isWalking(here.pose) && tick % 2 === 1, ride)
+    for (const { dx, dy, c } of cellsOf(sprite, here.face)) put(mid + dx, G + dy - flyUp, c)
   }
-  riding?.rows.forEach((row, dy) => {
-    for (let dx = 0; dx < 13; dx++) {
-      const color = GADGET_INK[row[here.face === 1 ? dx : 12 - dx] ?? '.']
-      if (color) put(x0 - 3 + dx, G - 4 + dy - flyUp, color)
-    }
-  })
-  if (hat && isNap) for (const dx of [2, 3, 4]) put(x0 + dx, G - 3, hat)
-  if (isNap && G >= 5 && sec % 2) put(x0 + (here.face === 1 ? 6 : 0), G - 5, '#C9CCD2')
+  if (isNap && G >= 5 && sec % 2) put(here.face === 1 ? x0 + crabW : x0 - 1, G - EYES[fineness] - 2, '#C9CCD2')
   // The pole of the sign it holds up, on the side the words go.
   const held = t.beach?.sign && !t.bubble && !isGone ? cellText(t.beach.sign) : ''
-  if (held) for (let y = G - 3; y <= G; y++) put(wordsAt(x0, held.length, W) - 1, y, t.beach?.isFlag ? '#D9435E' : '#A0703F')
+  if (held) for (let y = G - 3; y <= G; y++) put(wordsAt(x0, crabW, held.length, W) - 1, y, t.beach?.isFlag ? '#D9435E' : '#A0703F')
 
   // Rain and snow fall in front of everything.
   if (sky.weather === 'rain' || sky.weather === 'storm' || sky.weather === 'snow') {
@@ -392,7 +391,8 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number } =
       put((i * 37 + (isSnow ? (sec + i) % 2 : 0)) % W, fall, isSnow ? '#FFFFFF' : '#7EB6E0')
     }
   }
-  return { px, crabX: x0 }
+  // The cell row of its eyes, where words beside its head go.
+  return { px, crabX: x0, crabW, headRow: Math.max(0, Math.floor((G - EYES[fineness]) / 2)) }
 }
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -429,7 +429,7 @@ export const decodeCells = (cells: string): number[] => {
 export const beachCells = (t: TerminalInput): string => {
   const W = Math.max(8, Math.round(t.columns))
   const R = Math.max(2, Math.round(t.rows))
-  const { px, crabX } = beachPixels(t)
+  const { px, crabX, crabW, headRow } = beachPixels(t)
   const words = new Uint32Array(W * R * 3)
   for (let r = 0; r < R; r++) {
     for (let x = 0; x < W; x++) {
@@ -447,14 +447,13 @@ export const beachCells = (t: TerminalInput): string => {
       if (start + k - 1 >= 0) words.set([ch.codePointAt(0) ?? 0x20, fg, bg], (row * W + start + k - 1) * 3)
     })
   }
-  // The row of the crab's head.
-  const row = Math.max(0, R - 3)
+  const row = Math.min(R - 1, headRow)
   const planted = t.beach?.planted ? cellText(t.beach.planted) : ''
   if (planted) write(planted, Math.max(1, Math.min(W - planted.length - 1, Math.round(W * 0.38) - Math.floor(planted.length / 2))), row, PLANK_INK, PLANK)
   const text = t.bubble ? cellText(t.bubble) : ''
   const held = !text && t.beach?.sign ? cellText(t.beach.sign) : ''
-  if (text) write(text, wordsAt(crabX, text.length, W), row, NONE, NONE)
+  if (text) write(text, wordsAt(crabX, crabW, text.length, W), row, NONE, NONE)
   // The red flag: white on red, so a waiting window stands out in a row of terminals.
-  if (held) write(held, wordsAt(crabX, held.length, W), row, t.beach?.isFlag ? 0xFFFFFF : PLANK_INK, t.beach?.isFlag ? 0xD9435E : PLANK)
+  if (held) write(held, wordsAt(crabX, crabW, held.length, W), row, t.beach?.isFlag ? 0xFFFFFF : PLANK_INK, t.beach?.isFlag ? 0xD9435E : PLANK)
   return toBase64(new Uint8Array(words.buffer))
 }

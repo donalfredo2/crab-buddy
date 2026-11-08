@@ -368,10 +368,46 @@ export const crab = (costume: Costume, pose: Pose, look: CrabLook = {}): string 
     return `<g class="${tiredness}"><g class="mood hidep">${cells}<rect x="9" y="10" width="2" height="2" fill="${CLAY}"/><rect x="19" y="10" width="2" height="2" fill="${CLAY}"/><rect class="eye" x="9" y="8" width="2" height="2" fill="${INK}"/><rect class="eye" x="19" y="8" width="2" height="2" fill="${INK}"/></g></g>`
   }
   const groups = new Map<string, string[]>([['bd', []]])
-  const f: Fill = (x, y, w, h, c, cls = 'bd') => {
+  for (const { x, y, w, h, c, cls } of crabRects(costume, pose, look)) {
     if (!groups.has(cls)) groups.set(cls, [])
     groups.get(cls)?.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}"/>`)
   }
+  const shown: Costume = look.hasNightcap ? 'plain' : costume
+  const group = (cls: string) => `<g class="${cls}">${(groups.get(cls) ?? []).join('')}</g>`
+  const ride = pose === 'ride' ? gadgetOf(shown, look.isDark) : null
+  const props = [...groups.keys()].filter(k => k !== 'bd' && k !== 'la' && k !== 'lb' && !(ride?.bare && k === 'it'))
+  const body = `<g class="bd">${(groups.get('bd') ?? []).join('')}${props.map(group).join('')}</g>`
+  const legs = SEATED.has(pose) ? '' : `${group('la')}${group('lb')}`
+  // On its gadget: the gadget behind it, the crab (or just its legs, or nothing), the gadget in front.
+  if (ride) {
+    const me = ride.hideCrab ? '' : `<g transform="translate(0,${ride.dy ?? 0})">${body}${ride.legs ? legs : ''}</g>`
+    return `<g class="${tiredness}"><g class="mood ride"><g class="c-${shown} run">${ride.back}${me}${ride.front}</g></g></g>`
+  }
+  return `<g class="${tiredness}"><g class="mood ${moodClass(pose)}"><g class="c-${shown}${gaitClass(pose)}">${body}${legs}</g>${effects(pose, look).join('')}</g></g>`
+}
+
+/** Where a piece of the crab is in its 30x28 grid; `cls` is its part: `bd` the body, `la`/`lb` the legs, else a prop. */
+export type Rect = { x: number; y: number; w: number; h: number; c: string; cls: string }
+
+/**
+ * The crab's own pixels in its 30x28 grid, facing right: the costume, the pose's eyes,
+ * arms and whatever it holds, but none of the effects around it. What `crab` draws as
+ * SVG, and what a terminal scales down to its cells.
+ */
+export const crabRects = (costume: Costume, pose: Pose, look: CrabLook = {}): Rect[] => {
+  const rects: Rect[] = []
+  const f: Fill = (x, y, w, h, c, cls = 'bd') => {
+    rects.push({ x, y, w, h, c, cls })
+  }
+  if (pose === 'hide') {
+    HIDE_SHELL.forEach((row, dy) => [...row].forEach((c, dx) => {
+      const ink = SHELL_INK[c]
+      if (ink) f(2 + dx * 2, 12 + dy * 2, 2, 2, ink)
+    }))
+    f(9, 10, 2, 2, CLAY); f(19, 10, 2, 2, CLAY); f(9, 8, 2, 2, INK); f(19, 8, 2, 2, INK)
+    return rects
+  }
+  const tiredness = look.tiredness ?? 'fresh'
   const shown: Costume = look.hasNightcap ? 'plain' : costume
   DRAW[shown](f, ACCENT[shown], eyesFor(pose, tiredness))
   if (look.hasNightcap) {
@@ -402,17 +438,17 @@ export const crab = (costume: Costume, pose: Pose, look: CrabLook = {}): string 
     f(13, 17, 4, 1, INK, 'mouth')
     f(25, 11, 4, 2, '#F28C6A', 'shrimp'); f(29, 10, 1, 1, '#F28C6A', 'shrimp'); f(29, 13, 1, 1, '#F28C6A', 'shrimp')
   }
-  const group = (cls: string) => `<g class="${cls}">${(groups.get(cls) ?? []).join('')}</g>`
-  const ride = pose === 'ride' ? gadgetOf(shown, look.isDark) : null
-  const props = [...groups.keys()].filter(k => k !== 'bd' && k !== 'la' && k !== 'lb' && !(ride?.bare && k === 'it'))
-  const body = `<g class="bd">${(groups.get('bd') ?? []).join('')}${props.map(group).join('')}</g>`
-  const legs = SEATED.has(pose) ? '' : `${group('la')}${group('lb')}`
-  // On its gadget: the gadget behind it, the crab (or just its legs, or nothing), the gadget in front.
-  if (ride) {
-    const me = ride.hideCrab ? '' : `<g transform="translate(0,${ride.dy ?? 0})">${body}${ride.legs ? legs : ''}</g>`
-    return `<g class="${tiredness}"><g class="mood ride"><g class="c-${shown} run">${ride.back}${me}${ride.front}</g></g></g>`
-  }
+  return rects
+}
 
+/** Whether the pose sits, so its legs don't show. */
+export const isSeated = (pose: Pose): boolean => SEATED.has(pose)
+
+const moodClass = (pose: Pose): string => `${pose === 'work' || pose === 'wander' ? '' : pose}${SEATED.has(pose) ? ' sit' : ''}`
+const gaitClass = (pose: Pose): string => (isMoving(pose) ? ` run${isStrolling(pose) ? ' stroll' : ''}` : '')
+
+const effects = (pose: Pose, look: CrabLook): string[] => {
+  const tiredness = look.tiredness ?? 'fresh'
   const fx: string[] = []
   if (pose === 'cheer') fx.push(`<g fill="#F5C542"><rect class="spark" x="-6" y="4" width="2" height="2"/><rect class="spark spark2" x="-12" y="12" width="2" height="2"/><rect class="spark spark2" x="-3" y="18" width="2" height="2"/></g>`)
   if (pose === 'daze') fx.push(`<g fill="#B4B2A9"><rect class="spark" x="-5" y="3" width="2" height="2"/><rect class="spark spark2" x="-10" y="8" width="2" height="2"/></g>`)
@@ -431,10 +467,7 @@ export const crab = (costume: Costume, pose: Pose, look: CrabLook = {}): string 
   if (look.isHungry && pose !== 'eat' && pose !== 'nap' && pose !== 'dig') {
     fx.push(`<g class="think"><rect x="-2" y="6" width="2" height="2" fill="#B4B2A9"/><rect x="-6" y="2" width="3" height="3" fill="#B4B2A9"/><rect x="-14" y="-6" width="9" height="7" rx="2" fill="#F4F3EE" stroke="#B4B2A9" stroke-width=".6"/><rect x="-12" y="-3" width="4" height="2" fill="#F28C6A"/><rect x="-8" y="-4" width="1" height="1" fill="#F28C6A"/></g>`)
   }
-
-  const moodCls = `${pose === 'work' || pose === 'wander' ? '' : pose}${SEATED.has(pose) ? ' sit' : ''}`
-  const gait = isMoving(pose) ? ` run${isStrolling(pose) ? ' stroll' : ''}` : ''
-  return `<g class="${tiredness}"><g class="mood ${moodCls}"><g class="c-${shown}${gait}">${body}${legs}</g>${fx.join('')}</g></g>`
+  return fx
 }
 
 /** What reads as text above the crab (Zs, "!", "?", a thought), in the strip's own frame. */
