@@ -243,7 +243,7 @@ bun scripts/check-animations.ts   # the beach in a real browser (needs playwrigh
 
 CI runs these on the Claude Code version it's pinned to, which is the gate for merging. A canary job runs the same tests on the newest Claude Code, on every push and pull request and once a week; it never blocks a merge, and when it alone goes red, a new Claude Code release changed something the crab relies on.
 
-A release bumps `version` in `.claude-plugin/plugin.json` and, to match, `VERSION` in `hooks/news.ts` (CI fails if they differ), with the line the crab holds up after the update (`NEWS`, 17 characters at most) and a longer one for `/crab help` (`NEWS_LONG`). It also adds an entry to `CHANGELOG.md`.
+A release bumps `version` in `.claude-plugin/plugin.json` and, to match, `VERSION` in `hooks/news.ts` (CI fails if they differ), with the line the crab holds up after the update (`NEWS`, 17 characters at most) and a longer one for `/crab help` (`NEWS_LONG`). It also adds an entry to `CHANGELOG.md`. Once that is merged, `git tag vX.Y.Z && git push origin vX.Y.Z` publishes the GitHub Release: the release workflow checks the tag against `plugin.json` and takes the notes from the changelog (`node scripts/release-notes.mjs vX.Y.Z` shows them first).
 
 `bun scripts/make-demo.ts` redraws `docs/demo.gif` (it also needs ffmpeg) and `bun scripts/make-icon.ts` the icon.
 

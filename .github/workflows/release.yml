@@ -1,0 +1,43 @@
+name: release
+
+# A version tag publishes its GitHub Release, with the notes from CHANGELOG.md. The marketplace serves main,
+# so users already have the version once it's merged; the Release is the record and the notification.
+on:
+  push:
+    tags: ['v*']
+  # By hand, for a tag that is already pushed (a re-run updates the notes).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag to publish, e.g. v0.24.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: publish the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # Through env, never pasted into a script: a tag name is text anyone with push access chose.
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      # Fails unless the tag is plugin.json's version and the changelog has its entry.
+      - run: node scripts/release-notes.mjs "$TAG" > "$RUNNER_TEMP/notes.md"
+      - name: Create the release, or update its notes
+        run: |
+          title="crab-buddy ${TAG#v}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+          fi
