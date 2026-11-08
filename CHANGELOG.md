@@ -2,6 +2,11 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.25.1
+- A shell command with many options after `git` could take the crab seconds to minutes to read, and Claude waited for it. It now reads any command in a moment.
+- If the crab's own bookkeeping fails around a tool call, the call still runs and its result still reaches Claude.
+- Text from outside (repo names, subagent descriptions, commit titles) loses terminal control codes and the invisible marks that reverse text, before it's drawn.
+
 ## 0.25.0
 - In a terminal (VS Code's, Terminal.app and the rest) the crab is now the desktop's own drawing scaled down to the cells, not a blob of seven: every costume and gadget as the desktop draws it, its eyes, claws and legs, and a walk that moves its legs in turn.
 - The strip above the prompt is four rows instead of three. A tank 9 rows or taller draws the crab at half the desktop's size.

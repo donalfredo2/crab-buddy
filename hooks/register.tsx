@@ -153,7 +153,7 @@ const ACT_WORD: Partial<Record<Activity, string>> = {
 }
 
 // git's own options may sit before the subcommand: `git -c user.name=x -C repo --no-pager commit`.
-const PUSH = /\bgit(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+push\b/
+const PUSH = /\bgit(?:\s+-[cC]\s+\S+|\s+-[\w-]+(?:=\S+)?){0,12}\s+push\b/
 const MERGED = /\b(?:gh\s+pr|glab\s+mr)\s+merge\b/
 const PR_OPEN = /\bgh\s+pr\s+create\b/
 const MR_OPEN = /\bglab\s+mr\s+create\b/
@@ -1200,53 +1200,57 @@ async function loadChoices($: EngineInterface, options: PluginOptions): Promise<
 }
 
 // What each tool call means for the crab: its prop, the work pile, the logbook, news and moods.
+// The crab only watches: a failure in its own bookkeeping, before or after, never stops the call or loses its result.
 async function watchTool($: EngineInterface, e: ToolCallInput, next: (e: ToolCallInput) => Promise<ToolCallResult>): Promise<ToolCallResult> {
+  await beforeTool($, e).catch(() => undefined)
+  const result = await next(e)
+  await afterTool($, e, result).catch(() => undefined)
+  return result
+}
+
+async function beforeTool($: EngineInterface, e: ToolCallInput): Promise<void> {
   await update($, stats, s => ({ ...s, toolCalls: s.toolCalls + 1 }))
   const prop = PROPS[e.tool]
   if (!e.agentId) {
     if (prop) await showProp($, prop)
     await update($, turnWork, w => (w.length >= 15 ? w : [...w, prop ?? 'other']))
   }
+}
+
+async function afterTool($: EngineInterface, e: ToolCallInput, result: ToolCallResult): Promise<void> {
+  if (result.deny !== undefined) return
+  const isError = result.isError === true
   if (EDITS.has(e.tool)) {
-    const result = await next(e)
-    if (result.deny === undefined && result.isError !== true) {
-      const { file_path, notebook_path } = e as { file_path?: unknown; notebook_path?: unknown }
-      await update($, logbook, l => logFile(l, String(file_path ?? notebook_path ?? '')))
-      isCleanStop = false
-    }
-    return result
+    if (isError) return
+    const { file_path, notebook_path } = e as { file_path?: unknown; notebook_path?: unknown }
+    await update($, logbook, l => logFile(l, String(file_path ?? notebook_path ?? '')))
+    isCleanStop = false
+    return
   }
   if (e.tool !== 'Bash') {
     const news = toolNewsOf(e.tool)
-    if (!news) return next(e)
-    const result = await next(e)
-    if (result.deny === undefined && result.isError !== true) await holdUp($, news)
-    return result
+    if (news && !isError) await holdUp($, news)
+    return
   }
-  const result = await next(e)
-  if (result.deny === undefined) {
-    const command = String((e as { command?: unknown }).command ?? '')
-    const isError = result.isError === true
-    const wasRed = (await read($, logbook)).test === 'failed'
-    await update($, logbook, l => logShell(l, command, isError))
-    const mood = reactionTo(command, isError)
-    if (mood && !e.agentId) isCleanStop = mood !== 'nervous'
-    const news = newsOf(command, isError) ?? (TEST.test(command) && !isError && wasRed ? 'green' : null)
-    const isSigned = news ? await holdUp($, news) : false
-    if (mood) {
-      if (!isSigned) await react($, mood)
-      if (mood === 'party') {
-        await saveNeeds($, gain(await currentNeeds($), { fun: 10 }))
-        await say($, 'commit')
-      } else if (mood === 'cool') {
-        await saveNeeds($, gain(await currentNeeds($), { fun: 5 }))
-        await say($, 'testsPass')
-      } else {
-        await say($, 'testsFail')
-      }
+  const command = String((e as { command?: unknown }).command ?? '')
+  const wasRed = (await read($, logbook)).test === 'failed'
+  await update($, logbook, l => logShell(l, command, isError))
+  const mood = reactionTo(command, isError)
+  if (mood && !e.agentId) isCleanStop = mood !== 'nervous'
+  const news = newsOf(command, isError) ?? (TEST.test(command) && !isError && wasRed ? 'green' : null)
+  const isSigned = news ? await holdUp($, news) : false
+  if (mood) {
+    if (!isSigned) await react($, mood)
+    if (mood === 'party') {
+      await saveNeeds($, gain(await currentNeeds($), { fun: 10 }))
+      await say($, 'commit')
+    } else if (mood === 'cool') {
+      await saveNeeds($, gain(await currentNeeds($), { fun: 5 }))
+      await say($, 'testsPass')
+    } else {
+      await say($, 'testsFail')
     }
   }
-  return result
 }
 
 export const register: Register = (on, options) => {
