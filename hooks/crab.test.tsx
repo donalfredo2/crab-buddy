@@ -139,6 +139,18 @@ test('shell commands map to reactions', () => {
   expect(reactionTo('ls -la', false)).toBe(null)
 })
 
+// --x once matched two ways, so each git option doubled the work: 26 of them took seconds, inside the tool hook.
+test('a git command with many options is read in linear time', () => {
+  const many = `git${' --a'.repeat(60)} status`
+  const t0 = performance.now()
+  expect(reactionTo(many, false)).toBe(null)
+  expect(newsOf(many, false)).toBe(null)
+  expect(commitTitle(many)).toBe('a commit')
+  expect(performance.now() - t0).toBeLessThan(100)
+  expect(newsOf('git --no-pager -c core.pager=less -C repo push --force-with-lease', false)).toBe('pushed')
+  expect(newsOf('git --git-dir=.git --work-tree=. commit -m "x"', false)).toBe('commit')
+})
+
 test('needs fade while open, never below 10, and a gap is not counted', () => {
   const n = freshNeeds(T0)
   const hourLater = Array.from({ length: 12 }, (_, i) => i + 1).reduce((m, i) => tick(m, T0 + i * 5 * MIN, { isWorking: false, isLate: false }), n)
@@ -2028,6 +2040,10 @@ test('outside text is escaped for SVG, kept to one line, or clipped', () => {
   expect(oneLine(' a\nb\tc ')).toBe('a b c')
   expect(clip('  ab\u0007cd  ', 3)).toBe('abc')
   expect(clip('ab cd', 3)).toBe('ab')
+  // C1 controls (U+009B is CSI) and direction marks, which could steer a terminal or reverse what you read.
+  expect(oneLine('a\u009b31mb\u202ec\u2066d')).toBe('a 31mb c d')
+  expect(clip('ab\u009bcd\u200f', 10)).toBe('abcd')
+  expect(cellText('ok\u009b2J\u202edone')).toBe('ok2Jdone')
 })
 
 test('a rod keeps one short line of its subagent\'s description, and a beach file a short repo', () => {

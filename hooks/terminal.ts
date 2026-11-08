@@ -12,6 +12,7 @@ import { gadgetPixels } from './gadgets'
 import { CRAB_CELLS, cellsOf, downsample } from './pixelart'
 import type { Fineness, Rect, Sprite } from './pixelart'
 import { INK, crabRects, isSeated } from './sprites'
+import { isUnsafeChar } from './text'
 import type { Costume, CrabLook } from './sprites'
 
 /** The terminal's own colour, for a cell or half a cell with nothing in it. */
@@ -81,7 +82,7 @@ const spriteOf = (costume: Costume, pose: Pose, look: CrabLook, fineness: Finene
 
 /** A speech bubble as cells: one character each, so only narrow ones, and no emoji. */
 export const cellText = (text: string): string =>
-  [...text.replace(/♥/g, '<3')].filter(c => (c.codePointAt(0) ?? 0) < 0x2100 && c !== '️').join('').replace(/\s+/g, ' ').trim()
+  [...text.replace(/♥/g, '<3')].filter(c => (c.codePointAt(0) ?? 0) < 0x2100 && c !== '️' && !isUnsafeChar(c)).join('').replace(/\s+/g, ' ').trim()
 
 /** Where words beside the crab's head start: right of it when there's room, else left. */
 const wordsAt = (crabX: number, crabW: number, length: number, W: number): number =>

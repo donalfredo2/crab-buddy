@@ -1,0 +1,7 @@
+# Keeps the workflows' actions current, and so any tag a release workflow with write access trusts.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

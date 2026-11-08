@@ -25,7 +25,7 @@ export const logFile = (log: Logbook, path: string): Logbook => {
 export const logCheck = (log: Logbook, which: 'test' | 'build', isOk: boolean): Logbook =>
   which === 'test' ? { ...log, test: isOk ? 'passed' : 'failed' } : { ...log, build: isOk ? 'passed' : 'failed' }
 
-export const COMMIT = /\bgit(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+commit\b/
+export const COMMIT = /\bgit(?:\s+-[cC]\s+\S+|\s+-[\w-]+(?:=\S+)?){0,12}\s+commit\b/
 
 /**
  * A commit's subject line from its command: a heredoc's first line, or `-m "…"`. Only what belongs to the
