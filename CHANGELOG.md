@@ -2,6 +2,11 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.25.0
+- In a terminal (VS Code's, Terminal.app and the rest) the crab is now the desktop's own drawing scaled down to the cells, not a blob of seven: every costume and gadget as the desktop draws it, its eyes, claws and legs, and a walk that moves its legs in turn.
+- The strip above the prompt is four rows instead of three. A tank 9 rows or taller draws the crab at half the desktop's size.
+- Its eyes and shades use an ink that shows on dark terminals as well as light ones.
+
 ## 0.24.0
 - What the session costs: `/crab stats` adds the dollars and the tokens (out, in, cached), and `/crab cost` gives the whole picture: cache reads and writes, the helpers' (subagents') share, and each model. On a subscription the dollars are marked as an estimate at API prices.
 - A sign goes up at $5, $10, $25, $50 and $100 spent, then every $100, once each. Not while a budget hourglass counts the same money. `/crab cost off` keeps them down.

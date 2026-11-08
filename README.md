@@ -221,7 +221,7 @@ Nothing else leaves your machine: `/crab feedback` only prints a link and a line
 
 ## In the terminal
 
-The terminal draws no pictures, so there the beach is coloured half-block characters: three rows above the prompt with the buttons beside it, and a taller beach in the tank when the terminal docks panes (fullscreen). The same life plan drives it, so the crab does what it does on the desktop: walks, naps, builds its castle, watches the sea creep in with your context, and talks beside its head. The decor your shells unlock shows from about 63 columns, and the house from about 80. Empty cells keep your terminal's own colours. It is repainted four times a second (once a second while it naps) only while it is on screen. It needs Claude Code 2.1.309 or later; `claude update` gets you there.
+The terminal draws no pictures, so there the beach is coloured half-block characters: four rows above the prompt with the buttons beside it, and a taller beach in the tank when the terminal docks panes (fullscreen). The crab is the desktop's own drawing scaled down to those cells, costume, gadget and all: a third of its size above the prompt, and half in a tank 9 rows or taller. The same life plan drives it, so the crab does what it does on the desktop: walks, naps, builds its castle, watches the sea creep in with your context, and talks beside its head. The decor your shells unlock shows from about 63 columns, and the house from about 80. Empty cells keep your terminal's own colours. It is repainted four times a second (once a second while it naps) only while it is on screen. It needs Claude Code 2.1.309 or later; `claude update` gets you there.
 
 On the desktop and in VS Code the animation is CSS only, costs no tokens, and stops when macOS "Reduce motion" is on. The chirp is an original sound synthesized for this mod.
 
@@ -240,6 +240,8 @@ bun scripts/check-animations.ts   # the beach in a real browser (needs playwrigh
 ```
 
 `CRAB_SHOTS=/tmp/crab` also saves a PNG per animation scenario, and `CRAB_ONLY=<name>` runs just one.
+
+`bun scripts/preview-terminal.ts <folder>` draws the terminal beach as a terminal would (half blocks at VS Code's cell size) and saves a PNG for each costume standing, walking, napping, riding and talking, and in the tank; `CRAB_ONLY=<costume>` draws just one, `CRAB_ROWS=3` the strip at another height.
 
 CI runs these on the Claude Code version it's pinned to, which is the gate for merging. A canary job runs the same tests on the newest Claude Code, on every push and pull request and once a week; it never blocks a merge, and when it alone goes red, a new Claude Code release changed something the crab relies on.
 

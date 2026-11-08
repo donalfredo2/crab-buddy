@@ -187,7 +187,7 @@ function checkTerminal(sc: Scenario): void {
   const pl = planOf({ ...sc.input.seg, width: columns })
   for (let t = 0; t < pl.duration; t += 250) {
     const want = whereAt(pl, t)
-    const got = beachPixels({ columns, rows: 3, now: sc.input.seg.startAt + t, seg: { ...sc.input.seg, width: columns }, costume: sc.input.costume, timeOfDay: sc.input.timeOfDay, sky: sc.input.sky, bubble: null, beach: sc.input.beach })
+    const got = beachPixels({ columns, rows: 4, now: sc.input.seg.startAt + t, seg: { ...sc.input.seg, width: columns }, costume: sc.input.costume, timeOfDay: sc.input.timeOfDay, sky: sc.input.sky, bubble: null, beach: sc.input.beach })
     if (want.pose === 'gone') continue
     ok(Number.isFinite(got.crabX) && got.crabX >= 0 && got.crabX < columns, `terminal:${sc.name}`, `t=${t}: crab at column ${got.crabX}`)
   }

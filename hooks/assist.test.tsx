@@ -266,7 +266,7 @@ test("Claude Code's own permission notice raises the flag when no dialog hook di
 
 test('the terminal shows the flag white on red beside its head', () => {
   const seg = { id: 1, seed: 7, startAt: T0, startP: 0.4, startFace: 1, mode: 'idle', width: 82, castle: 1, shells: 2, food: 60, fun: 60, energy: 60, timeOfDay: 'day' } as const
-  const base = { columns: 82, rows: 3, now: T0 + 1000, seg, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null } as const
+  const base = { columns: 82, rows: 4, now: T0 + 1000, seg, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null } as const
   const cells = (beach: object) => {
     const w = decodeCells(beachCells({ ...base, beach } as never))
     return Array.from({ length: w.length / 3 }, (_, i) => ({ ch: w[i * 3] ?? 0, fg: w[i * 3 + 1] ?? 0, bg: w[i * 3 + 2] ?? 0 }))
@@ -542,9 +542,9 @@ test('the hourglass moves its sand from top to bottom, and stops trickling when 
 test('the terminal draws the hourglass on the home shell: sand on top while most is left, below once most is gone', () => {
   const seg = { id: 1, seed: 7, startAt: T0, startP: 0.5, startFace: 1, mode: 'idle', width: 82, castle: 0, shells: 0, food: 60, fun: 60, energy: 60, timeOfDay: 'day' } as const
   const px = (usage?: number) => {
-    const w = decodeCells(beachCells({ columns: 82, rows: 3, now: T0, seg, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null, beach: usage === undefined ? {} : { usage } } as never))
-    // Column 1, rows 0 and 1 (pixels 0..3): what is drawn there.
-    return [0, 1].flatMap(r => [w[(r * 82 + 1) * 3 + 1], w[(r * 82 + 1) * 3 + 2]])
+    const w = decodeCells(beachCells({ columns: 82, rows: 4, now: T0, seg, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null, beach: usage === undefined ? {} : { usage } } as never))
+    // Column 1, rows 1 and 2 (pixels 2..5): what is drawn there.
+    return [1, 2].flatMap(r => [w[(r * 82 + 1) * 3 + 1], w[(r * 82 + 1) * 3 + 2]])
   }
   const SAND = 0xE8C27A
   const GLASS = 0xCFE8F2
