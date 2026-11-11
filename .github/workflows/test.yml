@@ -92,5 +92,9 @@ jobs:
       - run: bun --version
       # The script imports playwright; there is no package.json, so install it without one.
       - run: npm install --no-save --no-package-lock playwright@1.63.0
-      - run: npx playwright install --with-deps chromium
+      # --with-deps adds fonts and libraries through apt. When Ubuntu's mirrors don't answer (they have failed
+      # to resolve for a while at a time), take the browser alone from Playwright's CDN: the runner image has
+      # Chrome's libraries, and the check compares pictures for movement, never text, so no fonts are needed.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium || npx playwright install chromium
       - run: bun scripts/check-animations.ts
