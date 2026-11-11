@@ -18,6 +18,7 @@ What it shows you:
 - **When Claude needs you.** It holds up a red flag while Claude waits for a permission, an answer or a plan, and offers a ready `/compact` at the right moment.
 - **Your usage limit.** An hourglass by its shell fills as the limit or budget runs down.
 - **What the session costs.** `/crab cost` has the dollars and the tokens, and a sign goes up at $5, $10 and on.
+- **How warm the prompt cache is.** A campfire by its shell burns down until the cache likely goes cold, and with a big context a sign says so a little before: come back in time and your next prompt reads the cache instead of writing it all again.
 - **What Claude is doing.** A hammer for edits, a scroll for reading, binoculars for the web, a fishing rod for every subagent. Commits get fireworks, failing tests a storm cloud, long tasks a "done!" plane and a chirp.
 - **The news.** Task done, commit pushed, PR merged: it stops, faces you and raises a sign.
 - **The state of your work, kept.** A logbook of files, tests and commits that goes to the summary when the context gets compacted.
@@ -105,12 +106,13 @@ Food and Fun fade 5 points an hour, counted only while a session is open. **Whil
 
 ## Lending a claw
 
-Three small helps, all free: nothing goes to the model, and the crab never answers, blocks or changes anything for you.
+A few small helps, all free: nothing goes to the model, and the crab never answers, blocks or changes anything for you.
 
 - **The red flag:** when Claude is waiting for you (a permission, a question, a plan to approve) the crab turns to you and holds up a red flag saying what for: "needs you: Bash", "a question for you", "a plan to approve", "a helper needs you" for a subagent. It comes down when you answer, write, or the turn ends. It makes no sound: Claude Code already notifies you its own way. News that comes meanwhile waits behind it. With roaming on, the crab goes to the window that waits, once you've been quiet a minute; until then its sign says "<repo> needs you". `/crab needs off` turns it off.
 - **A ready /compact:** at the good moment sign, or with the sea near the top, a `/compact` waits dim in the empty prompt box, telling the summary what to keep: the files you worked on, the last commit, and a test or build left failing. Tab takes it, Enter sends it; ignore it and it goes. Once per fill of the context. `/crab tips off` turns it off.
 - **The hourglass:** on a subscription a small hourglass stands on the crab's home shell. Its top holds what's left of your five-hour usage limit; the sand runs down as you use it, red from 95%. At 80% and 95% a sign goes up in the sand with when it runs out at this pace and when it resets ("limit 81% · full ~15:40 · resets 16:20"), once each per window. On API billing it counts a budget instead, if you set `budgetUsd`. `/crab stats` says it in words. `/crab hourglass off` turns it off.
 - **What it costs:** `/crab stats` adds what the session has cost so far and its tokens ("cost $4.20 · 38k out, 120k in, 2.1M cached"), and `/crab cost` gives the whole picture: cache writes and reads apart, how much went to helpers (subagents), and each model. The dollars are Claude Code's own total, the same as `/cost`. On a subscription they're what the session would cost at API prices, not what you pay, and are marked with ≈. A sign goes up at $5, $10, $25, $50 and $100, then every $100, once each; not while a budget hourglass counts the same money. The tokens are counted turn by turn from when the crab joined the session, so they leave out side calls such as a compaction's summary, which the dollars include. `/crab cost off` keeps the signs down.
+- **The campfire:** Claude Code keeps the conversation's prompt cached after each request, for five minutes or an hour. Your next prompt within that time reads it cheaply; after it, the whole conversation is written to the cache again, at 1.25 times the input price for the five-minute cache and twice for the hour's, instead of a fraction for a read. A campfire right of the home shell shows where you are: it blazes after each reply, burns down, glows as embers in the last fifth, and lies as cold ashes with a thread of smoke once the cache has likely gone cold (the ashes clear after 15 minutes). With 50k tokens or more of context a sign goes up a minute before it cools (ten for the hour's cache), once per pause: "cache cools in 1 min". It comes while Claude waits for your answer too, since the cache cools then unseen, but not while Claude works. `/crab cache` says how long it has left, why it lasts that long and what a cold restart would write ("~150k tokens (≈ $0.75)"); `/crab stats` adds "cache warm ~3 min". The lifetime follows Claude Code's own rule: `CLAUDE_CODE_PROMPT_CACHE_TTL` (or `FORCE_PROMPT_CACHING_5M`, `ENABLE_PROMPT_CACHING_1H`), then the `promptCacheTtl` setting, then an hour on a subscription within its limits and five minutes on an API key, Bedrock, Vertex or Foundry, or past a limit. It's a guide, not a promise: the crab counts from the last reply while the cache counts from when that request started, so a long final reply leaves a little less, and Claude Code sometimes keeps the cache warm on its own, so it can stay warm longer. The dollars are first-party list prices, marked ≈, and "at API prices" on a subscription; a model the crab doesn't know gets tokens only. A compaction puts the fire out: the next prompt caches the shorter conversation anew. Nothing is sent to keep the cache warm. `/crab cache off` takes the fire and the sign away.
 
 ## The logbook
 
@@ -173,14 +175,15 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab ride`: sends it off on its gadget right now
 - `/crab name <name>`: give it a name (up to 16 characters)
 - `/crab cost`: what the session has cost, in dollars and tokens; `/crab cost on|off` turns its signs on or off
-- `/crab stats`: session time, turns, tool calls, context, usage limit or budget, cost and tokens, needs, shells, fish, what kind of crab it is and today's theme
+- `/crab cache`: how long the prompt cache likely stays warm, and what letting it go cold would cost; `/crab cache on|off` shows or hides the campfire and its sign
+- `/crab stats`: session time, turns, tool calls, context, usage limit or budget, cost and tokens, needs, how warm the prompt cache is, shells, fish, what kind of crab it is and today's theme
 - `/crab lines`: the subagents out fishing
 - `/crab log`: what's in the logbook; `/crab log on|off` turns the bottle on or off
 - `/crab theme`: today's theme, and the costume you picked if it differs
 - `/crab weather`: which place the weather is for, how it was found, and what it is
 - `/crab size`: what this surface reports for the strip, handy if it looks stretched
 - `/crab bubbles often|rare|off`, `/crab signs on|off`, `/crab breaks on|off`, `/crab sound on|off`
-- `/crab needs on|off`, `/crab tips on|off`, `/crab hourglass on|off`, `/crab cost on|off`: the red flag, the ready /compact, the hourglass, the cost signs
+- `/crab needs on|off`, `/crab tips on|off`, `/crab hourglass on|off`, `/crab cost on|off`, `/crab cache on|off`: the red flag, the ready /compact, the hourglass, the cost signs, the campfire
 - `/crab snooze`: snooze the break reminder for 30 minutes
 - `/crab`, `/crab <costume>`, `/crab today`: costumes
 - `/crab tank` / `/crab strip`: move it into its tank pane or back above the prompt; `/crab tank` again says where the pane sits

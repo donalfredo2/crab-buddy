@@ -42,6 +42,7 @@ for (const costume of ALL) {
   strip('walk', seg({ hold: { pose: 'wander', ms: 60_000 } }), 1250)
   strip('nap', seg({ hold: { pose: 'nap', ms: 60_000 } }), 1000)
   strip('ride', seg({ seed: 11, ride: costume, first: 'ride', width: 900, shore: 0.7 }), 2500)
+  for (const fire of ['blaze', 'embers', 'ashes'] as const) strip(`fire-${fire}`, seg({ hold: { pose: 'stand', ms: 60_000 }, startP: 0.5 }), 1000, { beach: { fire, usage: 0.4 } })
   strip('talk', seg({ hold: { pose: 'stand', ms: 60_000 } }), 1000, { bubble: `${costume} day!` })
   scenes.push({ name: `${costume}-tank`, input: { columns: 48, rows: 14, now: T0 + 1000, seg: seg({ hold: { pose: 'stand', ms: 60_000 }, width: 48 * 8, startP: 0.4 }), costume, timeOfDay: 'day', sky: skyFor(T0), bubble: null } })
 }

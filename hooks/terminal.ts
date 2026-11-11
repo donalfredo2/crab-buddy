@@ -294,6 +294,14 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number; cr
     put(1, G - 3, t.beach.usage > 0 && t.beach.usage < 1 && sec % 2 ? sand : '#8A5A2B')
     put(1, G - 2, t.beach.usage >= 0.5 ? sand : '#CFE8F2')
   }
+  // The campfire beside it: flames that flicker while the prompt cache is warm, glowing embers near the end, grey once cold.
+  if (t.beach?.fire) {
+    const f = t.beach.fire
+    put(3, G - 1, f === 'ashes' ? '#8E8A84' : f === 'embers' && sec % 2 ? '#E8632B' : '#7A4A26')
+    if (f === 'blaze' || f === 'fire') put(3, G - 2, tick % 2 ? '#F5A33A' : '#E8632B')
+    if (f === 'blaze' && G >= 4 && tick % 3) put(3, G - 3, '#FBE38A')
+    if (f === 'ashes' && sec % 3 === 0) put(3, G - 2, '#B8B4AD')
+  }
   const c = Math.round(W * 0.3)
   const stage = Math.min(5, t.seg.castle)
   if (stage >= 1) for (const dx of [-1, 0, 1]) put(c + dx, G - 1, '#C9A86A')

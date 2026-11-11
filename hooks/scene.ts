@@ -3,7 +3,7 @@
 // plan. Everything above the sand is transparent. All motion is CSS keyed to the
 // wall clock, so a redraw picks up the segment where it was instead of starting over.
 
-import type { Beach, Pose, Prop, Segment, TimeOfDay } from '../types'
+import type { Beach, Fire, Pose, Prop, Segment, TimeOfDay } from '../types'
 import { CRAB_W, MARK_SHORE, MAX_CASTLE, NO_CONTEXT_SHORE, ROOMY, hasDecor, isWalking, layoutOf, planOf, rodSpots, spots, whereAt, xOf } from './life'
 import type { Layout, Plan } from './life'
 import { moonLit } from './sky'
@@ -72,6 +72,12 @@ const SCENE_CSS = `
 @keyframes flut{50%{transform:translateY(-3px)}}
 .flag{transform-box:fill-box;transform-origin:0 50%;animation:wave .6s steps(1) infinite}
 .trk{animation:blink .8s steps(1) infinite}
+.flm{transform-box:fill-box;transform-origin:50% 100%;animation:flk .9s steps(2,end) infinite}
+@keyframes flk{50%{transform:scaleY(.8)}}
+.emb{animation:emb 2.4s ease-in-out infinite}
+@keyframes emb{50%{opacity:.35}}
+.smk{animation:smk 4s linear infinite}
+@keyframes smk{from{transform:translateY(0);opacity:.7}to{transform:translateY(-6px);opacity:0}}
 `
 
 const SHELL = ['...dpppd...', '..dpwpwpd..', '.dpwpwpwpd.', 'dpwpwpwpwpd', 'dpwpwpwpwpd', '.dpppppppd.', '...ddddd...']
@@ -477,6 +483,31 @@ export const hourglassSvg = (used: number): string => {
   return `<g class="hourglass" shape-rendering="crispEdges"><rect x="${x0}" y="${y0}" width="7" height="1" fill="#8A5A2B"/><rect x="${x0}" y="${y0 + 8}" width="7" height="1" fill="#8A5A2B"/>${glass.map(c => cell(c, '#CFE8F2')).join('')}${top.slice(0, left).map(c => cell(c, sand)).join('')}${bottom.slice(0, 7 - left).map(c => cell(c, sand)).join('')}${left > 0 && left < 7 ? cell([3, 4], sand, 'trk') : ''}</g>`
 }
 
+/**
+ * The campfire right of the home shell: how warm the prompt cache likely still is. It blazes, burns down,
+ * glows as embers in the last stretch and lies as cold ashes with a thread of smoke once the cache is cold.
+ * After dark a burning fire throws a little light on the sand.
+ */
+export const fireSvg = (fire: Fire, isDark = false): string => {
+  const x = HOME_SHELL_X + 13
+  const g = GROUND
+  const r = (dx: number, y: number, w: number, h: number, fill: string, cls = '') => `<rect${cls ? ` class="${cls}"` : ''} x="${x + dx}" y="${y}" width="${w}" height="${h}" fill="${fill}"/>`
+  const isCold = fire === 'ashes'
+  const logs = r(0, g - 1, 7, 1, isCold ? '#8E8A84' : '#6E4424') + r(1, g - 2, 5, 1, isCold ? '#A9A49C' : '#8A5A2B')
+  const RED = '#E8632B'
+  const AMBER = '#F5A33A'
+  const CORE = '#FBE38A'
+  const flame = fire === 'blaze'
+    ? r(1, g - 4, 5, 2, RED) + r(2, g - 6, 3, 2, RED) + r(3, g - 8, 1, 2, RED) + r(2, g - 4, 3, 2, AMBER) + r(3, g - 6, 1, 2, AMBER) + r(3, g - 4, 1, 1, CORE)
+    : fire === 'fire'
+      ? r(2, g - 4, 3, 2, RED) + r(3, g - 6, 1, 2, RED) + r(3, g - 4, 1, 2, AMBER)
+      : ''
+  const glow = isDark && flame ? `<ellipse cx="${x + 3.5}" cy="${g - 4}" rx="${fire === 'blaze' ? 7 : 5}" ry="${fire === 'blaze' ? 6 : 4}" fill="#FFC86B" opacity=".2"/>` : ''
+  const embers = fire === 'embers' ? `<g class="emb">${r(2, g - 2, 1, 1, RED)}${r(4, g - 2, 1, 1, RED)}${r(3, g - 3, 1, 1, AMBER)}</g>` : ''
+  const smoke = isCold ? `<g class="smk">${r(3, g - 4, 1, 1, '#B8B4AD')}${r(4, g - 6, 1, 1, '#C9C5BE')}</g>` : ''
+  return `<g class="cfire" shape-rendering="crispEdges">${glow}${logs}${flame ? `<g class="flm">${flame}</g>` : ''}${embers}${smoke}</g>`
+}
+
 /** A rod in the sand for each line out, its float bobbing in the sea. */
 const rodsSvg = (width: number, shore: number, count: number, now: number): string =>
   rodSpots(width, shore, count).map(({ x, float }, i) => {
@@ -792,7 +823,7 @@ export const sceneSvg = (s: SceneInput): string => {
   return `<svg xmlns="http://www.w3.org/2000/svg" ${fit}><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
 <g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells, !!s.beach?.hasMark, own)}${footprints(pl, width, elapsed)}
-<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${s.beach?.usage !== undefined ? hourglassSvg(s.beach.usage) : ''}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
+<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${s.beach?.usage !== undefined ? hourglassSvg(s.beach.usage) : ''}${s.beach?.fire ? fireSvg(s.beach.fire, s.timeOfDay === 'night' || s.timeOfDay === 'evening') : ''}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
 <g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
 ${isGone ? '' : `<ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>`}
 <g class="ly" transform="translate(0,${Math.round(-here.lift)})"><g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}</g>
