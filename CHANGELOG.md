@@ -2,6 +2,11 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.27.0
+- In VS Code the beach could drop to one frame a second after the window had been in the background, and stay there: the crab then walked in jumps. The crab now has VS Code paint the picture again ten times a second while it is about (once a second while it naps), so the walk keeps moving. Desktop, mobile and the terminal are not affected.
+- `/crab pulse` says how: `nudge` (the default, nearly free), `redraw` (a fresh picture each beat, for when nudging is not enough), `off`, or 1 to 10 beats a second.
+- `/crab restart` still redraws a stuck crab by hand.
+
 ## 0.26.0
 - A campfire by the home shell shows how warm the prompt cache likely still is: it blazes after each reply, burns down, glows as embers and goes cold once the cache has likely expired, five minutes or an hour later as Claude Code decides. Come back in time and your next prompt reads the cache instead of writing the whole conversation to it again.
 - With 50k tokens or more of context, a sign goes up shortly before it cools, once per pause: "cache cools in 1 min". Also while Claude waits for your answer, never while it works.

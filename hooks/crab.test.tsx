@@ -14,6 +14,7 @@ import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote
 import { WORK_FLOOR, care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
 import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, newsOf, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, toolNewsOf, wornAt } from './register'
 import { sceneSvg, timeOfDay, unlocked } from './scene'
+import { DEFAULT_PULSE, nudged, pulseFrom, pulseOf } from './pulse'
 import { breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
 import { COSTUMES, SPECIAL_COSTUMES, costumeOfDay, crab as crabArt, crabRects } from './sprites'
@@ -1363,6 +1364,95 @@ test('/crab restart steps away long enough for a new frame, then comes back by i
   expect(await drawn()).toBe(true)
 })
 
+// --- VS Code's heartbeat: the picture drawn again on a timer, so a slow image clock can't hold the beach still
+
+/** The band's Svg every 100 ms for `ms`: its height and source each time. */
+const beats = async (ui: { find: (q: { type: string }) => Promise<{ props: Record<string, unknown> } | undefined> }, clock: { advance: (ms: number) => Promise<unknown> }, ms: number) => {
+  const out: { height: number; source: string }[] = []
+  for (let t = 0; t < ms; t += 100) {
+    await clock.advance(100)
+    const svg = await ui.find({ type: 'Svg' })
+    out.push({ height: Number(svg?.props.height), source: String(svg?.props.source) })
+  }
+  return out
+}
+const changes = <T,>(xs: T[]): number => xs.filter((x, i) => i > 0 && x !== xs[i - 1]).length
+
+test('in VS Code the picture is nudged ten times a second while the crab is about, once a second while it naps', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  // Before any turn it naps at home: once a second is enough.
+  const napping = await beats(ui, clock, 2000)
+  expect(changes(napping.map(b => b.height))).toBeGreaterThanOrEqual(1)
+  expect(changes(napping.map(b => b.height))).toBeLessThanOrEqual(3)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const working = await beats(ui, clock, 1000)
+  expect(changes(working.map(b => b.height))).toBeGreaterThanOrEqual(8)
+  // Only ever a hundredth of a pixel, and the picture itself is kept: VS Code paints it again, nothing restarts.
+  expect(new Set(working.map(b => b.height))).toEqual(new Set([40, 40.01]))
+  expect(changes(working.map(b => b.source))).toBe(0)
+  await ui.unmount()
+})
+
+test('the desktop is never nudged', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(new Set((await beats(ui, clock, 1000)).map(b => b.height))).toEqual(new Set([40]))
+  await ui.unmount()
+})
+
+test('/crab pulse redraw sends a fresh picture each beat, and /crab pulse off goes back to the image alone', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/heartbeat: nudge, 10 beats a second/)
+  expect(JSON.stringify(await crab($, 'pulse redraw'))).toMatch(/heartbeat: redraw, 10 beats a second/)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  const redrawn = await beats(ui, clock, 1000)
+  expect(changes(redrawn.map(b => b.source))).toBeGreaterThanOrEqual(8)
+  expect(new Set(redrawn.map(b => b.height))).toEqual(new Set([40]))
+  expect(JSON.stringify(await crab($, 'pulse off'))).toMatch(/heartbeat: off/)
+  const still = await beats(ui, clock, 1000)
+  expect(changes(still.map(b => b.source))).toBe(0)
+  expect(new Set(still.map(b => b.height))).toEqual(new Set([40]))
+  // A rate turns it back on, nudging; a word it doesn't know changes nothing.
+  expect(JSON.stringify(await crab($, 'pulse 4'))).toMatch(/heartbeat: nudge, 4 beats a second/)
+  expect(JSON.stringify(await crab($, 'pulse fast'))).toMatch(/takes nudge, redraw, off, on, or beats a second from 1 to 10/)
+  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/nudge, 4 beats a second/)
+  const slower = await beats(ui, clock, 1000)
+  expect(changes(slower.map(b => b.height))).toBeGreaterThanOrEqual(3)
+  expect(changes(slower.map(b => b.height))).toBeLessThanOrEqual(5)
+  await ui.unmount()
+})
+
+test('the pulse setting outlives the session', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on, { vscodePulse: { mode: 'redraw', fps: 5 } })
+  engine(on)
+  await start($)
+  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/heartbeat: redraw, 5 beats a second/)
+})
+
+test('a pulse setting from elsewhere is read safely, and /crab pulse takes only what it knows', () => {
+  expect(pulseOf(undefined)).toEqual(DEFAULT_PULSE)
+  expect(pulseOf({ mode: 'warp', fps: 60 })).toEqual(DEFAULT_PULSE)
+  expect(pulseOf({ mode: 'off', fps: 3 })).toEqual({ mode: 'off', fps: 3 })
+  expect(pulseFrom('on', { mode: 'off', fps: 3 })).toEqual({ mode: 'nudge', fps: 3 })
+  expect(pulseFrom('7', { mode: 'off', fps: 3 })).toEqual({ mode: 'nudge', fps: 7 })
+  expect(pulseFrom('7', { mode: 'redraw', fps: 3 })).toEqual({ mode: 'redraw', fps: 7 })
+  for (const bad of ['0', '11', '2.5', '-1', 'fast', '']) expect(pulseFrom(bad, DEFAULT_PULSE)).toBeNull()
+  expect([nudged(40, 0), nudged(40, 1), nudged(40, 2)]).toEqual([40, 40.01, 40])
+})
+
 test('a session closed mid-restart does not leave the crab hidden', async ($, on) => {
   mock.clock(on, { now: T0 })
   mock.store(on)
@@ -1620,7 +1710,7 @@ test('with 50 shells the crown is yours', async ($, on) => {
 })
 
 test('no costume shares a name with a /crab word', () => {
-  const words = ['feed', 'play', 'pet', 'name', 'stats', 'log', 'theme', 'size', 'tank', 'strip', 'snooze', 'breaks', 'sound', 'bubbles', 'off', 'on', 'restart', 'ride', 'today', 'needs', 'tips', 'hourglass', 'signs', 'roam', 'here', 'where', 'lines']
+  const words = ['feed', 'play', 'pet', 'name', 'stats', 'log', 'theme', 'size', 'tank', 'strip', 'snooze', 'breaks', 'sound', 'bubbles', 'off', 'on', 'restart', 'pulse', 'ride', 'today', 'needs', 'tips', 'hourglass', 'signs', 'roam', 'here', 'where', 'lines']
   for (const c of [...COSTUMES, ...SPECIAL_COSTUMES]) expect(words.includes(c)).toBe(false)
 })
 
