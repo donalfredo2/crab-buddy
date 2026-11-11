@@ -95,6 +95,7 @@ jobs:
       # --with-deps adds fonts and libraries through apt. When Ubuntu's mirrors don't answer (they have failed
       # to resolve for a while at a time), take the browser alone from Playwright's CDN: the runner image has
       # Chrome's libraries, and the check compares pictures for movement, never text, so no fonts are needed.
+      # apt retries an unresolvable mirror for longer than the job may run, so its attempt gets 4 minutes.
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium || npx playwright install chromium
+        run: timeout 240 npx playwright install --with-deps chromium || npx playwright install chromium
       - run: bun scripts/check-animations.ts
