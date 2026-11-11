@@ -2,6 +2,10 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.26.1
+- The hint beside `/crab` in the prompt box was so long that it was cut off after two lines, hiding most commands, `help` among them. It now names the few most people want, with `help` first.
+- `/crab help` lists every command, grouped, with the costumes and the parts you can switch on or off.
+
 ## 0.26.0
 - A campfire by the home shell shows how warm the prompt cache likely still is: it blazes after each reply, burns down, glows as embers and goes cold once the cache has likely expired, five minutes or an hour later as Claude Code decides. Come back in time and your next prompt reads the cache instead of writing the whole conversation to it again.
 - With 50k tokens or more of context, a sign goes up shortly before it cools, once per pause: "cache cools in 1 min". Also while Claude waits for your answer, never while it works.
