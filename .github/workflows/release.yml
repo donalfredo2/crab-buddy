@@ -5,7 +5,8 @@ name: release
 on:
   push:
     tags: ['v*']
-  # By hand, for a tag that is already pushed (a re-run updates the notes).
+  # By hand: for a tag that is already pushed (a re-run updates the notes), or, run from main, for a version
+  # not tagged yet: the workflow then tags main itself. For sessions that can't push tags.
   workflow_dispatch:
     inputs:
       tag:
@@ -26,8 +27,19 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ env.TAG }}
+      # A tag that exists is published as it is. A new one only from main, at the commit checked out.
+      - name: Pick the commit to release
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            git fetch --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+            git checkout --detach "refs/tags/$TAG"
+            echo "NEW_TAG=" >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "NEW_TAG=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          else
+            echo "::error::$TAG does not exist. Run this from main to tag main, or push the tag first."
+            exit 1
+          fi
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -38,6 +50,8 @@ jobs:
           title="crab-buddy ${TAG#v}"
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+          elif [ -n "$NEW_TAG" ]; then
+            gh release create "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" --target "$NEW_TAG"
           else
             gh release create "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
           fi
