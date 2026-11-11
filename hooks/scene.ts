@@ -4,7 +4,7 @@
 // wall clock, so a redraw picks up the segment where it was instead of starting over.
 
 import type { Beach, Fire, Pose, Prop, Segment, TimeOfDay } from '../types'
-import { CRAB_W, MARK_SHORE, MAX_CASTLE, NO_CONTEXT_SHORE, ROOMY, hasDecor, isWalking, layoutOf, planOf, rodSpots, spots, whereAt, xOf } from './life'
+import { CRAB_W, MARK_SHORE, MAX_CASTLE, NO_CONTEXT_SHORE, ROOMY, TRACK_MIN, hasDecor, isWalking, layoutOf, planOf, rodSpots, spots, whereAt, xOf } from './life'
 import type { Layout, Plan } from './life'
 import { moonLit } from './sky'
 import type { Sky } from './sky'
@@ -484,12 +484,18 @@ export const hourglassSvg = (used: number): string => {
 }
 
 /**
- * The campfire right of the home shell: how warm the prompt cache likely still is. It blazes, burns down,
+ * Where the campfire stands: just right of where the crab rests at home, so a napping crab doesn't hide it.
+ * On a strip so narrow that the sandcastle is that close, it moves left of the castle instead.
+ */
+export const fireX = (width: number): number => Math.max(HOME_SHELL_X + 13, Math.min(TRACK_MIN + CRAB_W + 2, Math.round(width * 0.3) - 6 - 9))
+
+/**
+ * The campfire beside the crab's home spot: how warm the prompt cache likely still is. It blazes, burns down,
  * glows as embers in the last stretch and lies as cold ashes with a thread of smoke once the cache is cold.
  * After dark a burning fire throws a little light on the sand.
  */
-export const fireSvg = (fire: Fire, isDark = false): string => {
-  const x = HOME_SHELL_X + 13
+export const fireSvg = (fire: Fire, isDark = false, width = 1000): string => {
+  const x = fireX(width)
   const g = GROUND
   const r = (dx: number, y: number, w: number, h: number, fill: string, cls = '') => `<rect${cls ? ` class="${cls}"` : ''} x="${x + dx}" y="${y}" width="${w}" height="${h}" fill="${fill}"/>`
   const isCold = fire === 'ashes'
@@ -823,7 +829,7 @@ export const sceneSvg = (s: SceneInput): string => {
   return `<svg xmlns="http://www.w3.org/2000/svg" ${fit}><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
 <g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells, !!s.beach?.hasMark, own)}${footprints(pl, width, elapsed)}
-<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${s.beach?.usage !== undefined ? hourglassSvg(s.beach.usage) : ''}${s.beach?.fire ? fireSvg(s.beach.fire, s.timeOfDay === 'night' || s.timeOfDay === 'evening') : ''}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
+<g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${s.beach?.usage !== undefined ? hourglassSvg(s.beach.usage) : ''}${s.beach?.fire ? fireSvg(s.beach.fire, s.timeOfDay === 'night' || s.timeOfDay === 'evening', width) : ''}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
 <g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
 ${isGone ? '' : `<ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>`}
 <g class="ly" transform="translate(0,${Math.round(-here.lift)})"><g class="fc"${faceNow}>${layers.join('')}${prop}${umbrella}</g>${uprights.join('')}</g>

@@ -23,6 +23,16 @@ const hex = (c: string): number => parseInt(c.slice(1), 16)
 const PLANK = hex('#E9D6A6')
 const PLANK_INK = hex('#3A3936')
 
+/**
+ * The campfire's column: one right of the crab resting at home (its column is worked out as for the crab), and
+ * left of the sandcastle on a terminal so narrow that it is that close.
+ */
+export const fireColumn = (W: number, width: number, crabW: number): number => {
+  const f = W / Math.max(1, width)
+  const homeMid = Math.max(crabW / 2, Math.min(W - crabW / 2, Math.round((xOf(0, width) + CRAB_W / 2) * f)))
+  return Math.max(3, Math.min(homeMid + crabW / 2, Math.round(W * 0.3) - 3))
+}
+
 export type TerminalInput = {
   columns: number
   rows: number
@@ -294,14 +304,6 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number; cr
     put(1, G - 3, t.beach.usage > 0 && t.beach.usage < 1 && sec % 2 ? sand : '#8A5A2B')
     put(1, G - 2, t.beach.usage >= 0.5 ? sand : '#CFE8F2')
   }
-  // The campfire beside it: flames that flicker while the prompt cache is warm, glowing embers near the end, grey once cold.
-  if (t.beach?.fire) {
-    const f = t.beach.fire
-    put(3, G - 1, f === 'ashes' ? '#8E8A84' : f === 'embers' && sec % 2 ? '#E8632B' : '#7A4A26')
-    if (f === 'blaze' || f === 'fire') put(3, G - 2, tick % 2 ? '#F5A33A' : '#E8632B')
-    if (f === 'blaze' && G >= 4 && tick % 3) put(3, G - 3, '#FBE38A')
-    if (f === 'ashes' && sec % 3 === 0) put(3, G - 2, '#B8B4AD')
-  }
   const c = Math.round(W * 0.3)
   const stage = Math.min(5, t.seg.castle)
   if (stage >= 1) for (const dx of [-1, 0, 1]) put(c + dx, G - 1, '#C9A86A')
@@ -373,6 +375,16 @@ export const beachPixels = (t: TerminalInput): { px: number[]; crabX: number; cr
   const crabW = CRAB_CELLS[fineness]
   const mid = Math.max(crabW / 2, Math.min(W - crabW / 2, Math.round((xOf(here.p, t.seg.width) + CRAB_W / 2) * f)))
   const x0 = mid - crabW / 2
+  // The campfire just right of where the crab rests at home, so a napping crab doesn't hide it: flames that
+  // flicker while the prompt cache is warm, glowing embers near the end, grey once cold.
+  if (t.beach?.fire) {
+    const fc = fireColumn(W, t.seg.width, crabW)
+    const fire = t.beach.fire
+    put(fc, G - 1, fire === 'ashes' ? '#8E8A84' : fire === 'embers' && sec % 2 ? '#E8632B' : '#7A4A26')
+    if (fire === 'blaze' || fire === 'fire') put(fc, G - 2, tick % 2 ? '#F5A33A' : '#E8632B')
+    if (fire === 'blaze' && G >= 4 && tick % 3) put(fc, G - 3, '#FBE38A')
+    if (fire === 'ashes' && sec % 3 === 0) put(fc, G - 2, '#B8B4AD')
+  }
   const isNap = here.pose === 'nap'
   const isGone = here.pose === 'gone'
   const lift = BOUNCY.has(here.pose) && tick % 2 && G >= 5 ? 1 : 0

@@ -6,21 +6,21 @@ import type { Beach, Rod, Segment } from '../types'
 import { reconcile, sameRods } from './fishing'
 import { ACTIVE_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, whereCrabIs } from './roam'
 import type { BeachRecord } from './roam'
-import { HAMMOCK, MARK_SHORE, MARK_TIDE, MAX_RODS, POOLS, RIDES, ROOFS, STRIPES, TEMPERAMENTS, ZONES, activityStarts, hasDecor, layoutOf, plan, planOf, rideFits, rodSpots, shoreFrac, spots, tideOf, trackSpan, weights, whereAt, xOf } from './life'
+import { CRAB_W, HAMMOCK, MARK_SHORE, MARK_TIDE, MAX_RODS, POOLS, RIDES, ROOFS, STRIPES, TEMPERAMENTS, TRACK_MIN, ZONES, activityStarts, hasDecor, layoutOf, plan, planOf, rideFits, rodSpots, shoreFrac, spots, tideOf, trackSpan, weights, whereAt, xOf } from './life'
 import type { Decor, Temperament } from './life'
 
 import { line, signLine, themeLine, themeName } from './lines'
 import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { WORK_FLOOR, care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
 import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, newsOf, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, toolNewsOf, wornAt } from './register'
-import { sceneSvg, timeOfDay, unlocked } from './scene'
+import { fireX, sceneSvg, timeOfDay, unlocked } from './scene'
 import { DEFAULT_PULSE, nudged, pulseFrom, pulseOf } from './pulse'
 import { breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
 import { COSTUMES, SPECIAL_COSTUMES, costumeOfDay, crab as crabArt, crabRects } from './sprites'
 import { CRAB_CELLS, cellsOf as spriteCells, downsample } from './pixelart'
 import type { Costume } from './sprites'
-import { beachCells, beachPixels, cellText, decodeCells } from './terminal'
+import { beachCells, beachPixels, cellText, decodeCells, fireColumn } from './terminal'
 import { clip, oneLine, xml } from './text'
 
 const DAY = 86_400_000
@@ -3102,4 +3102,31 @@ test('time away from work still fades food and fun past the floor', () => {
   expect(Math.round(n.food)).toBe(21)
   expect(Math.round(n.fun)).toBe(21)
   expect(n.energy).toBe(31)
+})
+
+// The crab rests at home (p 0) to nap, stretch and hide, which is when the prompt cache cools: the fire must stand
+// beside it there, not under it, or the crab hides it whenever it matters.
+test('the campfire stands beside the crab resting at home, not under it, and left of the castle', () => {
+  for (const width of [300, 600, 1000, 1600]) {
+    const svg = sceneSvg({ width, costume: 'plain', look: {}, timeOfDay: 'day', bubble: null, now: T0 + 60_000, prop: null, sky: skyFor(T0), hour: 12, work: [], beach: { fire: 'blaze' }, seg: seg({ width, mode: 'sleep', startP: 0 }) })
+    const fire = /<g class="cfire"[^>]*>(.*?)<\/g><\/g>/.exec(svg)?.[1] ?? ''
+    const xs = [...fire.matchAll(/<rect[^>]* x="([\d.]+)"[^>]* width="([\d.]+)"/g)].map(m => [Number(m[1]), Number(m[1]) + Number(m[2])] as const)
+    expect(xs.length).toBeGreaterThan(3)
+    expect(Math.min(...xs.map(([a]) => a))).toBeGreaterThanOrEqual(xOf(0, width) + CRAB_W)
+    expect(Math.max(...xs.map(([, b]) => b))).toBeLessThanOrEqual(Math.round(width * 0.3) - 6)
+    expect(fireX(width)).toBe(TRACK_MIN + CRAB_W + 2)
+  }
+})
+
+test('in the terminal the campfire is the column right of the crab resting at home', () => {
+  for (const columns of [60, 100, 160]) {
+    const t = beachPixels({ columns, rows: 4, now: T0 + 60_000, costume: 'plain', timeOfDay: 'day', sky: skyFor(T0), bubble: null, beach: { fire: 'blaze' }, seg: seg({ width: columns * 8, mode: 'sleep', startP: 0 }) })
+    const col = fireColumn(columns, columns * 8, t.crabW)
+    expect(col).toBe(t.crabX + t.crabW)
+    expect(col).toBeLessThan(Math.round(columns * 0.3) - 2)
+    // The logs are drawn there, on the bottom row of half-cells, and no longer under the crab at column 3.
+    const G = 4 * 2 - 1
+    expect(t.px[(G - 1) * columns + col]).toBe(0x7a4a26)
+    expect(t.px[(G - 1) * columns + 3]).not.toBe(0x7a4a26)
+  }
 })
