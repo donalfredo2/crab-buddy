@@ -87,6 +87,7 @@ const SIGNS: Record<SignKind, readonly string[]> = {
   budget: ['budget {time}'],
   spend: ['{time} so far', '{time} this session'],
   news: ['new: {time}'],
+  cache: ['cache cools {time}', 'fire out {time}'],
 }
 
 /** The red flag's words: what Claude is waiting for you on, short enough for a plank. */

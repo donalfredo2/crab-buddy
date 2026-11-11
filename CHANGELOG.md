@@ -2,6 +2,11 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.26.0
+- A campfire by the home shell shows how warm the prompt cache likely still is: it blazes after each reply, burns down, glows as embers and goes cold once the cache has likely expired, five minutes or an hour later as Claude Code decides. Come back in time and your next prompt reads the cache instead of writing the whole conversation to it again.
+- With 50k tokens or more of context, a sign goes up shortly before it cools, once per pause: "cache cools in 1 min". Also while Claude waits for your answer, never while it works.
+- `/crab cache` says how long is left, why, and what a cold restart would write, in tokens and ≈ dollars. `/crab stats` adds it in a word; `/crab cache off` hides the fire and the sign.
+
 ## 0.25.1
 - A shell command with many options after `git` could take the crab seconds to minutes to read, and Claude waited for it. It now reads any command in a moment.
 - If the crab's own bookkeeping fails around a tool call, the call still runs and its result still reaches Claude.

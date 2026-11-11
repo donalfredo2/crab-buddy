@@ -8,7 +8,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PaneCloseInput, PluginOptions, Register, Timer, ToolCallInput, ToolCallResult } from 'claude-code'
 
-import type { Activity, Antic, Beach, BreakState, Bubble, CatchKind, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, SignKind, TideLines, Tiredness, Weather } from '../types'
+import type { Activity, Antic, Beach, BreakState, Bubble, Cache, CatchKind, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, SignKind, TideLines, Tiredness, Weather } from '../types'
 import { reconcile, sameRods } from './fishing'
 import { FRESH_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, wantsNote, whereCrabIs } from './roam'
 import type { BeachRecord } from './roam'
@@ -71,12 +71,15 @@ const usage = atom({ plugin: 'crab-buddy', key: 'usage' } as const, null)
 const isHourglassOff = atom({ plugin: 'crab-buddy', key: 'isHourglassOff' } as const, false)
 const spend = atom({ plugin: 'crab-buddy', key: 'spend' } as const, EMPTY_SPEND)
 const isSpendOff = atom({ plugin: 'crab-buddy', key: 'isSpendOff' } as const, false)
+const cache = atom({ plugin: 'crab-buddy', key: 'cache' } as const, null)
+const isCacheOff = atom({ plugin: 'crab-buddy', key: 'isCacheOff' } as const, false)
 
 // savvy-progress draws its own crab in its bar: ours steps aside while that bar is up. Written here, where it's
 // read: the engine lists what a module reads from $.state, so the reference must be a literal in this file.
 const savvyFlow = { plugin: 'savvy-progress', key: 'flow' } as const
 import { nextUsage, usageMark, usageSign, usageStat } from './usage'
 import { EMPTY_SPEND, addTurn, measureSpend, nextMilestone, spendDetail, spendSign, spendStat } from './spend'
+import { cacheDetail, cacheStat, coldAt, fireOf, inWords, nextChangeAt, rewriteText, shouldNudge, ttlOf } from './cache'
 import type { Costume, CrabLook } from './sprites'
 
 
@@ -116,6 +119,8 @@ const ROAM_MS = 3000
 const CLEAR_MS = 1000
 const BOTTLE_MS = 5 * MIN
 const CHIRP = 'sounds/chirp.wav'
+/** The campfire in words, for the picture's description. */
+const FIRE_WORD = { blaze: 'by a blazing campfire', fire: 'by a campfire burning down', embers: 'by glowing embers', ashes: 'by a cold campfire' } as const
 const BUBBLE_GAP: Record<string, number> = { often: 5 * MIN, rare: 15 * MIN }
 const NOTICE_MS = 1600
 const PROP_MS = 3500
@@ -386,10 +391,11 @@ const HELP = [
   '/crab weather             the real weather, and where it is for',
   '/crab log                 what it noted about your work, for the summary',
   '/crab cost                what this session has cost, in dollars and tokens',
+  '/crab cache               how long the prompt cache likely stays warm (the campfire)',
   '/crab roam on             one crab across all your windows',
   '/crab <costume>           dress it up; a bare /crab picks one',
   '',
-  'Switch a part off: /crab signs, needs, tips, hourglass, cost, breaks or sound off.',
+  'Switch a part off: /crab signs, needs, tips, hourglass, cost, cache, breaks or sound off.',
   `Every command: ${REPO}#buttons-and-commands`,
   'Tell the author what you think: /crab feedback',
 ].join('\n')
@@ -402,6 +408,7 @@ async function feedbackText($: EngineInterface): Promise<string> {
     (await read($, areTipsOff)) && 'tips',
     (await read($, isHourglassOff)) && 'hourglass',
     (await read($, isSpendOff)) && 'cost signs',
+    (await read($, isCacheOff)) && 'cache fire',
     (await read($, areBreaksOff)) && 'breaks',
     (await read($, isSoundOff)) && 'sound',
     (await readStore($, KEY.logOff, false)) && 'log',
@@ -916,6 +923,66 @@ async function refreshSpend($: EngineInterface, limits: readonly { kind: string 
   if (!(await holdUp($, 'spend', { time: words }))) $.ui.toast(`${words} so far this session${next.isEstimate ? ', at API prices' : ''}. /crab cost has the details.`)
 }
 
+// The prompt cache as a campfire. Each request of the main conversation keeps it warm for its lifetime, which
+// Claude Code picks from the environment, the promptCacheTtl setting or the plan; read here the same way.
+async function cacheTtl($: EngineInterface): Promise<ReturnType<typeof ttlOf>> {
+  // Each name written out: the engine lists which variables a mod reads.
+  const limits = (await $.session.usage().catch(() => null))?.rateLimits ?? []
+  return ttlOf({
+    force5m: await $.env.get('FORCE_PROMPT_CACHING_5M').catch(() => undefined),
+    env: await $.env.get('CLAUDE_CODE_PROMPT_CACHE_TTL').catch(() => undefined),
+    setting: await $.settings.read({ key: 'promptCacheTtl' }).catch(() => undefined),
+    enable1h: await $.env.get('ENABLE_PROMPT_CACHING_1H').catch(() => undefined),
+    limits,
+  })
+}
+
+/** A request of the main conversation just went out or came back: the fire is fed and the clock starts again. */
+async function feedFire($: EngineInterface, model?: string): Promise<void> {
+  const now = await $.clock.now()
+  const ttl = await cacheTtl($)
+  const tokens = (await read($, tide))?.tokens ?? 0
+  // Warm again: a cooling sign still standing is old news.
+  const prev = await read($, cache)
+  if (prev?.nudged) await update($, plantedSign, p => (p && p.until === coldAt(prev) ? null : p))
+  await update($, cache, c => ({ at: now, ttlMs: ttl.ms, why: ttl.why, tokens: tokens || c?.tokens || 0, model: model || c?.model || '', nudged: false, fire: 'blaze' }))
+  await tendFire($)
+}
+
+// Only the newest timer counts: each feeding starts a new one.
+let fireGen = 0
+
+/**
+ * Keeps the picture in step with the clock and puts up the cooling sign when it's due: redraws when the fire
+ * changes, then sleeps until the next moment anything can change. A reload calls it again from session.start.
+ */
+async function tendFire($: EngineInterface): Promise<void> {
+  const gen = ++fireGen
+  const now = await $.clock.now()
+  const cur = await read($, cache)
+  if (!cur) return
+  const fire = fireOf(cur, now)
+  if (fire !== cur.fire) await update($, cache, c => (c ? { ...c, fire } : c))
+  const flag = await read($, needsYou)
+  if (shouldNudge(cur, now, isTurnRunning && !flag)) {
+    await update($, cache, c => (c ? { ...c, nudged: true } : c))
+    if (!(await read($, isCacheOff))) await nudgeCooling($, cur, now)
+  }
+  const next = nextChangeAt(cur, now)
+  if (next !== null) $.clock.after(Math.max(1000, next - now), () => void (gen === fireGen && tendFire($)))
+}
+
+/** The cooling sign: in the sand, unless another stands there or signs are off; then a toast says it. */
+async function nudgeCooling($: EngineInterface, c: NonNullable<Cache>, now: number): Promise<void> {
+  const left = coldAt(c) - now
+  const planted = await read($, plantedSign)
+  if (!(await read($, areSignsOff)) && !(planted && planted.until > now)) {
+    await plantSign($, 'cache', left, inWords(left))
+    return
+  }
+  $.ui.toast(`Prompt cache cools ${inWords(left)}: a prompt after that writes ${rewriteText(c, (await read($, spend)).isEstimate)} to the cache again. /crab cache has the details.`)
+}
+
 // The context as a tide; the plain call is free. Warns once per session near the top.
 async function refreshContext($: EngineInterface): Promise<void> {
   const usage = await $.session.usage().catch(() => null)
@@ -1165,8 +1232,9 @@ async function view($: EngineInterface, isWorking: boolean): Promise<View> {
   const planted = (away ? heldNow : null) ?? (plantedNow && plantedNow.until > now ? plantedNow.text : null) ?? (signsOn ? (away ?? (await read($, roamNote))) : null)
   const lines = (await read($, rods)).length
   const used = (await read($, isHourglassOff)) ? null : await read($, usage)
-  const beach: Beach = { ...(sign ? { sign } : {}), ...(isFlag ? { isFlag } : {}), ...(planted ? { planted } : {}), ...(used ? { usage: Math.min(1, used.percent / 100) } : {}), ...((await read($, bottleUntil)) > now ? { hasBottle: true } : {}), ...(lines ? { rods: Math.min(MAX_RODS, lines) } : {}), ...(typeof water?.mark === 'number' ? { hasMark: true } : {}) }
-  const extra = [tiredness === 'fresh' ? '' : tiredness, look.isGrumpy ? 'grumpy' : '', look.isHungry ? 'hungry' : '', sign ? `holding up ${isFlag ? 'a red flag' : 'a sign'} saying ${sign}` : '', planted ? `beside a sign saying ${planted}` : '', lines ? `${lines} fishing ${lines === 1 ? 'line' : 'lines'} out` : ''].filter(Boolean)
+  const fire = (await read($, isCacheOff)) ? null : fireOf(await read($, cache), now)
+  const beach: Beach = { ...(fire ? { fire } : {}), ...(sign ? { sign } : {}), ...(isFlag ? { isFlag } : {}), ...(planted ? { planted } : {}), ...(used ? { usage: Math.min(1, used.percent / 100) } : {}), ...((await read($, bottleUntil)) > now ? { hasBottle: true } : {}), ...(lines ? { rods: Math.min(MAX_RODS, lines) } : {}), ...(typeof water?.mark === 'number' ? { hasMark: true } : {}) }
+  const extra = [tiredness === 'fresh' ? '' : tiredness, look.isGrumpy ? 'grumpy' : '', look.isHungry ? 'hungry' : '', sign ? `holding up ${isFlag ? 'a red flag' : 'a sign'} saying ${sign}` : '', planted ? `beside a sign saying ${planted}` : '', fire ? FIRE_WORD[fire] : '', lines ? `${lines} fishing ${lines === 1 ? 'line' : 'lines'} out` : ''].filter(Boolean)
   const alt = away
     ? `${name}'s beach, empty: ${name} is ${away}${planted && planted !== away ? `, a sign saying ${planted}` : ''}${lines ? `, ${lines} fishing ${lines === 1 ? 'line' : 'lines'} out` : ''}`
     : `${name} the crab, ${costume}, ${MOOD_WORD[mood]}${doing ? `, ${doing}` : ''}${extra.length ? `, ${extra.join(', ')}` : ''}`
@@ -1191,6 +1259,8 @@ async function loadChoices($: EngineInterface, options: PluginOptions): Promise<
   await update($, isHourglassOff, () => hourglassOff)
   const spendOff = await readStore($, KEY.spendOff, false)
   await update($, isSpendOff, () => spendOff)
+  const cacheOff = await readStore($, KEY.cacheOff, false)
+  await update($, isCacheOff, () => cacheOff)
   const storedMode = await $.store.get(KEY.bubbles)
   const mode = storedMode === 'often' || storedMode === 'rare' || storedMode === 'off' ? storedMode : options.bubbles === 'often' || options.bubbles === 'off' ? String(options.bubbles) : 'rare'
   await update($, bubbleMode, () => mode)
@@ -1263,8 +1333,8 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await $.command.register({
       name: 'crab',
-      description: 'Crab buddy: feed, play, pet, name, stats, cost, weather, lines, log, theme, tank or strip, breaks, sound, bubbles, signs, roam, costume',
-      argumentHint: '[feed | play | pet | name <name> | stats | cost [on|off] | weather | lines | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | needs on|off | tips on|off | hourglass on|off | roam on|off | here | where | off | on | restart | today | <costume>]',
+      description: 'Crab buddy: feed, play, pet, name, stats, cost, cache, weather, lines, log, theme, tank or strip, breaks, sound, bubbles, signs, roam, costume',
+      argumentHint: '[feed | play | pet | name <name> | stats | cost [on|off] | cache [on|off] | weather | lines | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | needs on|off | tips on|off | hourglass on|off | roam on|off | here | where | off | on | restart | today | <costume>]',
     })
     const now = await $.clock.now()
     await loadChoices($, options)
@@ -1290,6 +1360,8 @@ export const register: Register = (on, options) => {
     }
     await update($, stats, s => (s.startedAt ? s : { ...s, startedAt }))
     await refreshContext($)
+    // A reload lost the fire's timer.
+    await tendFire($)
     if (timeOfDay(hourOf(now)) === 'morning') await say($, 'morning')
     void refreshWeather($, w => update($, weather, () => w))
     await startSegment($)
@@ -1345,6 +1417,14 @@ export const register: Register = (on, options) => {
       const startedAt = await $.session.usage().then(u => u.startedAt, () => 0)
       return { text: spendDetail(await read($, spend), startedAt, await read($, isSpendOff)) }
     }
+    if (word === 'cache') {
+      if (value === 'on' || value === 'off') {
+        await update($, isCacheOff, () => value === 'off')
+        await $.store.set(KEY.cacheOff, value === 'off')
+        return { text: value === 'off' ? 'No campfire and no cooling sign. /crab cache still tells you.' : 'The campfire shows how warm the prompt cache likely is, and a sign says when it cools.' }
+      }
+      return { text: cacheDetail(await read($, cache), await $.clock.now(), (await read($, spend)).isEstimate, await read($, isCacheOff)) }
+    }
     if (word === 'log') {
       if (value === 'on' || value === 'off') {
         await $.store.set(KEY.logOff, value === 'off')
@@ -1377,7 +1457,8 @@ export const register: Register = (on, options) => {
       const { temperament } = layoutOf(tr.layout)
       const used = await read($, usage)
       const cost = spendStat(await read($, spend), used?.kind === 'budget')
-      return { text: `${v.summary}${used ? ` · ${usageStat(used, v.now)}` : ''}${cost ? ` · ${cost}` : ''} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''}${typeof fish === 'number' && fish > 0 ? ` · ${fish} fish` : ''}${temperament ? ` · ${TEMPERAMENTS[temperament].word}` : ''} · ${themeAt(v.now)}` }
+      const warm = cacheStat(await read($, cache), v.now)
+      return { text: `${v.summary}${used ? ` · ${usageStat(used, v.now)}` : ''}${cost ? ` · ${cost}` : ''} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)}${warm ? ` · ${warm}` : ''} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''}${typeof fish === 'number' && fish > 0 ? ` · ${fish} fish` : ''}${temperament ? ` · ${TEMPERAMENTS[temperament].word}` : ''} · ${themeAt(v.now)}` }
     }
     if (word === 'weather') return { text: await weatherText($, await read($, weather)) }
     if (word === 'lines') {
@@ -1466,7 +1547,7 @@ export const register: Register = (on, options) => {
       return { text: cfg.longMs > 0 ? 'The done chirp is on.' : 'The done chirp is on, but longTaskSeconds is 0 in the settings, so no task counts as long. Set it with /plugin configure crab-buddy@crab-buddy.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, cost, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}). /crab help lists the main ones.` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, cost, cache, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}). /crab help lists the main ones.` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }
@@ -1486,6 +1567,7 @@ export const register: Register = (on, options) => {
       isTurnRunning = true
       const now = await $.clock.now()
       await update($, reaction, () => null)
+      await feedFire($)
       await update($, breaks, b =>
         !b.streakStart || now - b.lastActive >= IDLE_MS ? { ...b, streakStart: now, lastActive: now, toastedFor: 0 } : { ...b, lastActive: now },
       )
@@ -1523,6 +1605,7 @@ export const register: Register = (on, options) => {
       const isOk = e.reason === 'answer' && !e.isAborted
       // Context first, so the new segment's shoreline is up to date.
       await refreshContext($)
+      await feedFire($, used?.model)
       const tidy = (await read($, turnWork)).length ? 'tidy' : undefined
       if (isOk && cfg.longMs > 0 && e.durationMs >= cfg.longMs) {
         await claimCrab($, 'done')
@@ -1549,6 +1632,8 @@ export const register: Register = (on, options) => {
   // Fires during a turn too, so a long turn raises the tide, and the sea moves with it at once.
   on('session.measure', async ($, e, next) => {
     await refreshContext($)
+    // A reply in the main conversation changes its context: the cache was just used.
+    if (isTurnRunning && e.changed?.includes('context')) await feedFire($)
     return next(e)
   })
 
@@ -1560,6 +1645,10 @@ export const register: Register = (on, options) => {
     const isCompacted = !e.agentId && e.trigger !== 'precompute' && result.skip === undefined
     if (isCompacted) {
       await update($, plantedSign, () => null)
+      // A new conversation to cache: the old fire is out, and the next prompt lights a new one.
+      const now = await $.clock.now()
+      await update($, cache, c => (c ? { ...c, at: now - c.ttlMs, nudged: true, isCompacted: true, fire: 'ashes' } : c))
+      await tendFire($)
       $.clock.after(EBB_MS, () => void ebbTide($))
     }
     if (isCompacted && note) {
@@ -1587,6 +1676,7 @@ export const register: Register = (on, options) => {
       await update($, tide, () => null)
       // A new conversation costs from nothing again.
       await update($, spend, () => EMPTY_SPEND)
+      await update($, cache, () => null)
       compactTip = { isShown: false, tries: 0 }
       $.clock.after(CLEAR_MS, async () => {
         await loadChoices($, options)
