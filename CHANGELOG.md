@@ -2,6 +2,11 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.27.0
+- In VS Code the beach could drop to one frame a second after the window had been in the background, and stay there: the crab then walked in jumps. The crab now has VS Code paint the picture again ten times a second while it is about (once a second while it naps), so the walk keeps moving. Desktop, mobile and the terminal are not affected.
+- `/crab pulse` says how: `nudge` (the default, nearly free), `redraw` (a fresh picture each beat, for when nudging is not enough), `off`, or 1 to 10 beats a second.
+- `/crab restart` still redraws a stuck crab by hand.
+
 ## 0.26.1
 - The hint beside `/crab` in the prompt box was so long that it was cut off after two lines, hiding most commands, `help` among them. It now names the few most people want, with `help` first.
 - `/crab help` lists every command, grouped, with the costumes and the parts you can switch on or off.

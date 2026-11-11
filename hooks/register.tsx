@@ -30,6 +30,8 @@ import { clip } from './text'
 import { NEWS, NEWS_LONG, REPO, VERSION, newsFor } from './news'
 import { KEY, MIN, cfg } from './state'
 import { refreshWeather, weatherText } from './weather'
+import { DEFAULT_PULSE, PULSE_IDLE_MS, nudged, pulseFrom, pulseOf, pulseText } from './pulse'
+import type { Pulse } from './pulse'
 
 const reaction = atom({ plugin: 'crab-buddy', key: 'reaction' } as const, null)
 const picked = atom({ plugin: 'crab-buddy', key: 'costume' } as const, null)
@@ -251,6 +253,16 @@ const rasters = new Map<string, { columns: number; rows: number }>()
 let frame = 0
 let isPainting = false
 let painter: Timer | null = null
+// VS Code's heartbeat (pulse.ts): the picture drawn again on a timer, so it doesn't hang on the image's clock.
+let pulseCfg: Pulse = DEFAULT_PULSE
+let pulse: Timer | null = null
+let isBeating = false
+/** Beats since it started: napping, only every fps-th asks for a picture. */
+let pulseTick = 0
+/** Pictures asked for: the nudge alternates on it, so every one differs from the last. */
+let beat = 0
+/** When VS Code last drew the beach, wall clock: none for a while and the heartbeat stops. */
+let pictureAt = -Infinity
 let ticker: Timer | null = null
 // Only while a line is out.
 let watcher: Timer | null = null
@@ -414,6 +426,7 @@ const HELP = [
   '  /crab where, /crab here    where it is, and calling it over',
   '  /crab off, /crab on        hide or show it',
   '  /crab restart              hide it 35 seconds so it is drawn afresh',
+  '  /crab pulse                VS Code: how the beach keeps moving (nudge, redraw, off, 1-10 a second)',
   '',
   'Dress it up',
   `  /crab <costume>            ${COSTUMES.join(', ')}`,
@@ -441,7 +454,7 @@ async function feedbackText($: EngineInterface): Promise<string> {
     (await readStore($, KEY.logOff, false)) && 'log',
     (await readStore($, KEY.hidden, false)) && 'the crab itself',
   ].filter((w): w is string => typeof w === 'string')
-  const facts = `crab-buddy ${VERSION}, roaming ${(await readStore($, KEY.roam, false)) ? 'on' : 'off'}, switched off: ${off.length ? off.join(', ') : 'nothing'}`
+  const facts = `crab-buddy ${VERSION}, roaming ${(await readStore($, KEY.roam, false)) ? 'on' : 'off'}, VS Code pulse ${pulseCfg.mode === 'off' ? 'off' : `${pulseCfg.mode} ${pulseCfg.fps}`}, switched off: ${off.length ? off.join(', ') : 'nothing'}`
   return [
     'Thanks! Tell the author here, nothing is sent from this command:',
     `${REPO}/issues/new/choose`,
@@ -1167,14 +1180,14 @@ const SCENE_KEEP_MS = 20_000
 // By surface too: two surfaces asking in turn would otherwise miss every time.
 const scenes = new Map<string, { key: string; at: number; source: string }>()
 
-const sceneOf = (site: 'band' | 'tank', surface: string, v: View, b: Bubble, work: readonly string[], width: number, fit: { height?: number; fill?: boolean } = {}): string => {
+const sceneOf = (site: 'band' | 'tank', surface: string, v: View, b: Bubble, work: readonly string[], width: number, fit: { height?: number; fill?: boolean } = {}, keepMs = SCENE_KEEP_MS): string => {
   const words = b && b.until > v.now ? b.text : null
   // A held pose ending counts: with Reduce Motion on, only a new image takes it away.
   const isHolding = !!v.seg.hold && v.now < v.seg.startAt + v.seg.hold.ms
   const isGone = whereAt(planOf(v.seg), v.now - v.seg.startAt).pose === 'gone'
   const key = JSON.stringify([v.seg.id, v.seg.startAt, isHolding, isGone, width, fit, v.costume, v.look, words, v.prop, work, v.sky.weather, v.sky.isWindy, v.beach])
   const kept = scenes.get(`${site}:${surface}`)
-  if (kept?.key === key && v.now >= kept.at && v.now - kept.at < SCENE_KEEP_MS) return kept.source
+  if (kept?.key === key && v.now >= kept.at && v.now - kept.at < keepMs) return kept.source
   const source = sceneSvg({ width, ...fit, costume: v.costume, look: v.look, timeOfDay: timeOfDay(hourOf(v.now)), bubble: words, now: v.now, seg: v.seg, prop: v.prop, sky: v.sky, hour: v.hour, work, beach: v.beach })
   scenes.set(`${site}:${surface}`, { key, at: v.now, source })
   return source
@@ -1211,6 +1224,42 @@ async function repaint($: EngineInterface): Promise<void> {
     }
   } finally {
     isPainting = false
+  }
+}
+
+// VS Code draws the beach as an image whose own clock can fall to a frame a second. While a picture is up there,
+// this asks for the drawing again `fps` times a second (once a second while it naps), so the beach moves anyway.
+function startPulse($: EngineInterface): void {
+  if (pulseCfg.mode === 'off') return
+  pulse ??= $.clock.every(Math.round(1000 / pulseCfg.fps), () => {
+    void heartbeat($)
+  })
+}
+
+function stopPulse(): void {
+  pulse?.cancel()
+  pulse = null
+}
+
+/** What VS Code draws this beat: the nudged height, and how long a picture may be kept (none in redraw mode). */
+const pulsed = (surface: string, height: number): { height: number; keepMs: number | undefined } =>
+  surface !== 'vscode' || pulseCfg.mode === 'off' ? { height, keepMs: undefined }
+    : pulseCfg.mode === 'nudge' ? { height: nudged(height, beat), keepMs: undefined }
+      : { height, keepMs: 0 }
+
+async function heartbeat($: EngineInterface): Promise<void> {
+  if (isBeating) return
+  isBeating = true
+  try {
+    const now = await $.clock.now()
+    // Hidden, closed or drawn elsewhere: the next picture VS Code draws starts it again.
+    if (pulseCfg.mode === 'off' || now - pictureAt > PULSE_IDLE_MS) return stopPulse()
+    pulseTick++
+    if (pulseTick % pulseCfg.fps && (await view($, isTurnRunning)).mood === 'nap') return
+    beat++
+    $.ui.invalidate('ui.render')
+  } finally {
+    isBeating = false
   }
 }
 
@@ -1288,6 +1337,7 @@ async function loadChoices($: EngineInterface, options: PluginOptions): Promise<
   await update($, isSpendOff, () => spendOff)
   const cacheOff = await readStore($, KEY.cacheOff, false)
   await update($, isCacheOff, () => cacheOff)
+  pulseCfg = pulseOf(await $.store.get(KEY.pulse))
   const storedMode = await $.store.get(KEY.bubbles)
   const mode = storedMode === 'often' || storedMode === 'rare' || storedMode === 'off' ? storedMode : options.bubbles === 'often' || options.bubbles === 'off' ? String(options.bubbles) : 'rare'
   await update($, bubbleMode, () => mode)
@@ -1436,6 +1486,17 @@ export const register: Register = (on, options) => {
       })
       return { text: `${await read($, petName)} will be back in ${RESTART_MS / 1000} seconds, freshly drawn.` }
     }
+    if (word === 'pulse') {
+      if (!value) return { text: pulseText(pulseCfg) }
+      const next = pulseFrom(value, pulseCfg)
+      if (!next) return { text: `/crab pulse takes nudge, redraw, off, on, or beats a second from 1 to 10. ${pulseText(pulseCfg)}` }
+      pulseCfg = next
+      await $.store.set(KEY.pulse, next)
+      // The next picture starts it again at its new pace, or not at all.
+      stopPulse()
+      $.ui.invalidate('ui.render')
+      return { text: pulseText(next) }
+    }
     if (word === 'cost') {
       if (value === 'on' || value === 'off') {
         await update($, isSpendOff, () => value === 'off')
@@ -1575,7 +1636,7 @@ export const register: Register = (on, options) => {
       return { text: cfg.longMs > 0 ? 'The done chirp is on.' : 'The done chirp is on, but longTaskSeconds is 0 in the settings, so no task counts as long. Set it with /plugin configure crab-buddy@crab-buddy.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, cost, cache, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, needs, tips, hourglass, roam, here, where, off, on, restart, today, or a costume (${COSTUMES.join(', ')}). /crab help says what each does.` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, cost, cache, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, needs, tips, hourglass, roam, here, where, off, on, restart, pulse, today, or a costume (${COSTUMES.join(', ')}). /crab help says what each does.` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }
@@ -1801,15 +1862,20 @@ export const register: Register = (on, options) => {
       const width = stripWidth(e.props.bodyColumns, v.isDue, e.surface)
       lastWidth = width
       lastBand = { surface: e.surface, columns: e.props.bodyColumns, viewport: e.viewport?.columns, width }
+      if (e.surface === 'vscode') {
+        pictureAt = v.now
+        startPulse($)
+      }
+      const pic = pulsed(e.surface, SCENE_H)
       // A plain image, not the hover-capable frame: that frame paints a solid box behind the crab.
-      const scene = sceneOf('band', e.surface, v, b, await read($, turnWork), width, { fill: true })
+      const scene = sceneOf('band', e.surface, v, b, await read($, turnWork), width, { fill: true }, pic.keepMs)
       // No wrapping: a row wraps by default, and the image starts out wider than any row.
       return (
         <Box flexDirection="column">
           {above}
           <Box flexDirection="row" flexWrap="nowrap" alignItems="flex-end" gap={1}>
             <Box flexGrow={1} flexShrink={1} minWidth={0}>
-              <Svg source={scene} alt={v.alt} height={SCENE_H} />
+              <Svg source={scene} alt={v.alt} height={pic.height} />
             </Box>
             <Box flexDirection="row" flexShrink={0} gap={1}>
               {buttons}
@@ -1879,9 +1945,14 @@ export const register: Register = (on, options) => {
       const { Svg } = ui
       const t = tankSize(e.props.bodyColumns, e.props.placement)
       lastWidth = t.sceneWidth
+      if (e.surface === 'vscode') {
+        pictureAt = v.now
+        startPulse($)
+      }
+      const pic = pulsed(e.surface, t.height)
       return (
         <Box flexDirection="column" gap={1}>
-          <Svg source={sceneOf('tank', e.surface, v, b, await read($, turnWork), t.sceneWidth, { height: t.sceneHeight })} alt={v.alt} width={t.width} height={t.height} />
+          <Svg source={sceneOf('tank', e.surface, v, b, await read($, turnWork), t.sceneWidth, { height: t.sceneHeight }, pic.keepMs)} alt={v.alt} width={t.width} height={pic.height} />
           <Box flexDirection="row" justifyContent="center" gap={1}>
             {buttons}
           </Box>

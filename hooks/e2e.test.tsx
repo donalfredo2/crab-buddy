@@ -1129,7 +1129,7 @@ test('/crab feedback says where to write and what is switched off, and sends not
   await crab($, 'signs off')
   const text = await said($, 'feedback')
   expect(text).toContain('https://github.com/donalfredo2/crab-buddy/issues/new/choose')
-  expect(text).toMatch(/crab-buddy \d+\.\d+\.\d+, roaming off, switched off: signs, sound$/)
+  expect(text).toMatch(/crab-buddy \d+\.\d+\.\d+, roaming off, VS Code pulse nudge 10, switched off: signs, sound$/)
   expect(fetched).toEqual([])
 })
 

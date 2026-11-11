@@ -190,7 +190,8 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab roam on|off`: one crab across your windows, or one each
 - `/crab where`, `/crab here`: where it is, and calling it over
 - `/crab off` / `/crab on`: hide or show it
-- `/crab restart`: hide it for 35 seconds so VS Code draws it afresh, for when it drops to a frame a second after the window has been in the background
+- `/crab pulse`, `/crab pulse nudge|redraw|off|1-10`: in VS Code, how the beach is kept moving. VS Code draws it as an image whose own clock can drop to a frame a second after the window has been in the background; a heartbeat has VS Code paint it again ten times a second (once a second while it naps). `nudge`, the default, changes the picture's height by a hundredth of a pixel each beat, which nobody sees; `redraw` sends a fresh picture each beat (70 to 85 KB each) for when nudging is not enough, and moves the crab even with Reduce Motion on, since each picture is drawn for its moment; `off` leaves the image alone. Desktop, mobile and the terminal are not affected
+- `/crab restart`: hide it for 35 seconds so VS Code draws it afresh, for when it is still stuck
 
 ## Settings
 
@@ -226,7 +227,7 @@ Nothing else leaves your machine: `/crab feedback` only prints a link and a line
 
 The terminal draws no pictures, so there the beach is coloured half-block characters: four rows above the prompt with the buttons beside it, and a taller beach in the tank when the terminal docks panes (fullscreen). The crab is the desktop's own drawing scaled down to those cells, costume, gadget and all: a third of its size above the prompt, and half in a tank 9 rows or taller. The same life plan drives it, so the crab does what it does on the desktop: walks, naps, builds its castle, watches the sea creep in with your context, and talks beside its head. The decor your shells unlock shows from about 63 columns, and the house from about 80. Empty cells keep your terminal's own colours. It is repainted four times a second (once a second while it naps) only while it is on screen. It needs Claude Code 2.1.309 or later; `claude update` gets you there.
 
-On the desktop and in VS Code the animation is CSS only, costs no tokens, and stops when macOS "Reduce motion" is on. The chirp is an original sound synthesized for this mod.
+On the desktop and in VS Code the animation is CSS only, costs no tokens, and stops when macOS "Reduce motion" is on. In VS Code a heartbeat also has the picture painted again up to ten times a second (`/crab pulse`); it costs no tokens either. The chirp is an original sound synthesized for this mod.
 
 ## Feedback
 
