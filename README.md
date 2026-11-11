@@ -169,7 +169,7 @@ Signs wait in line if several arrive together, and your message clears the line.
 
 Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 
-- `/crab help` (or `/crab ?`): the main commands, and what's new in this version
+- `/crab help` (or `/crab ?`): every command, grouped, and what's new in this version
 - `/crab feedback`: where to tell the author what you think, with the facts worth pasting (nothing is sent)
 - `/crab feed`, `/crab play`, `/crab pet`
 - `/crab ride`: sends it off on its gadget right now

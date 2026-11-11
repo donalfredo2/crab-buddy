@@ -394,22 +394,49 @@ async function announceNews($: EngineInterface, hasMet: boolean): Promise<void> 
   if (what === 'updated') await holdUp($, 'news', { time: NEWS, isAlways: true })
 }
 
-/** What /crab help says: the few commands most people want, and where the rest are. */
+/** The hint beside /crab in the prompt box: the commands most people want, help first, so it fits on one line. */
+export const ARGUMENT_HINT = '[help | feed | play | pet | tank | strip | weather | cost | stats | <costume> | …]'
+
+/**
+ * What /crab help says: every command, grouped. The hint in the prompt box only has room for a few, so this
+ * is where the rest are found.
+ */
 const HELP = [
   `crab-buddy ${VERSION}. ${NEWS_LONG}`,
   '',
-  '/crab feed, play or pet   look after it',
-  '/crab tank                a bigger beach in a pane of its own (/crab strip brings it back)',
-  '/crab weather             the real weather, and where it is for',
-  '/crab log                 what it noted about your work, for the summary',
-  '/crab cost                what this session has cost, in dollars and tokens',
-  '/crab cache               how long the prompt cache likely stays warm (the campfire)',
-  '/crab roam on             one crab across all your windows',
-  '/crab pulse               VS Code: how the beach is kept moving (nudge, redraw, off, 1 to 10 a second)',
-  '/crab <costume>           dress it up; a bare /crab picks one',
+  'Look after it',
+  '  /crab feed, play or pet    care for it',
+  '  /crab ride                 send it off on its gadget',
+  '  /crab name <name>          give it a name',
+  '  /crab snooze               snooze the break reminder for 30 minutes',
   '',
-  'Switch a part off: /crab signs, needs, tips, hourglass, cost, cache, breaks or sound off.',
-  `Every command: ${REPO}#buttons-and-commands`,
+  'Find out',
+  '  /crab stats                the session, its needs, shells and fish',
+  '  /crab cost                 what this session has cost, in dollars and tokens',
+  '  /crab cache                how long the prompt cache likely stays warm (the campfire)',
+  '  /crab weather              the real weather, and where it is for',
+  '  /crab lines                the subagents out fishing',
+  '  /crab log                  what it noted about your work, for the summary',
+  '  /crab theme                today\'s theme',
+  '  /crab size                 what this surface reports for the strip',
+  '',
+  'Where it lives',
+  '  /crab tank, /crab strip    a pane of its own, or back above the prompt',
+  '  /crab roam on|off          one crab across all your windows, or one each',
+  '  /crab where, /crab here    where it is, and calling it over',
+  '  /crab off, /crab on        hide or show it',
+  '  /crab restart              hide it 35 seconds so it is drawn afresh',
+  '  /crab pulse                VS Code: how the beach keeps moving (nudge, redraw, off, 1-10 a second)',
+  '',
+  'Dress it up',
+  `  /crab <costume>            ${COSTUMES.join(', ')}`,
+  '  /crab today                today\'s costume; a bare /crab picks one',
+  '',
+  'Switch parts on or off',
+  '  /crab signs, needs, tips, hourglass, cost, cache, log, breaks or sound  on|off',
+  '  /crab bubbles often|rare|off',
+  '',
+  `More: ${REPO}#buttons-and-commands`,
   'Tell the author what you think: /crab feedback',
 ].join('\n')
 
@@ -1383,8 +1410,9 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await $.command.register({
       name: 'crab',
-      description: 'Crab buddy: feed, play, pet, name, stats, cost, cache, weather, lines, log, theme, tank or strip, breaks, sound, bubbles, signs, roam, costume',
-      argumentHint: '[feed | play | pet | name <name> | stats | cost [on|off] | cache [on|off] | weather | lines | log [on|off] | theme | size | tank | strip | snooze | breaks on|off | sound on|off | bubbles often|rare|off | signs on|off | needs on|off | tips on|off | hourglass on|off | roam on|off | here | where | off | on | restart | pulse [nudge|redraw|off|1-10] | today | <costume>]',
+      description: 'Crab buddy: care, tank, weather, cost, costumes and more. /crab help lists every command',
+      // Short on purpose: the prompt box shows a line or two of it and cuts the rest. /crab help has them all.
+      argumentHint: ARGUMENT_HINT,
     })
     const now = await $.clock.now()
     await loadChoices($, options)
@@ -1608,7 +1636,7 @@ export const register: Register = (on, options) => {
       return { text: cfg.longMs > 0 ? 'The done chirp is on.' : 'The done chirp is on, but longTaskSeconds is 0 in the settings, so no task counts as long. Set it with /plugin configure crab-buddy@crab-buddy.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, cost, cache, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, roam, here, where, off, on, restart, pulse, today, or a costume (${COSTUMES.join(', ')}). /crab help lists the main ones.` }
+      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, cost, cache, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, needs, tips, hourglass, roam, here, where, off, on, restart, pulse, today, or a costume (${COSTUMES.join(', ')}). /crab help says what each does.` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }

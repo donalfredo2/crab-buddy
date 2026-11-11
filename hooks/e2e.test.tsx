@@ -8,7 +8,7 @@ import type { Segment } from '../types'
 import type { BeachRecord } from './roam'
 import { plan } from './life'
 import { NEWS } from './news'
-import { KING_SHELLS } from './register'
+import { ARGUMENT_HINT, KING_SHELLS } from './register'
 import { sceneSvg } from './scene'
 import { skyFor } from './sky'
 import { COSTUMES, costumeOfDay } from './sprites'
@@ -1053,7 +1053,7 @@ test('leaving, it sinks into the sea before it is gone, with no two heights at o
 
 // --- the front door: help, what's new, feedback
 
-test('/crab help lists the main commands and leaves the costume alone', async ($, on) => {
+test('/crab help lists every command and leaves the costume alone', async ($, on) => {
   mock.clock(on, { now: T0 })
   mock.store(on)
   engine(on)
@@ -1062,9 +1062,18 @@ test('/crab help lists the main commands and leaves the costume alone', async ($
   const help = await said($, 'help')
   expect(help).toMatch(/^crab-buddy \d+\.\d+\.\d+\. New in/)
   for (const cmd of ['/crab feed', '/crab tank', '/crab weather', '/crab log', '/crab roam on', '/crab feedback']) expect(help).toContain(cmd)
+  for (const cmd of ['/crab ride', '/crab name <name>', '/crab snooze', '/crab lines', '/crab size', '/crab here', '/crab restart', '/crab today', '/crab bubbles often|rare|off']) expect(help).toContain(cmd)
+  for (const part of ['signs', 'needs', 'tips', 'hourglass', 'cache', 'breaks', 'sound']) expect(help).toContain(part)
+  expect(help).toContain('pirate')
   expect(await said($, '?')).toBe(help)
   expect(await alt($)).toBe(before)
-  expect(await said($, 'nonsense')).toMatch(/\/crab help lists the main ones\.$/)
+  expect(await said($, 'nonsense')).toMatch(/\/crab help says what each does\.$/)
+})
+
+test('the /crab hint is short enough for the prompt box to show whole, help first', () => {
+  // The prompt box shows a line or two of the hint and cuts the rest: a long list hid most commands.
+  expect(ARGUMENT_HINT.length).toBeLessThanOrEqual(90)
+  expect(ARGUMENT_HINT.startsWith('[help |')).toBe(true)
 })
 
 test('a first install hears no news, and the next session none either', async ($, on) => {
