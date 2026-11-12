@@ -81,7 +81,7 @@ const isCacheOff = atom({ plugin: 'crab-buddy', key: 'isCacheOff' } as const, fa
 const savvyFlow = { plugin: 'savvy-progress', key: 'flow' } as const
 import { nextUsage, usageMark, usageSign, usageStat } from './usage'
 import { EMPTY_SPEND, addTurn, measureSpend, nextMilestone, spendDetail, spendSign, spendStat } from './spend'
-import { cacheDetail, cacheStat, coldAt, fireOf, inWords, nextChangeAt, rewriteText, shouldNudge, ttlOf } from './cache'
+import { cacheDetail, cacheStat, coldAt, fireOf, inWords, keepFire, nextChangeAt, relit, rewriteText, shouldNudge, ttlOf } from './cache'
 import type { Costume, CrabLook } from './sprites'
 
 
@@ -100,6 +100,15 @@ const TIDE_REARM = 0.4
 /** How long a compaction takes to land, and how often to look. */
 const EBB_MS = 200
 const EBB_TRIES = 5
+/** With no size in the plain usage, the local count is made at most this often, outside turn ends. */
+const COUNT_EVERY_MS = 20_000
+/** The context a measurement carries with it, when it does. */
+type SentContext = { tokens?: number; window?: number } | undefined
+const sizeOf = (n: unknown): number | null => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null)
+/** What each source last said about the context, for /crab debug. */
+/** When the turn and measurement hooks last came, for /crab debug. */
+const seen = { turnStart: 0, turnComplete: 0, measure: 0 }
+const probe = { event: null as number | null, usage: null as number | null, counted: null as number | null, countedAt: -Infinity, window: 0, used: 'none' }
 /** The engine compacts a conversation this big left idle for about 54 minutes. */
 const IDLE_MARK = 200_000
 /** The engine won't let its minimum go lower than this. */
@@ -986,7 +995,27 @@ async function feedFire($: EngineInterface, model?: string): Promise<void> {
   const prev = await read($, cache)
   if (prev?.nudged) await update($, plantedSign, p => (p && p.until === coldAt(prev) ? null : p))
   await update($, cache, c => ({ at: now, ttlMs: ttl.ms, why: ttl.why, tokens: tokens || c?.tokens || 0, model: model || c?.model || '', nudged: false, fire: 'blaze' }))
+  await keepCache($)
   await tendFire($)
+}
+
+// The project folder this session works in: kept fires are filed under it.
+let folder = ''
+
+/** The fire as it stands, kept for this folder, so a restart of Claude Code finds it again. */
+async function keepCache($: EngineInterface): Promise<void> {
+  if (!folder) return
+  const now = await $.clock.now()
+  const kept = keepFire(await $.store.get(KEY.fires), folder, await read($, cache), now)
+  await $.store.set(KEY.fires, kept).catch(() => undefined)
+}
+
+/** A fresh start that finds this conversation's fire still burning lights it again. */
+async function relight($: EngineInterface): Promise<void> {
+  if (!folder || (await read($, cache))) return
+  const now = await $.clock.now()
+  const c = relit(await $.store.get(KEY.fires), folder, (await read($, tide))?.tokens ?? null, now)
+  if (c) await update($, cache, () => c)
 }
 
 // Only the newest timer counts: each feeding starts a new one.
@@ -1024,29 +1053,55 @@ async function nudgeCooling($: EngineInterface, c: NonNullable<Cache>, now: numb
 }
 
 // The context as a tide; the plain call is free. Warns once per session near the top.
-async function refreshContext($: EngineInterface): Promise<void> {
+// The size comes from the first source that has one: the measurement the engine just sent, the plain usage,
+// then the local count. Some surfaces (VS Code among them) can leave the plain size out for a whole session,
+// and the local count, made on this machine and sending nothing, still has it.
+async function refreshContext($: EngineInterface, sent?: SentContext, isCountDue = false): Promise<void> {
   const usage = await $.session.usage().catch(() => null)
   if (!usage) return
   await refreshUsage($, usage.rateLimits, usage.cost?.usd)
   await refreshSpend($, usage.rateLimits, usage.cost?.usd)
-  const { tokens, percent, window } = usage.context
-  if (tokens === undefined) {
-    await update($, tide, t => (t?.isCounted ? t : null))
-    return
+  const now = await $.clock.now()
+  const fromEvent = sizeOf(sent?.tokens)
+  const fromUsage = sizeOf(usage.context.tokens)
+  probe.event = fromEvent
+  probe.usage = fromUsage
+  probe.window = usage.context.window
+  const measured = fromEvent ?? fromUsage
+  let tokens = measured
+  let isCounted = false
+  if (tokens === null) {
+    // Counting the whole conversation takes a moment: at most every so often, unless a turn just ended.
+    if (!isCountDue && now - probe.countedAt < COUNT_EVERY_MS) return
+    const counted = await localCount($)
+    probe.countedAt = now
+    if (counted === null) return
+    tokens = counted
+    isCounted = true
   }
+  const window = sent?.window && sent.window > 0 && fromEvent !== null ? sent.window : usage.context.window
   const lines = await linesFor($, window)
   // Idle compaction needs the one-hour cache. Limit windows are our stand-in for a subscription that has it.
   const mark = usage.rateLimits.length ? lines.idleMark : null
   const level = tideOf(tokens, lines.full, mark)
+  probe.used = isCounted ? 'local count' : fromEvent !== null ? 'measurement' : 'usage'
   // The level too: the same tokens fill a smaller window further, after /model.
-  await update($, tide, t => (t?.tokens === tokens && t.mark === mark && t.level === level ? t : { tokens, level, mark }))
+  await update($, tide, t => (t?.tokens === tokens && t.mark === mark && t.level === level && !!t.isCounted === isCounted ? t : { tokens, level, mark, ...(isCounted ? { isCounted: true } : {}) }))
   await rearmTide($, level)
   await followTide($)
   if (level >= TIDE_WARN && !(await read($, contextWarned))) {
     await update($, contextWarned, () => true)
-    if (await read($, areSignsOff)) $.ui.toast(`Context is ${Math.round(percent ?? 0)}% full. A fresh session soon would help.`)
+    const percent = usage.context.percent ?? (100 * tokens) / Math.max(1, window)
+    if (await read($, areSignsOff)) $.ui.toast(`Context is ${Math.round(percent)}% full. A fresh session soon would help.`)
     else await plantSign($, 'context', CONTEXT_SIGN_MS)
   }
+}
+
+/** The local count of the conversation's tokens, or null. Made on this machine; it sends nothing. */
+async function localCount($: EngineInterface): Promise<number | null> {
+  const counted = sizeOf((await $.session.usage({ breakdown: 'summary' }).catch(() => null))?.context.breakdown?.totalTokens)
+  probe.counted = counted
+  return counted
 }
 
 // The shoreline is part of a segment's plan, so the crab never stands in the sea, and a
@@ -1079,14 +1134,15 @@ async function followTide($: EngineInterface): Promise<void> {
 // A compaction leaves no size until the next reply, but the local count has it as soon as it
 // lands, which the plain size going blank shows. It sends nothing, and the sea goes back at once.
 async function ebbTide($: EngineInterface, tries = EBB_TRIES): Promise<void> {
-  const context = (await $.session.usage({ breakdown: 'summary' }).catch(() => null))?.context
+  const context = (await $.session.usage().catch(() => null))?.context
   if (!context) return
   if (context.tokens !== undefined) {
     if (tries > 1) $.clock.after(EBB_MS, () => void ebbTide($, tries - 1))
     return
   }
-  const tokens = context.breakdown?.totalTokens
-  if (tokens === undefined) return
+  const tokens = await localCount($)
+  if (tokens === null) return
+  probe.countedAt = await $.clock.now()
   const lines = await linesFor($, context.window)
   const mark = (await read($, tide))?.mark ?? null
   const level = tideOf(tokens, lines.full, mark)
@@ -1437,8 +1493,10 @@ export const register: Register = (on, options) => {
       // No usage: count from now.
     }
     await update($, stats, s => (s.startedAt ? s : { ...s, startedAt }))
-    await refreshContext($)
-    // A reload lost the fire's timer.
+    folder = typeof e.cwd === 'string' ? e.cwd : ''
+    await refreshContext($, undefined, true)
+    // A restart of Claude Code lost the fire, a reload its timer.
+    await relight($)
     await tendFire($)
     if (timeOfDay(hourOf(now)) === 'morning') await say($, 'morning')
     void refreshWeather($, w => update($, weather, () => w))
@@ -1655,6 +1713,7 @@ export const register: Register = (on, options) => {
     if (!e.agentId) {
       isTurnRunning = true
       const now = await $.clock.now()
+      seen.turnStart = now
       await update($, reaction, () => null)
       await feedFire($)
       await update($, breaks, b =>
@@ -1688,12 +1747,13 @@ export const register: Register = (on, options) => {
       isTurnRunning = false
       await lowerFlag($)
       const now = await $.clock.now()
+      seen.turnComplete = now
       await update($, stats, s => ({ ...s, turns: s.turns + 1 }))
       await update($, breaks, b => ({ ...b, lastActive: now }))
       await saveNeeds($, gain(await currentNeeds($), { food: 3 }))
       const isOk = e.reason === 'answer' && !e.isAborted
       // Context first, so the new segment's shoreline is up to date.
-      await refreshContext($)
+      await refreshContext($, undefined, true)
       await feedFire($, used?.model)
       const tidy = (await read($, turnWork)).length ? 'tidy' : undefined
       if (isOk && cfg.longMs > 0 && e.durationMs >= cfg.longMs) {
@@ -1720,9 +1780,14 @@ export const register: Register = (on, options) => {
 
   // Fires during a turn too, so a long turn raises the tide, and the sea moves with it at once.
   on('session.measure', async ($, e, next) => {
-    await refreshContext($)
-    // A reply in the main conversation changes its context: the cache was just used.
-    if (isTurnRunning && e.changed?.includes('context')) await feedFire($)
+    seen.measure = await $.clock.now()
+    const before = await read($, tide)
+    await refreshContext($, (e as { context?: SentContext }).context)
+    const after = await read($, tide)
+    // A reply in the main conversation changes its context: the cache was just used. A context that grew
+    // between turns says the same, where a surface reports its turns late or not at all.
+    const hasGrown = !!before && !before.isCounted && !!after && !after.isCounted && after.tokens > before.tokens
+    if (e.changed?.includes('context') && (isTurnRunning || hasGrown)) await feedFire($)
     return next(e)
   })
 
@@ -1737,6 +1802,7 @@ export const register: Register = (on, options) => {
       // A new conversation to cache: the old fire is out, and the next prompt lights a new one.
       const now = await $.clock.now()
       await update($, cache, c => (c ? { ...c, at: now - c.ttlMs, nudged: true, isCompacted: true, fire: 'ashes' } : c))
+      await keepCache($)
       await tendFire($)
       $.clock.after(EBB_MS, () => void ebbTide($))
     }
@@ -1766,6 +1832,7 @@ export const register: Register = (on, options) => {
       // A new conversation costs from nothing again.
       await update($, spend, () => EMPTY_SPEND)
       await update($, cache, () => null)
+      await keepCache($)
       compactTip = { isShown: false, tries: 0 }
       $.clock.after(CLEAR_MS, async () => {
         await loadChoices($, options)

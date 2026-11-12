@@ -13,7 +13,7 @@ import { line, signLine, themeLine, themeName } from './lines'
 import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { WORK_FLOOR, care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
 import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, newsOf, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, toolNewsOf, wornAt } from './register'
-import { fireX, sceneSvg, timeOfDay, unlocked } from './scene'
+import { FIRE_W, fireX, sceneSvg, timeOfDay, unlocked } from './scene'
 import { DEFAULT_PULSE, nudged, pulseFrom, pulseOf } from './pulse'
 import { breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
@@ -3105,17 +3105,34 @@ test('time away from work still fades food and fun past the floor', () => {
 })
 
 // The crab rests at home (p 0) to nap, stretch and hide, which is when the prompt cache cools: the fire must stand
-// beside it there, not under it, or the crab hides it whenever it matters.
-test('the campfire stands beside the crab resting at home, not under it, and left of the castle', () => {
-  for (const width of [300, 600, 1000, 1600]) {
+// beside it there, not under it, or the crab hides it whenever it matters. Nor may anything else stand on it:
+// the house the shells unlock, a holiday's pumpkin or tree, the costume's own props.
+test('the campfire stands clear of the resting crab, the house, the holidays, the props and the castle', () => {
+  for (const width of [300, 499, 500, 600, 800, 1000, 1600, 2400]) {
     const svg = sceneSvg({ width, costume: 'plain', look: {}, timeOfDay: 'day', bubble: null, now: T0 + 60_000, prop: null, sky: skyFor(T0), hour: 12, work: [], beach: { fire: 'blaze' }, seg: seg({ width, mode: 'sleep', startP: 0 }) })
     const fire = /<g class="cfire"[^>]*>(.*?)<\/g><\/g>/.exec(svg)?.[1] ?? ''
     const xs = [...fire.matchAll(/<rect[^>]* x="([\d.]+)"[^>]* width="([\d.]+)"/g)].map(m => [Number(m[1]), Number(m[1]) + Number(m[2])] as const)
     expect(xs.length).toBeGreaterThan(3)
-    expect(Math.min(...xs.map(([a]) => a))).toBeGreaterThanOrEqual(xOf(0, width) + CRAB_W)
-    expect(Math.max(...xs.map(([, b]) => b))).toBeLessThanOrEqual(Math.round(width * 0.3) - 6)
-    expect(fireX(width)).toBe(TRACK_MIN + CRAB_W + 2)
+    const left = Math.min(...xs.map(([l]) => l))
+    const right = Math.max(...xs.map(([, r]) => r))
+    expect(left).toBe(fireX(width))
+    expect(right - left).toBe(FIRE_W)
+    expect(left).toBeGreaterThanOrEqual(xOf(0, width) + CRAB_W)
+    expect(right).toBeLessThanOrEqual(Math.round(width * 0.3) - 6)
+    if (width >= 500) {
+      // The widest house, centred at the far end of its zone, and the holiday's tree at 0.12.
+      expect(left).toBeGreaterThan(Math.round(width * ZONES.house[1]) + 9)
+      expect(left).toBeGreaterThan(Math.round(width * 0.12) + 7)
+      // The costume's props start at 0.16.
+      expect(right).toBeLessThan(Math.round(width * 0.16))
+    }
   }
+})
+
+test('the campfire is drawn over the beach, not under it', () => {
+  const width = 800
+  const svg = sceneSvg({ width, costume: 'chef', look: {}, timeOfDay: 'day', bubble: null, now: T0 + 60_000, prop: null, sky: skyFor(T0), hour: 12, work: [], beach: { fire: 'blaze' }, seg: seg({ width, mode: 'sleep', startP: 0, shells: 45 }) })
+  expect(svg.indexOf('class="cfire"')).toBeGreaterThan(svg.indexOf('class="sand"'))
 })
 
 test('in the terminal the campfire is the column right of the crab resting at home', () => {

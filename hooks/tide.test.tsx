@@ -270,6 +270,8 @@ test('a measurement that moves nothing visible leaves the crab to its plan', asy
   const ctx: Ctx = { tokens: 100_000, window: 1_000_000, full: 967_000 }
   engine(on, ctx)
   await start($)
+  // Mid-turn, so the campfire already burns: only the sea is under test.
+  await $.turn.start({ text: 'go on', turnId: 't1' } as never)
   await clock.advance(5000)
   const before = await crabX($)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props } })
@@ -319,4 +321,71 @@ test('the terminal beach follows the context too, without waiting for a reply', 
   // Most of the run up the beach, in cells.
   expect(high - low).toBeGreaterThan(columns * 0.3)
   await ui.unmount()
+})
+
+// Some surfaces (VS Code among them) can leave the plain size out for a whole session.
+test('with no plain size the local count still raises the sea, at the start and after each reply', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: null, counted: 300_000, window: 1_000_000, full: 967_000 }
+  engine(on, ctx)
+  await start($)
+  await expectSeaAt($, 300_000, ctx.full, T0)
+  ctx.counted = 650_000
+  await clock.advance(5000)
+  await $.turn.complete(TURN)
+  await expectSeaAt($, 650_000, ctx.full, clock.now())
+  expect(JSON.stringify(await crab($, 'stats'))).toContain('context 650k')
+})
+
+test('with no plain size a long turn moves the sea by the local count, now and then', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: null, counted: 100_000, window: 1_000_000, full: 967_000 }
+  engine(on, ctx)
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  ctx.counted = 400_000
+  // Too soon to count again: the sea waits.
+  await clock.advance(5000)
+  await measure($, ctx)
+  await expectSeaAt($, 100_000, ctx.full, clock.now())
+  await clock.advance(20_000)
+  await measure($, ctx)
+  await expectSeaAt($, 400_000, ctx.full, clock.now())
+})
+
+test('the size a measurement carries moves the sea, even when the plain usage has none', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: null, counted: 0, window: 1_000_000, full: 967_000 }
+  engine(on, ctx)
+  await start($)
+  await clock.advance(1000)
+  await $.session.measure({ context: { window: 1_000_000, tokens: 420_000 }, rateLimits: [], changed: ['context'] } as never)
+  await expectSeaAt($, 420_000, ctx.full, clock.now())
+})
+
+test('a read with no size leaves a measured sea where it is', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 500_000, window: 1_000_000, full: 967_000 }
+  engine(on, ctx)
+  await start($)
+  ctx.tokens = null
+  ctx.counted = 500_000
+  await clock.advance(1000)
+  await measure($, ctx)
+  await expectSeaAt($, 500_000, ctx.full, clock.now())
+})
+
+test('on a 1M window with a plan, 300k stands past the mark', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 300_000, window: 1_000_000, full: 967_000, isOnPlan: true }
+  engine(on, ctx)
+  await start($)
+  const s = await sea($)
+  const mark = Math.round(s.width * shoreFrac(0.5, 12))
+  expect(s.x).toBeLessThan(mark)
 })

@@ -153,3 +153,47 @@ export const cacheDetail = (c: Cache, now: number, isEstimate: boolean, isOff: b
   lines.push(`The fire and its sign: ${isOff ? 'off' : 'on'} (/crab cache on|off).`)
   return lines.join('\n')
 }
+
+// A fire kept across a restart of Claude Code, by project folder. The conversation it belongs to is told by its
+// size: a session that comes back with nearly the same context is the same conversation, whose cache may still
+// be warm; a new one in that folder starts far smaller and gets no fire until its first reply.
+export type KeptFire = { at: number; ttlMs: number; why: TtlWhy; tokens: number; model: string }
+export type KeptFires = Record<string, KeptFire>
+/** How close the context must be, as a share of it, to count as the same conversation. */
+export const SAME_SHARE = 0.03
+/** The most folders kept: the newest win. */
+export const KEPT_MAX = 12
+
+const isWhy = (v: unknown): v is TtlWhy => v === 'env' || v === 'setting' || v === 'subscription' || v === 'overage' || v === 'api'
+const isKept = (v: unknown): v is KeptFire => {
+  if (!v || typeof v !== 'object') return false
+  const k = v as Record<string, unknown>
+  return typeof k.at === 'number' && typeof k.ttlMs === 'number' && k.ttlMs > 0 && isWhy(k.why) && typeof k.tokens === 'number' && typeof k.model === 'string'
+}
+
+/** What the store holds, made safe and without fires that are gone, newest first and at most KEPT_MAX. */
+export const keptFires = (stored: unknown, now: number): KeptFires => {
+  if (!stored || typeof stored !== 'object') return {}
+  const live = Object.entries(stored as Record<string, unknown>)
+    .filter((e): e is [string, KeptFire] => isKept(e[1]) && now < e[1].at + e[1].ttlMs + ASHES_MS)
+    .sort((a, b) => b[1].at - a[1].at)
+    .slice(0, KEPT_MAX)
+  return Object.fromEntries(live)
+}
+
+/** The kept fires with this folder's set (or removed, with null). */
+export const keepFire = (stored: unknown, folder: string, c: Cache, now: number): KeptFires => {
+  const rest = keptFires(stored, now)
+  delete rest[folder]
+  if (!c) return rest
+  return keptFires({ [folder]: { at: c.at, ttlMs: c.ttlMs, why: c.why, tokens: c.tokens, model: c.model }, ...rest }, now)
+}
+
+/** The fire to light again for this folder and context, or null: none kept, gone, or another conversation. */
+export const relit = (stored: unknown, folder: string, tokens: number | null, now: number): NonNullable<Cache> | null => {
+  const k = keptFires(stored, now)[folder]
+  if (!k || tokens === null || k.tokens <= 0) return null
+  if (Math.abs(tokens - k.tokens) > Math.max(2_000, k.tokens * SAME_SHARE)) return null
+  const c: NonNullable<Cache> = { ...k, nudged: now >= nudgeAt({ ...k, nudged: false, fire: null }), fire: null }
+  return { ...c, fire: fireOf(c, now) }
+}

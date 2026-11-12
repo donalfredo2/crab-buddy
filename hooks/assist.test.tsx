@@ -780,3 +780,65 @@ test('CLAUDE_CODE_PROMPT_CACHE_TTL decides before the plan does', async ($, on) 
   await $.turn.complete({ ...TURN, usage: USED } as never)
   expect(await said($, 'cache')).toContain('A five-minute cache: set by an environment variable')
 })
+
+test('a context that grew between turns lights the fire, where a surface reports no turns', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 150_000 }
+  engine(on, ctx)
+  await start($)
+  expect((await band($)).alt).not.toContain('campfire')
+  await clock.advance(MIN)
+  ctx.tokens = 160_000
+  await $.session.measure({ context: { window: 1_000_000, tokens: 160_000 }, rateLimits: [], changed: ['context'] } as never)
+  expect((await band($)).alt).toContain('by a blazing campfire')
+})
+
+test('the same size again, or a smaller one, lights nothing between turns', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 150_000 }
+  engine(on, ctx)
+  await start($)
+  await clock.advance(MIN)
+  await $.session.measure({ context: { window: 1_000_000, tokens: 150_000 }, rateLimits: [], changed: ['context'] } as never)
+  ctx.tokens = 90_000
+  await $.session.measure({ context: { window: 1_000_000, tokens: 90_000 }, rateLimits: [], changed: ['context'] } as never)
+  expect((await band($)).alt).not.toContain('campfire')
+})
+
+test('a fire kept from before a restart burns on for the same conversation, not for a new one', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  const kept = { '/repo': { at: T0 - 3 * MIN, ttlMs: 5 * MIN, why: 'api', tokens: 150_000, model: 'claude-opus-5-5' } }
+  mock.store(on, { keptFires: kept })
+  const ctx: Ctx = { tokens: 151_000 }
+  engine(on, ctx)
+  await start($)
+  expect((await band($)).alt).toContain('by a campfire burning down')
+  await clock.advance(2 * MIN)
+  expect((await band($)).alt).toContain('by a cold campfire')
+})
+
+test('a new conversation in the same folder gets no kept fire', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on, { keptFires: { '/repo': { at: T0 - MIN, ttlMs: 5 * MIN, why: 'api', tokens: 150_000, model: 'm' } } })
+  engine(on, { tokens: 20_000 })
+  await start($)
+  expect((await band($)).alt).not.toContain('campfire')
+})
+
+test('every reply keeps the fire for a restart', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  const held = new Map<string, unknown>()
+  on('store.get', async (_, e) => ({ value: held.get(e.key) }))
+  on('store.set', async (_, e) => {
+    held.set(e.key, e.value)
+    return { value: undefined }
+  })
+  engine(on, { tokens: 150_000 })
+  await start($)
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  const kept = held.get('keptFires') as Record<string, { at: number; tokens: number }>
+  expect(kept['/repo']?.at).toBe(T0)
+  expect(kept['/repo']?.tokens).toBe(150_000)
+})
