@@ -2,6 +2,13 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.28.0
+- The sea stayed at the far end all session in VS Code, which can leave out the context's size that the crab read. It now also takes the size each measurement carries and, failing both, a count made on your machine that sends nothing (at most every 20 seconds, and at each turn's end). A read with no size no longer takes a measured sea away.
+- The campfire was hidden behind the house the shells unlock, and was small. It is now about half as big again and stands in a stretch nothing else can take: between the house (and a holiday's pumpkin or tree) and the costume's own props.
+- The campfire is lit when the context grows between turns too, for surfaces that report turns late, and a restart of Claude Code finds it again for the same conversation.
+- In VS Code the beach moved like stop motion. The heartbeat now sends a fresh picture each beat by default, each drawn for its moment, instead of nudging the old one, which only painted a slowed clock again. `/crab pulse nudge` brings the lighter way back. With Reduce Motion on, `/crab pulse nudge` or `off` keeps the crab still.
+- `/crab debug` says what the sea and the campfire are going by, source by source, to paste into a report. Nothing is sent.
+
 ## 0.27.1
 - The campfire stood under the crab's resting spot, so the crab hid it whenever it napped, stretched or hid at home, which is just when the cache cools between prompts. It now stands beside that spot, on the desktop and in the terminal.
 

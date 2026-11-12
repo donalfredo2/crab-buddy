@@ -483,34 +483,49 @@ export const hourglassSvg = (used: number): string => {
   return `<g class="hourglass" shape-rendering="crispEdges"><rect x="${x0}" y="${y0}" width="7" height="1" fill="#8A5A2B"/><rect x="${x0}" y="${y0 + 8}" width="7" height="1" fill="#8A5A2B"/>${glass.map(c => cell(c, '#CFE8F2')).join('')}${top.slice(0, left).map(c => cell(c, sand)).join('')}${bottom.slice(0, 7 - left).map(c => cell(c, sand)).join('')}${left > 0 && left < 7 ? cell([3, 4], sand, 'trk') : ''}</g>`
 }
 
-/**
- * Where the campfire stands: just right of where the crab rests at home, so a napping crab doesn't hide it.
- * On a strip so narrow that the sandcastle is that close, it moves left of the castle instead.
- */
-export const fireX = (width: number): number => Math.max(HOME_SHELL_X + 13, Math.min(TRACK_MIN + CRAB_W + 2, Math.round(width * 0.3) - 6 - 9))
+/** The campfire's width in px: a ring of logs with a stone at each end. */
+export const FIRE_W = 11
 
 /**
- * The campfire beside the crab's home spot: how warm the prompt cache likely still is. It blazes, burns down,
- * glows as embers in the last stretch and lies as cold ashes with a thread of smoke once the cache is cold.
- * After dark a burning fire throws a little light on the sand.
+ * Where the campfire stands, its left edge. On a roomy beach: in the free stretch between what can stand by the
+ * crab's home (the house the shells unlock, a holiday's pumpkin or tree) and the costume's own props, so nothing
+ * ever stands on it. On a narrow one, where none of those come: just right of where the crab rests at home, or
+ * left of the sandcastle when that is closer.
+ */
+export const fireX = (width: number): number => {
+  if (width >= ROOMY) {
+    const from = Math.round(width * 0.12) + 8
+    const to = Math.round(width * 0.16) - 2
+    return Math.round((from + to - FIRE_W) / 2)
+  }
+  return Math.max(HOME_SHELL_X + 13, Math.min(TRACK_MIN + CRAB_W + 2, Math.round(width * 0.3) - 8 - FIRE_W))
+}
+
+// The campfire's art, top row first; the flames stand on the logs. R red, A amber, C its hot core.
+const BLAZE = ['.....R.....', '....RRR....', '....RAR....', '...RRARR...', '...RAAAR...', '..RAACAAR..', '..RACCCAR..', '.RRACCCARR.']
+const BURNING = ['.....R.....', '....RAR....', '....RAR....', '...RAAAR...', '...RACAR...', '..RRAAARR..']
+const EMBERS = ['....A.R....']
+const GLOWING = '.bRbAbRbAb.'
+const LOGS = ['.bbbbbbbbb.', 'odddddddddo']
+const FIRE_INK = { R: '#E8632B', A: '#F5A33A', C: '#FBE38A', b: '#8A5A2B', d: '#6E4424', o: '#9A948A' }
+const ASH_INK = { ...FIRE_INK, b: '#A9A49C', d: '#8E8A84', o: '#9A948A' }
+
+/**
+ * The campfire: how warm the prompt cache likely still is. It blazes, burns down, glows as embers in the last
+ * stretch and lies as cold ashes with a thread of smoke once the cache is cold. After dark a burning fire
+ * throws a little light on the sand.
  */
 export const fireSvg = (fire: Fire, isDark = false, width = 1000): string => {
   const x = fireX(width)
   const g = GROUND
-  const r = (dx: number, y: number, w: number, h: number, fill: string, cls = '') => `<rect${cls ? ` class="${cls}"` : ''} x="${x + dx}" y="${y}" width="${w}" height="${h}" fill="${fill}"/>`
   const isCold = fire === 'ashes'
-  const logs = r(0, g - 1, 7, 1, isCold ? '#8E8A84' : '#6E4424') + r(1, g - 2, 5, 1, isCold ? '#A9A49C' : '#8A5A2B')
-  const RED = '#E8632B'
-  const AMBER = '#F5A33A'
-  const CORE = '#FBE38A'
-  const flame = fire === 'blaze'
-    ? r(1, g - 4, 5, 2, RED) + r(2, g - 6, 3, 2, RED) + r(3, g - 8, 1, 2, RED) + r(2, g - 4, 3, 2, AMBER) + r(3, g - 6, 1, 2, AMBER) + r(3, g - 4, 1, 1, CORE)
-    : fire === 'fire'
-      ? r(2, g - 4, 3, 2, RED) + r(3, g - 6, 1, 2, RED) + r(3, g - 4, 1, 2, AMBER)
-      : ''
-  const glow = isDark && flame ? `<ellipse cx="${x + 3.5}" cy="${g - 4}" rx="${fire === 'blaze' ? 7 : 5}" ry="${fire === 'blaze' ? 6 : 4}" fill="#FFC86B" opacity=".2"/>` : ''
-  const embers = fire === 'embers' ? `<g class="emb">${r(2, g - 2, 1, 1, RED)}${r(4, g - 2, 1, 1, RED)}${r(3, g - 3, 1, 1, AMBER)}</g>` : ''
-  const smoke = isCold ? `<g class="smk">${r(3, g - 4, 1, 1, '#B8B4AD')}${r(4, g - 6, 1, 1, '#C9C5BE')}</g>` : ''
+  const logs = pixels(fire === 'embers' ? [GLOWING.replace(/[RA]/g, 'b'), LOGS[1] ?? ''] : LOGS, isCold ? ASH_INK : FIRE_INK, x, g - 2)
+  const rows = fire === 'blaze' ? BLAZE : fire === 'fire' ? BURNING : []
+  const flame = rows.length ? pixels(rows, FIRE_INK, x, g - 2 - rows.length) : ''
+  const mid = x + FIRE_W / 2
+  const glow = isDark && flame ? `<ellipse cx="${mid}" cy="${g - 5}" rx="${fire === 'blaze' ? 11 : 8}" ry="${fire === 'blaze' ? 9 : 6}" fill="#FFC86B" opacity=".2"/>` : ''
+  const embers = fire === 'embers' ? `<g class="emb">${pixels([GLOWING.replace(/b/g, '.')], FIRE_INK, x, g - 2)}${pixels(EMBERS, FIRE_INK, x, g - 3)}</g>` : ''
+  const smoke = isCold ? `<g class="smk"><rect x="${x + 5}" y="${g - 4}" width="1" height="1" fill="#B8B4AD"/><rect x="${x + 6}" y="${g - 6}" width="1" height="1" fill="#C9C5BE"/><rect x="${x + 5}" y="${g - 8}" width="1" height="1" fill="#D6D2CB"/></g>` : ''
   return `<g class="cfire" shape-rendering="crispEdges">${glow}${logs}${flame ? `<g class="flm">${flame}</g>` : ''}${embers}${smoke}</g>`
 }
 

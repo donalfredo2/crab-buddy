@@ -10,7 +10,7 @@ export const KEY = {
   firstMet: 'firstMet', bubbles: 'bubbles', signsOff: 'areSignsOff', castle: 'castle', shells: 'shells', golden: 'goldenShells', weather: 'weather', geo: 'weatherGeo', located: 'weatherLocated', failed: 'weatherFailed', asked: 'weatherAsked',
   greeted: 'greetedDay', tank: 'isTank', fish: 'fishCaught', roam: 'isRoaming', logOff: 'isLogOff', earned: 'decorEarned',
   needsOff: 'areNeedsOff', tipsOff: 'areTipsOff', hourglassOff: 'isHourglassOff', spendOff: 'isSpendOff', cacheOff: 'isCacheOff', seenVersion: 'seenVersion',
-  pulse: 'vscodePulse',
+  pulse: 'vscodePulse', fires: 'keptFires',
 } as const
 
 // Set from the options each time the module loads.

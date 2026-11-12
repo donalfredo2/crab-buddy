@@ -13,7 +13,7 @@ import { line, signLine, themeLine, themeName } from './lines'
 import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { WORK_FLOOR, care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
 import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, newsOf, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, toolNewsOf, wornAt } from './register'
-import { fireX, sceneSvg, timeOfDay, unlocked } from './scene'
+import { FIRE_W, fireX, sceneSvg, timeOfDay, unlocked } from './scene'
 import { DEFAULT_PULSE, nudged, pulseFrom, pulseOf } from './pulse'
 import { breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
@@ -1378,7 +1378,7 @@ const beats = async (ui: { find: (q: { type: string }) => Promise<{ props: Recor
 }
 const changes = <T,>(xs: T[]): number => xs.filter((x, i) => i > 0 && x !== xs[i - 1]).length
 
-test('in VS Code the picture is nudged ten times a second while the crab is about, once a second while it naps', async ($, on) => {
+test('in VS Code a fresh picture is drawn ten times a second while the crab is about, once a second while it naps', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   engine(on)
@@ -1386,9 +1386,24 @@ test('in VS Code the picture is nudged ten times a second while the crab is abou
   const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
   // Before any turn it naps at home: once a second is enough.
   const napping = await beats(ui, clock, 2000)
-  expect(changes(napping.map(b => b.height))).toBeGreaterThanOrEqual(1)
-  expect(changes(napping.map(b => b.height))).toBeLessThanOrEqual(3)
+  expect(changes(napping.map(b => b.source))).toBeGreaterThanOrEqual(1)
+  expect(changes(napping.map(b => b.source))).toBeLessThanOrEqual(3)
   await $.turn.start({ text: 'go', turnId: 't1' })
+  const working = await beats(ui, clock, 1000)
+  // Each one drawn for its own moment, so even a stalled image clock shows the walk where it should be.
+  expect(changes(working.map(b => b.source))).toBeGreaterThanOrEqual(8)
+  expect(new Set(working.map(b => b.height))).toEqual(new Set([40]))
+  await ui.unmount()
+})
+
+test('/crab pulse nudge keeps the picture and nudges its height instead', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  expect(JSON.stringify(await crab($, 'pulse nudge'))).toMatch(/heartbeat: nudge, 10 beats a second/)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
   const working = await beats(ui, clock, 1000)
   expect(changes(working.map(b => b.height))).toBeGreaterThanOrEqual(8)
   // Only ever a hundredth of a pixel, and the picture itself is kept: VS Code paints it again, nothing restarts.
@@ -1413,7 +1428,7 @@ test('/crab pulse redraw sends a fresh picture each beat, and /crab pulse off go
   mock.store(on)
   engine(on)
   await start($)
-  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/heartbeat: nudge, 10 beats a second/)
+  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/heartbeat: redraw, 10 beats a second/)
   expect(JSON.stringify(await crab($, 'pulse redraw'))).toMatch(/heartbeat: redraw, 10 beats a second/)
   await $.turn.start({ text: 'go', turnId: 't1' })
   const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
@@ -1424,13 +1439,13 @@ test('/crab pulse redraw sends a fresh picture each beat, and /crab pulse off go
   const still = await beats(ui, clock, 1000)
   expect(changes(still.map(b => b.source))).toBe(0)
   expect(new Set(still.map(b => b.height))).toEqual(new Set([40]))
-  // A rate turns it back on, nudging; a word it doesn't know changes nothing.
-  expect(JSON.stringify(await crab($, 'pulse 4'))).toMatch(/heartbeat: nudge, 4 beats a second/)
+  // A rate turns it back on, redrawing; a word it doesn't know changes nothing.
+  expect(JSON.stringify(await crab($, 'pulse 4'))).toMatch(/heartbeat: redraw, 4 beats a second/)
   expect(JSON.stringify(await crab($, 'pulse fast'))).toMatch(/takes nudge, redraw, off, on, or beats a second from 1 to 10/)
-  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/nudge, 4 beats a second/)
+  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/redraw, 4 beats a second/)
   const slower = await beats(ui, clock, 1000)
-  expect(changes(slower.map(b => b.height))).toBeGreaterThanOrEqual(3)
-  expect(changes(slower.map(b => b.height))).toBeLessThanOrEqual(5)
+  expect(changes(slower.map(b => b.source))).toBeGreaterThanOrEqual(3)
+  expect(changes(slower.map(b => b.source))).toBeLessThanOrEqual(5)
   await ui.unmount()
 })
 
@@ -1446,8 +1461,9 @@ test('a pulse setting from elsewhere is read safely, and /crab pulse takes only 
   expect(pulseOf(undefined)).toEqual(DEFAULT_PULSE)
   expect(pulseOf({ mode: 'warp', fps: 60 })).toEqual(DEFAULT_PULSE)
   expect(pulseOf({ mode: 'off', fps: 3 })).toEqual({ mode: 'off', fps: 3 })
-  expect(pulseFrom('on', { mode: 'off', fps: 3 })).toEqual({ mode: 'nudge', fps: 3 })
-  expect(pulseFrom('7', { mode: 'off', fps: 3 })).toEqual({ mode: 'nudge', fps: 7 })
+  expect(pulseFrom('on', { mode: 'off', fps: 3 })).toEqual({ mode: 'redraw', fps: 3 })
+  expect(pulseFrom('7', { mode: 'off', fps: 3 })).toEqual({ mode: 'redraw', fps: 7 })
+  expect(pulseFrom('7', { mode: 'nudge', fps: 3 })).toEqual({ mode: 'nudge', fps: 7 })
   expect(pulseFrom('7', { mode: 'redraw', fps: 3 })).toEqual({ mode: 'redraw', fps: 7 })
   for (const bad of ['0', '11', '2.5', '-1', 'fast', '']) expect(pulseFrom(bad, DEFAULT_PULSE)).toBeNull()
   expect([nudged(40, 0), nudged(40, 1), nudged(40, 2)]).toEqual([40, 40.01, 40])
@@ -3105,17 +3121,34 @@ test('time away from work still fades food and fun past the floor', () => {
 })
 
 // The crab rests at home (p 0) to nap, stretch and hide, which is when the prompt cache cools: the fire must stand
-// beside it there, not under it, or the crab hides it whenever it matters.
-test('the campfire stands beside the crab resting at home, not under it, and left of the castle', () => {
-  for (const width of [300, 600, 1000, 1600]) {
+// beside it there, not under it, or the crab hides it whenever it matters. Nor may anything else stand on it:
+// the house the shells unlock, a holiday's pumpkin or tree, the costume's own props.
+test('the campfire stands clear of the resting crab, the house, the holidays, the props and the castle', () => {
+  for (const width of [300, 499, 500, 600, 800, 1000, 1600, 2400]) {
     const svg = sceneSvg({ width, costume: 'plain', look: {}, timeOfDay: 'day', bubble: null, now: T0 + 60_000, prop: null, sky: skyFor(T0), hour: 12, work: [], beach: { fire: 'blaze' }, seg: seg({ width, mode: 'sleep', startP: 0 }) })
     const fire = /<g class="cfire"[^>]*>(.*?)<\/g><\/g>/.exec(svg)?.[1] ?? ''
     const xs = [...fire.matchAll(/<rect[^>]* x="([\d.]+)"[^>]* width="([\d.]+)"/g)].map(m => [Number(m[1]), Number(m[1]) + Number(m[2])] as const)
     expect(xs.length).toBeGreaterThan(3)
-    expect(Math.min(...xs.map(([a]) => a))).toBeGreaterThanOrEqual(xOf(0, width) + CRAB_W)
-    expect(Math.max(...xs.map(([, b]) => b))).toBeLessThanOrEqual(Math.round(width * 0.3) - 6)
-    expect(fireX(width)).toBe(TRACK_MIN + CRAB_W + 2)
+    const left = Math.min(...xs.map(([l]) => l))
+    const right = Math.max(...xs.map(([, r]) => r))
+    expect(left).toBe(fireX(width))
+    expect(right - left).toBe(FIRE_W)
+    expect(left).toBeGreaterThanOrEqual(xOf(0, width) + CRAB_W)
+    expect(right).toBeLessThanOrEqual(Math.round(width * 0.3) - 6)
+    if (width >= 500) {
+      // The widest house, centred at the far end of its zone, and the holiday's tree at 0.12.
+      expect(left).toBeGreaterThan(Math.round(width * ZONES.house[1]) + 9)
+      expect(left).toBeGreaterThan(Math.round(width * 0.12) + 7)
+      // The costume's props start at 0.16.
+      expect(right).toBeLessThan(Math.round(width * 0.16))
+    }
   }
+})
+
+test('the campfire is drawn over the beach, not under it', () => {
+  const width = 800
+  const svg = sceneSvg({ width, costume: 'chef', look: {}, timeOfDay: 'day', bubble: null, now: T0 + 60_000, prop: null, sky: skyFor(T0), hour: 12, work: [], beach: { fire: 'blaze' }, seg: seg({ width, mode: 'sleep', startP: 0, shells: 45 }) })
+  expect(svg.indexOf('class="cfire"')).toBeGreaterThan(svg.indexOf('class="sand"'))
 })
 
 test('in the terminal the campfire is the column right of the crab resting at home', () => {
