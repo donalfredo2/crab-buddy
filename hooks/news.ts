@@ -2,13 +2,13 @@
 // update. The engine doesn't tell a plugin its own version, so it's written here, and a test keeps it equal
 // to plugin.json's.
 
-export const VERSION = '0.27.1'
+export const VERSION = '0.28.0'
 
 /** On the plank, after "new: ": 17 characters at most, so the whole sign fits. */
-export const NEWS = 'campfire in view'
+export const NEWS = 'sea in VS Code'
 
 /** The longer line, in /crab help. */
-export const NEWS_LONG = 'New in 0.27.1: the campfire stands beside the crab instead of under it, so it shows while the crab naps at home, which is when the cache cools.'
+export const NEWS_LONG = 'New in 0.28.0: the sea follows the context in VS Code too, the campfire is bigger and nothing stands on it, VS Code draws a fresh picture each beat, and /crab debug says what the sea and the fire go by.'
 
 export const REPO = 'https://github.com/donalfredo2/crab-buddy'
 

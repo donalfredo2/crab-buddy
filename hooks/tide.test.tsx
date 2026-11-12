@@ -389,3 +389,19 @@ test('on a 1M window with a plan, 300k stands past the mark', async ($, on) => {
   const mark = Math.round(s.width * shoreFrac(0.5, 12))
   expect(s.x).toBeLessThan(mark)
 })
+
+test('/crab debug says which source the sea goes by, and sends nothing', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: null, counted: 300_000, window: 1_000_000, full: 967_000, isOnPlan: true }
+  engine(on, ctx)
+  await start($)
+  await sea($, 'vscode')
+  const text = String(((await crab($, 'debug')) as { text?: string }).text)
+  expect(text).toMatch(/on vscode/)
+  expect(text).toMatch(/plain usage: none of a 1000k window, local count: 300k/)
+  expect(text).toMatch(/going by: local count, 300k \(counted\)/)
+  expect(text).toMatch(/compacts at: 967k, mark: 200k/)
+  expect(text).toMatch(/campfire[\s\S]*not lit yet/)
+  expect(text).toContain('Nothing is sent from this command.')
+})

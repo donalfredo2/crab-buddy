@@ -3,10 +3,12 @@
 // else on the beach then move once a second, in jumps. A heartbeat from here draws the picture again on a
 // timer instead, so the motion no longer hangs on that clock.
 //
-//   nudge   the same picture, its height off by a hundredth of a pixel every other beat: VS Code paints
-//           it again, and the image's own animation, where it runs well, is left alone.
 //   redraw  a fresh picture each beat, drawn for that moment: needs no clock of the image's at all, but
-//           sends the whole picture (70 to 85 KB) every time.
+//           sends the whole picture (70 to 85 KB) every time. The default since 0.28: nudging alone left the
+//           beach moving in jumps where the image's clock had slowed, since painting a slow clock again only
+//           shows the same moment again.
+//   nudge   the same picture, its height off by a hundredth of a pixel every other beat: VS Code paints
+//           it again, and the image's own animation, where it runs well, is left alone. Lighter.
 //   off     no heartbeat: the image runs on its own, as before 0.27.
 
 export type PulseMode = 'nudge' | 'redraw' | 'off'
@@ -14,7 +16,7 @@ export type Pulse = { mode: PulseMode; fps: number }
 
 /** The engine redraws a surface like VS Code ten times a second at most; sooner asks fold into one. */
 export const MAX_FPS = 10
-export const DEFAULT_PULSE: Pulse = { mode: 'nudge', fps: MAX_FPS }
+export const DEFAULT_PULSE: Pulse = { mode: 'redraw', fps: MAX_FPS }
 /** No picture drawn in VS Code for this long (hidden, closed, another surface): the heartbeat stops. */
 export const PULSE_IDLE_MS = 3000
 
@@ -32,18 +34,18 @@ export const pulseOf = (stored: unknown): Pulse => {
   }
 }
 
-/** `/crab pulse <value>`: a mode, `on` (nudge), or beats a second from 1 to 10. Null: not a value it takes. */
+/** `/crab pulse <value>`: a mode, `on` (the default, redraw), or beats a second from 1 to 10. Null: not a value it takes. */
 export const pulseFrom = (value: string, cur: Pulse): Pulse | null => {
-  if (value === 'on') return { ...cur, mode: 'nudge' }
+  if (value === 'on') return { ...cur, mode: DEFAULT_PULSE.mode }
   if (MODES.includes(value as PulseMode)) return { ...cur, mode: value as PulseMode }
   const fps = /^\d+$/.test(value) ? fpsOf(Number(value)) : null
-  return fps === null ? null : { mode: cur.mode === 'off' ? 'nudge' : cur.mode, fps }
+  return fps === null ? null : { mode: cur.mode === 'off' ? DEFAULT_PULSE.mode : cur.mode, fps }
 }
 
 export const pulseText = (p: Pulse): string =>
   p.mode === 'off'
     ? 'VS Code heartbeat: off. The beach runs on the image\'s own clock. /crab pulse on brings it back.'
-    : `VS Code heartbeat: ${p.mode}, ${p.fps} ${p.fps === 1 ? 'beat' : 'beats'} a second. ${p.mode === 'nudge' ? 'It nudges the picture so VS Code paints it again; /crab pulse redraw sends a fresh one each beat instead.' : 'It sends a fresh picture each beat; /crab pulse nudge is lighter.'} /crab pulse off stops it. Desktop and the terminal are not affected.`
+    : `VS Code heartbeat: ${p.mode}, ${p.fps} ${p.fps === 1 ? 'beat' : 'beats'} a second. ${p.mode === 'nudge' ? 'It nudges the picture so VS Code paints it again; /crab pulse redraw sends a fresh one each beat instead, the default.' : 'It sends a fresh picture each beat; /crab pulse nudge is lighter, if the walk keeps moving with it.'} /crab pulse off stops it. Desktop and the terminal are not affected.`
 
 /** The picture's height on this beat: a hundredth of a pixel taller every other beat, which nobody sees. */
 export const nudged = (height: number, beat: number): number => (beat % 2 ? height + 0.01 : height)

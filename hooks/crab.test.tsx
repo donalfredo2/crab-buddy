@@ -1378,7 +1378,7 @@ const beats = async (ui: { find: (q: { type: string }) => Promise<{ props: Recor
 }
 const changes = <T,>(xs: T[]): number => xs.filter((x, i) => i > 0 && x !== xs[i - 1]).length
 
-test('in VS Code the picture is nudged ten times a second while the crab is about, once a second while it naps', async ($, on) => {
+test('in VS Code a fresh picture is drawn ten times a second while the crab is about, once a second while it naps', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   engine(on)
@@ -1386,9 +1386,24 @@ test('in VS Code the picture is nudged ten times a second while the crab is abou
   const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
   // Before any turn it naps at home: once a second is enough.
   const napping = await beats(ui, clock, 2000)
-  expect(changes(napping.map(b => b.height))).toBeGreaterThanOrEqual(1)
-  expect(changes(napping.map(b => b.height))).toBeLessThanOrEqual(3)
+  expect(changes(napping.map(b => b.source))).toBeGreaterThanOrEqual(1)
+  expect(changes(napping.map(b => b.source))).toBeLessThanOrEqual(3)
   await $.turn.start({ text: 'go', turnId: 't1' })
+  const working = await beats(ui, clock, 1000)
+  // Each one drawn for its own moment, so even a stalled image clock shows the walk where it should be.
+  expect(changes(working.map(b => b.source))).toBeGreaterThanOrEqual(8)
+  expect(new Set(working.map(b => b.height))).toEqual(new Set([40]))
+  await ui.unmount()
+})
+
+test('/crab pulse nudge keeps the picture and nudges its height instead', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  expect(JSON.stringify(await crab($, 'pulse nudge'))).toMatch(/heartbeat: nudge, 10 beats a second/)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
   const working = await beats(ui, clock, 1000)
   expect(changes(working.map(b => b.height))).toBeGreaterThanOrEqual(8)
   // Only ever a hundredth of a pixel, and the picture itself is kept: VS Code paints it again, nothing restarts.
@@ -1413,7 +1428,7 @@ test('/crab pulse redraw sends a fresh picture each beat, and /crab pulse off go
   mock.store(on)
   engine(on)
   await start($)
-  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/heartbeat: nudge, 10 beats a second/)
+  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/heartbeat: redraw, 10 beats a second/)
   expect(JSON.stringify(await crab($, 'pulse redraw'))).toMatch(/heartbeat: redraw, 10 beats a second/)
   await $.turn.start({ text: 'go', turnId: 't1' })
   const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
@@ -1424,13 +1439,13 @@ test('/crab pulse redraw sends a fresh picture each beat, and /crab pulse off go
   const still = await beats(ui, clock, 1000)
   expect(changes(still.map(b => b.source))).toBe(0)
   expect(new Set(still.map(b => b.height))).toEqual(new Set([40]))
-  // A rate turns it back on, nudging; a word it doesn't know changes nothing.
-  expect(JSON.stringify(await crab($, 'pulse 4'))).toMatch(/heartbeat: nudge, 4 beats a second/)
+  // A rate turns it back on, redrawing; a word it doesn't know changes nothing.
+  expect(JSON.stringify(await crab($, 'pulse 4'))).toMatch(/heartbeat: redraw, 4 beats a second/)
   expect(JSON.stringify(await crab($, 'pulse fast'))).toMatch(/takes nudge, redraw, off, on, or beats a second from 1 to 10/)
-  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/nudge, 4 beats a second/)
+  expect(JSON.stringify(await crab($, 'pulse'))).toMatch(/redraw, 4 beats a second/)
   const slower = await beats(ui, clock, 1000)
-  expect(changes(slower.map(b => b.height))).toBeGreaterThanOrEqual(3)
-  expect(changes(slower.map(b => b.height))).toBeLessThanOrEqual(5)
+  expect(changes(slower.map(b => b.source))).toBeGreaterThanOrEqual(3)
+  expect(changes(slower.map(b => b.source))).toBeLessThanOrEqual(5)
   await ui.unmount()
 })
 
@@ -1446,8 +1461,9 @@ test('a pulse setting from elsewhere is read safely, and /crab pulse takes only 
   expect(pulseOf(undefined)).toEqual(DEFAULT_PULSE)
   expect(pulseOf({ mode: 'warp', fps: 60 })).toEqual(DEFAULT_PULSE)
   expect(pulseOf({ mode: 'off', fps: 3 })).toEqual({ mode: 'off', fps: 3 })
-  expect(pulseFrom('on', { mode: 'off', fps: 3 })).toEqual({ mode: 'nudge', fps: 3 })
-  expect(pulseFrom('7', { mode: 'off', fps: 3 })).toEqual({ mode: 'nudge', fps: 7 })
+  expect(pulseFrom('on', { mode: 'off', fps: 3 })).toEqual({ mode: 'redraw', fps: 3 })
+  expect(pulseFrom('7', { mode: 'off', fps: 3 })).toEqual({ mode: 'redraw', fps: 7 })
+  expect(pulseFrom('7', { mode: 'nudge', fps: 3 })).toEqual({ mode: 'nudge', fps: 7 })
   expect(pulseFrom('7', { mode: 'redraw', fps: 3 })).toEqual({ mode: 'redraw', fps: 7 })
   for (const bad of ['0', '11', '2.5', '-1', 'fast', '']) expect(pulseFrom(bad, DEFAULT_PULSE)).toBeNull()
   expect([nudged(40, 0), nudged(40, 1), nudged(40, 2)]).toEqual([40, 40.01, 40])
