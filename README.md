@@ -144,7 +144,7 @@ It's wherever you last wrote. Write in another window and it wades into the sea,
 
 A beach without the crab keeps its own sea, sky and fishing rods, its fireworks still go off, and a sign in the sand says where the crab went. Pressing a care button there calls it over, as does `/crab here`. `/crab where` tells you where it is. A window that hides the crab, or that a savvy-progress bar has taken over, can't have it.
 
-Each session writes a small file to `crab-buddy/beaches/` in your Claude folder every 3 seconds, holding when it was last seen, the repo's folder name and when you last wrote there. Nothing leaves your machine. The files stay after roaming is off; delete the folder to remove them. With roaming off, or a single window open, nothing changes.
+Each session writes a small file to `crab-buddy/beaches/` in your Claude folder (under `CLAUDE_CONFIG_DIR`, else `.claude` in your home folder) every 3 seconds, holding when it was last seen, the repo's folder name and when you last wrote there. Only plain files there are read or written, never a link. Nothing leaves your machine. The files stay after roaming is off; delete the folder to remove them. With roaming off, or a single window open, nothing changes.
 
 ## Fishing
 
@@ -191,7 +191,7 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab roam on|off`: one crab across your windows, or one each
 - `/crab where`, `/crab here`: where it is, and calling it over
 - `/crab off` / `/crab on`: hide or show it
-- `/crab pulse`, `/crab pulse redraw|nudge|off|1-10`: in VS Code, how the beach is kept moving. VS Code draws it as an image whose own clock can drop to a frame a second after the window has been in the background; a heartbeat has VS Code paint it again ten times a second (once a second while it naps). `redraw`, the default, sends a fresh picture each beat (70 to 85 KB each), each drawn for its moment, so the crab walks even when the image's clock has slowed; it moves the crab even with Reduce Motion on, so choose `nudge` or `off` then. `nudge` changes the picture's height by a hundredth of a pixel each beat, which nobody sees, and is lighter where the image's own clock keeps up; `off` leaves the image alone. Desktop, mobile and the terminal are not affected
+- `/crab pulse`, `/crab pulse redraw|nudge|off|1-10`: in VS Code, how the beach is kept moving. VS Code draws it as an image whose own clock can drop to a frame a second after the window has been in the background; a heartbeat has VS Code paint it again ten times a second (once a second while it naps). It rests after a quarter of an hour with nothing happening (no turn, reply, tool call, prompt, command or care button) and while the band is collapsed, and beats again when the session stirs. `redraw`, the default, sends a fresh picture each beat (70 to 85 KB each), each drawn for its moment, so the crab walks even when the image's clock has slowed; it moves the crab even with Reduce Motion on, so choose `nudge` or `off` then. `nudge` changes the picture's height by a hundredth of a pixel each beat, which nobody sees, and is lighter where the image's own clock keeps up; `off` leaves the image alone. Desktop, mobile and the terminal are not affected
 - `/crab restart`: hide it for 35 seconds so VS Code draws it afresh, for when it is still stuck
 
 ## Settings

@@ -20,6 +20,16 @@ export const DEFAULT_PULSE: Pulse = { mode: 'redraw', fps: MAX_FPS }
 /** No picture drawn in VS Code for this long (hidden, closed, another surface): the heartbeat stops. */
 export const PULSE_IDLE_MS = 3000
 
+/**
+ * A session with nothing happening this long (no turn, reply, tool call, prompt, command or care button) lets the heartbeat rest
+ * until it stirs. The crab is asleep by then, which the image's own clock carries, and a window left open
+ * overnight stops sending a picture a second. A turn that is still running never rests.
+ */
+export const PULSE_REST_MS = 15 * 60_000
+
+/** Whether the session has been quiet long enough for the heartbeat to rest. */
+export const isResting = (stirredAt: number, now: number): boolean => now - stirredAt >= PULSE_REST_MS
+
 const MODES: readonly PulseMode[] = ['nudge', 'redraw', 'off']
 const fpsOf = (n: unknown): number | null =>
   typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= MAX_FPS ? n : null
@@ -45,7 +55,7 @@ export const pulseFrom = (value: string, cur: Pulse): Pulse | null => {
 export const pulseText = (p: Pulse): string =>
   p.mode === 'off'
     ? 'VS Code heartbeat: off. The beach runs on the image\'s own clock. /crab pulse on brings it back.'
-    : `VS Code heartbeat: ${p.mode}, ${p.fps} ${p.fps === 1 ? 'beat' : 'beats'} a second. ${p.mode === 'nudge' ? 'It nudges the picture so VS Code paints it again; /crab pulse redraw sends a fresh one each beat instead, the default.' : 'It sends a fresh picture each beat; /crab pulse nudge is lighter, if the walk keeps moving with it.'} /crab pulse off stops it. Desktop and the terminal are not affected.`
+    : `VS Code heartbeat: ${p.mode}, ${p.fps} ${p.fps === 1 ? 'beat' : 'beats'} a second. ${p.mode === 'nudge' ? 'It nudges the picture so VS Code paints it again; /crab pulse redraw sends a fresh one each beat instead, the default.' : 'It sends a fresh picture each beat; /crab pulse nudge is lighter, if the walk keeps moving with it.'} It rests after 15 minutes with nothing happening. /crab pulse off stops it. Desktop and the terminal are not affected.`
 
 /** The picture's height on this beat: a hundredth of a pixel taller every other beat, which nobody sees. */
 export const nudged = (height: number, beat: number): number => (beat % 2 ? height + 0.01 : height)

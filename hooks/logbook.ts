@@ -2,7 +2,7 @@
 // Before a compaction it goes to the summarizer as a short note, the bottle.
 
 import type { Logbook } from '../types'
-import { oneLine as clean } from './text'
+import { oneLine as clean, cut } from './text'
 
 const MAX_FILES = 30
 const MAX_COMMITS = 3
@@ -25,7 +25,11 @@ export const logFile = (log: Logbook, path: string): Logbook => {
 export const logCheck = (log: Logbook, which: 'test' | 'build', isOk: boolean): Logbook =>
   which === 'test' ? { ...log, test: isOk ? 'passed' : 'failed' } : { ...log, build: isOk ? 'passed' : 'failed' }
 
-export const COMMIT = /\bgit(?:\s+-[cC]\s+\S+|\s+-[\w-]+(?:=\S+)?){0,12}\s+commit\b/
+// git's own options may sit before the subcommand: `git -c user.name=x -C repo --no-pager commit`. Each option
+// reads one way only (`-c` and `-C` take the next word, any other stands alone), so a long run of them is read
+// once, not in every way the words could be paired up.
+export const GIT_OPTIONS = String.raw`(?:\s+-[cC]\s+\S+|\s+-(?![cC]\s)[\w-]+(?:=\S+)?){0,12}`
+export const COMMIT = new RegExp(String.raw`\bgit${GIT_OPTIONS}\s+commit\b`)
 
 /**
  * A commit's subject line from its command: a heredoc's first line, or `-m "…"`. Only what belongs to the
@@ -36,10 +40,12 @@ export const commitTitle = (command: string): string => {
   const at = COMMIT.exec(command)
   const own = at ? command.slice(at.index) : command
   const isOwn = (i: number): boolean => !/&&|\|\||[;|\n]/.test(own.slice(0, i))
-  const doc = /<<-?\s*['"]?\w+['"]?\s*\n\s*(.+)/.exec(own)
+  // The delimiter's line ends before the blank lines begin, and the title starts on a letter: each is found
+  // in one pass, however many blank lines follow.
+  const doc = /<<-?[ \t]*['"]?\w+['"]?[ \t]*\n\s*(\S.*)/.exec(own)
   const flag = /\s-[a-zA-Z]*m\s*(["'])(.+?)\1/.exec(own)
   const title = (doc && isOwn(doc.index) ? doc[1] : undefined) ?? (flag && isOwn(flag.index) ? flag[2] : undefined) ?? ''
-  return clean(title).slice(0, MAX_TITLE) || 'a commit'
+  return cut(clean(title), MAX_TITLE) || 'a commit'
 }
 
 /** A commit settles the files: what's left is what changed after it. */
@@ -76,7 +82,7 @@ export const logNote = (log: Logbook): string => {
   const lines = logLines(log, room - 60)
   if (!lines.length) return ''
   // No angle brackets inside, so nothing logged can end the block early or open one of its own.
-  const body = lines.join('\n').replace(/[<>]/g, '').slice(0, room)
+  const body = cut(lines.join('\n').replace(/[<>]/g, ''), room)
   return `${NOTE_HEAD}\n${LOG_OPEN}\n${body}\n${LOG_CLOSE}`
 }
 
@@ -97,5 +103,5 @@ export const compactKeep = (log: Logbook): string => {
     log.test === 'failed' ? 'the tests are failing' : '',
     log.build === 'failed' ? 'the build is failing' : '',
   ].filter(Boolean)
-  return parts.length ? `/compact Keep ${parts.join('; ')}`.slice(0, KEEP_MAX) : '/compact'
+  return parts.length ? cut(`/compact Keep ${parts.join('; ')}`, KEEP_MAX) : '/compact'
 }

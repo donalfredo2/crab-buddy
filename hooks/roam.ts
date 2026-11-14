@@ -2,7 +2,7 @@
 // folder, and all of them work out who has the crab the same way: pure, so no session
 // has to be in charge and nothing has to be locked.
 
-import { clip } from './text'
+import { clip, cut } from './text'
 
 export type BeachRecord = {
   slot: string
@@ -47,10 +47,33 @@ export const finishedElsewhere = (beaches: readonly BeachRecord[], holder: Beach
   latest(able(beaches, now).filter(b => b.slot !== holder.slot && b.doneAt > holder.personAt && b.doneAt > holder.doneAt), b => b.doneAt)
 
 /** Where a new session settles: the oldest file nobody has touched lately, else a new one. */
-export const pickSlot = (files: readonly { name: string; mtimeMs: number }[], now: number): string => {
-  const free = files.filter(f => f.name.endsWith('.json') && now - f.mtimeMs >= STALE_MS).sort((a, b) => a.mtimeMs - b.mtimeMs)
+export const pickSlot = (files: readonly BeachFile[], now: number): string => {
+  const free = files.filter(f => isBeachFile(f) && now - f.mtimeMs >= STALE_MS).sort((a, b) => a.mtimeMs - b.mtimeMs)
   return free[0]?.name ?? `${now.toString(36)}.json`
 }
+
+/** A folder's entry as the engine lists it; `kind` and `isLink` are absent only in a test's own list. */
+export type BeachFile = { name: string; mtimeMs: number; kind?: string; isLink?: boolean }
+
+/**
+ * A beach's own file: a plain .json file. A link or a folder of that name is never one, so nothing is written
+ * through a link to wherever it leads, and neither is taken for the oldest free slot (both list with no time).
+ */
+export const isBeachFile = (f: BeachFile): boolean =>
+  f.name.endsWith('.json') && f.isLink !== true && (f.kind === undefined || f.kind === 'file')
+
+/**
+ * The folder the beaches' files live in, beside the rest of Claude Code's own: under CLAUDE_CONFIG_DIR, else
+ * under the home folder (USERPROFILE where Windows sets no HOME). Null with neither: then nothing is written,
+ * rather than a folder at the root of the disk.
+ */
+export const beachFolder = (configDir: string | undefined, home: string | undefined, userProfile: string | undefined): string | null => {
+  const base = configDir || (home || userProfile ? `${home || userProfile}/.claude` : '')
+  return base ? `${base}/crab-buddy/beaches` : null
+}
+
+/** The folder's own name from its path, whichever way its slashes lean. */
+export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? ''
 
 /** A file's record, or null for one caught half written. */
 export const parseBeach = (text: string, slot: string): BeachRecord | null => {
@@ -64,8 +87,8 @@ export const parseBeach = (text: string, slot: string): BeachRecord | null => {
 }
 
 /** What the crab says about a window that wants it while it stays with you. */
-export const wantsNote = (b: BeachRecord): string => `${b.repo.slice(0, 16) || 'other'} ${b.isNeeds ? 'needs you' : 'is done'}`
+export const wantsNote = (b: BeachRecord): string => `${cut(b.repo, 16) || 'other'} ${b.isNeeds ? 'needs you' : 'is done'}`
 
 /** Where the crab is, in the words of a sign. */
 export const whereCrabIs = (holderRepo: string, myRepo: string): string =>
-  holderRepo && holderRepo !== myRepo ? `at ${holderRepo.slice(0, 18)}` : 'in another window'
+  holderRepo && holderRepo !== myRepo ? `at ${cut(holderRepo, 18)}` : 'in another window'

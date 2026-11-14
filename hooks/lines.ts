@@ -3,6 +3,7 @@
 import type { SignKind } from '../types'
 import type { Holiday } from './sky'
 import type { Costume } from './sprites'
+import { cut } from './text'
 
 export type Moment =
   | 'long' | 'commit' | 'testsFail' | 'testsPass' | 'hungry' | 'sleepy' | 'morning' | 'late'
@@ -65,7 +66,8 @@ const LINES: Record<Moment, readonly string[]> = {
 export const line = (moment: Moment, seed: number, vars: { name: string; time?: string }): string => {
   const pool = LINES[moment]
   const text = pool[Math.abs(Math.floor(seed)) % pool.length] ?? pool[0] ?? ''
-  return text.replace('{name}', vars.name).replace('{time}', vars.time ?? '')
+  // As functions: a name like "$&" is a name, not a pattern for replace to fill in.
+  return text.replace('{name}', () => vars.name).replace('{time}', () => vars.time ?? '')
 }
 
 // What fits on a plank: 22 characters at most, so a costume's width never decides it.
@@ -96,12 +98,12 @@ export const needsLine = (tool: string, isHelper = false): string => {
   if (tool === 'AskUserQuestion') return 'a question for you'
   if (tool === 'ExitPlanMode') return 'a plan to approve'
   const name = tool.startsWith('mcp__') ? (tool.split('__')[2] ?? tool) : tool
-  return `needs you: ${name.slice(0, 18)}`
+  return `needs you: ${cut(name, 18)}`
 }
 
 export const signLine = (kind: SignKind, seed: number, time = ''): string => {
   const pool = SIGNS[kind]
-  return (pool[Math.abs(Math.floor(seed)) % pool.length] ?? pool[0] ?? '').replace('{time}', time)
+  return (pool[Math.abs(Math.floor(seed)) % pool.length] ?? pool[0] ?? '').replace('{time}', () => time)
 }
 
 const THEME_LINES: Record<Costume, string> = {
