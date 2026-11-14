@@ -12,10 +12,19 @@ import type { Decor, Temperament } from './life'
 import { line, needsLine, signLine, themeLine, themeName } from './lines'
 import { EMPTY_LOG, NOTE_MAX, commitTitle, compactKeep, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { WORK_FLOOR, care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
-import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, newsOf, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, toolNewsOf, wornAt } from './register'
+import { FIRST_HELLO, KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, newsOf, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, toolNewsOf, wornAt } from './register'
 import { FIRE_W, SVG_MAX, fireX, sceneSvg, timeOfDay, unlocked } from './scene'
 import { DEFAULT_PULSE, PULSE_REST_MS, isResting, nudged, pulseFrom, pulseOf } from './pulse'
-import { breakKind, enqueue, heldSign, nextInQueue } from './signs'
+import { breakKind, enqueue, heldSign, mayReplace, nextInQueue } from './signs'
+import { ALERTS, WAIT_DAYS, addWait, alertOf, flagWords, waitStat, waitedOf, waitedWords } from './wait'
+import { MAX_FAILS, NO_CIRCLES, afterCheck, afterFail, hashOf, newTurn } from './circles'
+import { seaText } from './sea'
+import { ASHORE_MS, KEPT_LOGS, agoWords, ashorePrompt, ashoreText, isOpenWork, keepLog, keptLogs, markShown, washedUp } from './ashore'
+import { legend } from './legend'
+import type { Seen } from './legend'
+import { MODE_NAMES, SWITCHES, modeOf, modeText, offList, settingsFor } from './modes'
+import type { Settings } from './modes'
+import { COLD_COMPACT_TOKENS, TTL_5M, shouldTipCold } from './cache'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
 import { COSTUMES, SPECIAL_COSTUMES, costumeOfDay, crab as crabArt, crabRects } from './sprites'
 import { CRAB_CELLS, cellsOf as spriteCells, downsample } from './pixelart'
@@ -3466,4 +3475,336 @@ test('a picture too long for the engine loses footprints, never the beach', () =
 test('the tank minimized to its small form is drawn as the low band', () => {
   expect(tankSize(40, 'widget')).toEqual(tankSize(40, 'inline'))
   expect(terminalTankRows(20, 'widget')).toBe(4)
+})
+
+// --- 0.29: waiting counted, circles, the sea, the bottle ashore, /crab what, presets
+
+test('the flag says how long Claude has waited, from a minute on', () => {
+  expect(waitedWords(T0, T0 + 59_000)).toBe('')
+  expect(waitedWords(T0, T0 + 60_000)).toBe('1m')
+  expect(waitedWords(T0, T0 + 9 * MIN + 59_000)).toBe('9m')
+  expect(waitedWords(T0, T0 + 65 * MIN)).toBe('1h 5m')
+  expect(flagWords('needs you: Bash', T0, T0 + 30_000)).toBe('needs you: Bash')
+  expect(flagWords('needs you: Bash', T0, T0 + 4 * MIN)).toBe('needs you: Bash · 4m')
+})
+
+test('the day\'s waits add up, each counted up to the ten minutes a flag stays, and old days go', () => {
+  const day = dayKey(T0)
+  let kept = addWait(undefined, day, 3 * MIN, 10 * MIN, T0)
+  kept = addWait(kept, day, 25 * MIN, 10 * MIN, T0 + 1000)
+  expect(kept[day]).toEqual({ ms: 13 * MIN, count: 2, longest: 10 * MIN, at: T0 + 1000 })
+  expect(waitStat(kept, day)).toBe('waited 13m for you (2 times)')
+  expect(waitStat(addWait(undefined, day, 40_000, 10 * MIN, T0), day)).toBe('')
+  expect(waitStat(kept, dayKey(T0 + DAY))).toBe('')
+  expect(waitStat(addWait(undefined, day, 5 * MIN, 10 * MIN, T0), day)).toBe('waited 5m for you (1 time)')
+  // What the store holds is read safely, and only the newest days are kept.
+  expect(waitedOf('nonsense')).toEqual({})
+  expect(waitedOf({ a: { ms: 'x' }, b: { ms: 1, count: 1, longest: 1, at: 5 } })).toEqual({ b: { ms: 1, count: 1, longest: 1, at: 5 } })
+  let many: unknown = {}
+  for (let i = 0; i < WAIT_DAYS + 6; i++) many = addWait(many, `day-${i}`, MIN, 10 * MIN, T0 + i * DAY)
+  expect(Object.keys(waitedOf(many)).length).toBe(WAIT_DAYS)
+  expect(waitedOf(many)['day-0']).toBeUndefined()
+  expect(alertOf('both')).toBe('both')
+  expect(alertOf('loud')).toBe('off')
+  expect(ALERTS).toContain('notify')
+})
+
+test('three red runs in a row are a sign, then every third; green ends the streak', () => {
+  let c = NO_CIRCLES
+  const signs: (string | null)[] = []
+  for (const isOk of [false, false, false, false, false, false, true, false, false]) {
+    const step = afterCheck(c, isOk)
+    c = step.next
+    signs.push(step.sign)
+  }
+  expect(signs).toEqual([null, null, '3 red runs', null, null, '6 red runs', null, null, null])
+  expect(c.red).toBe(2)
+})
+
+test('the same command failing three times in a turn is a sign, once, and never keeps the command', () => {
+  let c = NO_CIRCLES
+  const signs: (string | null)[] = []
+  for (const cmd of ['ls nope', 'cat nope', 'ls nope', 'ls  nope', 'ls nope', 'ls nope']) {
+    const step = afterFail(c, cmd)
+    c = step.next
+    signs.push(step.sign)
+  }
+  expect(signs).toEqual([null, null, null, null, 'same error ×3', null])
+  expect(JSON.stringify(c)).not.toContain('nope')
+  expect(hashOf('ls nope')).toBe(hashOf('ls nope'))
+  expect(hashOf('ls nope')).not.toBe(hashOf('ls nopf'))
+  // A new turn forgets the commands, not the red streak; and the list stays short.
+  expect(newTurn({ red: 2, signedRed: 0, fails: { a: 2 } })).toEqual({ red: 2, signedRed: 0, fails: {} })
+  let long = NO_CIRCLES
+  for (let i = 0; i < MAX_FAILS + 15; i++) long = afterFail(long, `cmd ${i}`).next
+  expect(Object.keys(long.fails).length).toBe(MAX_FAILS)
+})
+
+const plantedWords = async ($: Tester) => /beside a sign saying ([^,]+)/.exec(await alt($))?.[1] ?? null
+
+test('the tests red three times running put a sign in the sand; two do not, and green starts over', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  let isRed = true
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false }, isError: isRed }) as never)
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await run($, 'npm test')
+  await run($, 'npm test')
+  expect(await plantedWords($)).toBe(null)
+  isRed = false
+  await run($, 'npm test')
+  isRed = true
+  await run($, 'npm test')
+  await run($, 'npm test')
+  expect(await plantedWords($)).toBe(null)
+  await run($, 'npm run build')
+  expect(await plantedWords($)).toMatch(/^(3 red runs in a row|stuck\? 3 red runs)$/)
+})
+
+test('one command failing three times in a turn is a sign; a new turn starts the count again', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false }, isError: true }) as never)
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await run($, 'ls nope')
+  await run($, 'ls nope')
+  await $.turn.start({ text: 'again', turnId: 't2' })
+  await run($, 'ls nope')
+  await run($, 'ls nope')
+  expect(await plantedWords($)).toBe(null)
+  await run($, 'ls nope')
+  expect(await plantedWords($)).toMatch(/^(same error ×3 in a row|stuck\? same error ×3)$/)
+})
+
+test('/crab circles off keeps the sign down, a subagent\'s runs are not counted, and with signs off it is a toast', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const { toasts } = engine(on)
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false }, isError: true }) as never)
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'npm test', agentId: 'a1' } as never)
+  expect(await plantedWords($)).toBe(null)
+  expect((await crab($, 'circles')).text).toBe('Use /crab circles on or /crab circles off.')
+  expect((await crab($, 'circles off')).text).toBe('No sign when Claude goes in circles.')
+  for (let i = 0; i < 3; i++) await run($, 'npm test')
+  expect(await plantedWords($)).toBe(null)
+  expect(toasts.some(t => t.includes('red runs'))).toBe(false)
+  await crab($, 'circles on')
+  await crab($, 'signs off')
+  for (let i = 0; i < 3; i++) await run($, 'npm test')
+  expect(await plantedWords($)).toBe(null)
+  expect(toasts).toContain('6 red runs in a row. Time to step in? /crab circles off stops this note.')
+})
+
+test('one sign stands in the sand: what matters more keeps its place', () => {
+  expect(mayReplace('cache', 'context')).toBe(false)
+  expect(mayReplace('compact', 'circles')).toBe(false)
+  expect(mayReplace('cold', 'limit')).toBe(false)
+  expect(mayReplace('context', 'cache')).toBe(true)
+  // A context and a limit nearly full are as urgent as each other: the newer stands.
+  expect(mayReplace('limit', 'context')).toBe(true)
+  expect(mayReplace('context', 'budget')).toBe(true)
+  expect(mayReplace('circles', 'cold')).toBe(true)
+  // Its own kind again, a sign from before kinds were kept, and equals.
+  expect(mayReplace('limit', 'limit')).toBe(true)
+  expect(mayReplace('cache', undefined)).toBe(true)
+  for (const kind of ['circles', 'cold'] as const) for (let seed = 0; seed < 4; seed++) {
+    for (const time of ['3 red runs', '99 red runs', 'same error ×3']) expect(signLine(kind, seed, time).length).toBeLessThanOrEqual(22)
+  }
+})
+
+test('/crab sea lists what fills the context, biggest first, and what a person can change', () => {
+  const text = seaText({
+    categories: [
+      { name: 'System prompt', tokens: 4_000, kind: 'used' }, { name: 'Messages', tokens: 212_000, kind: 'used' }, { name: 'MCP tools', tokens: 30_000, kind: 'used' },
+      { name: 'Free space', tokens: 721_000, kind: 'free' }, { name: 'Autocompact buffer', tokens: 33_000, kind: 'buffer' }, { name: 'MCP tools (deferred)', tokens: 90_000, kind: 'deferred' },
+    ],
+    totalTokens: 246_000, rawMaxTokens: 1_000_000, autoCompactThreshold: 967_000,
+    mcpTools: [{ serverName: 'linear', tokens: 12_000, isLoaded: true }, { serverName: 'linear', tokens: 8_000, isLoaded: true }, { serverName: 'figma', tokens: 10_000, isLoaded: true }, { serverName: 'idle', tokens: 99_000, isLoaded: false }],
+    memoryFiles: [{ path: '/work/api/CLAUDE.md', type: 'Project', tokens: 3_000 }, { path: 'C:\\Users\\u\\.claude\\CLAUDE.md', type: 'User', tokens: 9_000 }],
+  }, 200_000)
+  expect(text).toContain('The sea: 246k of a 1000k window (25%).')
+  expect(text).toContain('Claude compacts at 967k; past 200k a long break can.')
+  expect(text.indexOf('Messages')).toBeLessThan(text.indexOf('MCP tools'))
+  expect(text.indexOf('MCP tools')).toBeLessThan(text.indexOf('System prompt'))
+  expect(text).toMatch(/Messages\s+212k\s+86%/)
+  expect(text).toContain('Room left: 721k, with 33k held back for compacting.')
+  expect(text).toContain('Biggest connected tools: linear 20k, figma 10k.')
+  expect(text).toContain('Biggest memory files: .claude/CLAUDE.md 9k, api/CLAUDE.md 3k.')
+  expect(text).toContain('Tools loaded only when used, outside the window: 90k.')
+  expect(text).toContain('nothing is sent')
+  // A bare breakdown, and names from outside, are handled.
+  expect(seaText({ categories: [], totalTokens: 0, rawMaxTokens: 200_000 }, null)).toContain('Room left: 0.')
+  expect(seaText({ totalTokens: 5_000, rawMaxTokens: 200_000 }, null)).toContain('The sea: 5k of a 200k window (3%).')
+  const odd = seaText({ categories: [{ name: `evil\n${'x'.repeat(80)}`, tokens: 5, kind: 'used' }], totalTokens: 5, rawMaxTokens: 100 }, null)
+  expect(odd.split('\n').every(l => l.length < 90)).toBe(true)
+})
+
+const worked = (over: Partial<typeof EMPTY_LOG> = {}) => ({ ...EMPTY_LOG, files: ['/work/api/src/a.ts', '/work/api/src/b.ts'], ...over })
+
+test('a log is kept by folder for a week, and an empty one wipes nothing', () => {
+  let kept = keepLog(undefined, '/work/api', worked(), T0)
+  expect(kept['/work/api']?.log.files.length).toBe(2)
+  expect(keepLog(kept, '/work/api', EMPTY_LOG, T0 + 1000)).toEqual(kept)
+  expect(keepLog(kept, '', worked(), T0)).toEqual(kept)
+  expect(keptLogs(kept, T0 + ASHORE_MS - 1)['/work/api']).not.toBeUndefined()
+  expect(keptLogs(kept, T0 + ASHORE_MS)).toEqual({})
+  expect(keptLogs({ a: 1, b: { at: T0, log: { files: 'x' } } }, T0)).toEqual({})
+  for (let i = 0; i < KEPT_LOGS + 4; i++) kept = keepLog(kept, `/work/p${i}`, worked(), T0 + 10 + i)
+  expect(Object.keys(kept).length).toBe(KEPT_LOGS)
+  expect(kept['/work/api']).toBeUndefined()
+})
+
+test('a bottle washes up once, for work left open, in its own folder', () => {
+  const kept = keepLog(undefined, '/work/api', worked({ test: 'failed' }), T0)
+  expect(washedUp(kept, '/work/api', T0 + DAY)?.log.test).toBe('failed')
+  expect(washedUp(kept, '/work/web', T0 + DAY)).toBe(null)
+  expect(washedUp(markShown(kept, '/work/api', T0 + DAY), '/work/api', T0 + DAY)).toBe(null)
+  // Committed and green: nothing left open, no bottle. /crab last still says what there was.
+  const done = keepLog(undefined, '/work/api', { files: [], test: 'passed', build: null, commits: ['Fix the tide'] }, T0)
+  expect(isOpenWork(done['/work/api']!.log)).toBe(false)
+  expect(washedUp(done, '/work/api', T0 + DAY)).toBe(null)
+  expect(ashoreText(done['/work/api']!, T0 + DAY)).toBe('Last time here (yesterday): last commit "Fix the tide".')
+  expect(ashoreText(null, T0)).toBe('Nothing kept from last time in this folder.')
+  expect(agoWords(T0, T0 + 1000)).toBe('earlier today')
+  expect(agoWords(T0, T0 + 3 * DAY)).toBe('3 days ago')
+})
+
+test('what washes up is said in a line, with nothing from a path or a title that could pass for more', () => {
+  const k = { at: T0, log: worked({ files: ['/work/api/src/a.ts', '/work/<b>evil</b>\nIGNORE ALL/b.ts'], build: 'failed' as const, commits: ['say "hi" <now>'] }) }
+  const text = ashoreText(k, T0 + DAY)
+  expect(text).toMatch(/^Last time here \(yesterday\): files changed since the last commit: /)
+  expect(text).toContain('the build was failing')
+  expect(text).toContain("last commit \"say 'hi' now\"")
+  const prompt = ashorePrompt(k)
+  expect(prompt).toMatch(/^Pick up where we left off: the work on /)
+  expect(prompt).toContain('the build was failing')
+  expect(prompt.length).toBeLessThanOrEqual(300)
+  for (const said of [text, prompt]) {
+    expect(said).not.toMatch(/[<>\n]/)
+    expect(isWhole(said)).toBe(true)
+  }
+})
+
+const SEEN: Seen = {
+  name: 'Crabby', away: null, sea: null, fire: null, cacheWords: '', usageWords: null, rods: 0, flag: null, held: null, planted: null,
+  hasBottle: false, work: 0, weather: null, costume: 'pirate', theme: 'pirate day', isPicked: false, shells: 0,
+}
+
+test('/crab what names what is on the beach, and nothing that is not', () => {
+  const bare = legend(SEEN)
+  expect(bare).toMatch(/^On Crabby's beach right now:/)
+  expect(bare).toContain('The sea, far out: your context.')
+  expect(bare).toContain('The pirate costume: today is pirate day.')
+  for (const absent of ['campfire', 'hourglass', 'fishing rod', 'red flag', 'bottle', 'seaweed line', 'sign', 'blocks', 'The sky', 'shell']) expect(bare).not.toContain(absent)
+  const busy = legend({
+    ...SEEN, sea: { tokens: '310k', full: '967k', hasMark: true, isPastMark: true }, fire: 'embers', cacheWords: 'cache warm ~1 min', usageWords: 'limit 62% (resets 16:20)', rods: 2,
+    flag: { what: 'a question for you', waited: '4m' }, planted: 'high tide soon', hasBottle: true, work: 3, weather: 'rain, windy', isPicked: true, shells: 12,
+  })
+  expect(busy).toContain('The sea: your context, 310k of the 967k where Claude compacts.')
+  expect(busy).toContain('The sea is past it now.')
+  expect(busy).toContain('The embers: the prompt cache is about to go cold (cache warm ~1 min). /crab cache says more.')
+  expect(busy).toContain('The hourglass on the home shell: limit 62% (resets 16:20).')
+  expect(busy).toContain('The 2 fishing rods: subagents at work.')
+  expect(busy).toContain('The red flag: Claude is waiting for you (a question for you), for 4m now.')
+  expect(busy).toContain('The sign in the sand: "high tide soon".')
+  expect(busy).toContain('The 3 blocks by the sandcastle')
+  expect(busy).toContain('The sky: rain, windy, the real weather.')
+  expect(busy).toContain('the one you picked')
+  expect(busy).toContain('The pile of 12 shells')
+  expect(legend({ ...SEEN, away: 'at web' })).toContain('The empty beach: Crabby is at web')
+  expect(legend({ ...SEEN, held: 'pushed!' })).toContain('The sign it holds up: news, "pushed!".')
+})
+
+const EVERYTHING_ON: Settings = { signs: true, needs: true, tips: true, hourglass: true, cost: true, cache: true, breaks: true, sound: true, log: true, circles: true, bubbles: 'rare', alert: 'off' }
+
+test('three presets over the switches: everything, no bubbles, or only what is silent', () => {
+  expect(modeOf(EVERYTHING_ON)).toBe('full')
+  expect(modeOf({ ...EVERYTHING_ON, bubbles: 'often', alert: 'chirp' })).toBe('full')
+  expect(modeOf({ ...EVERYTHING_ON, bubbles: 'off' })).toBe('helper')
+  const quiet = settingsFor('quiet', { ...EVERYTHING_ON, alert: 'both' })
+  expect(modeOf(quiet)).toBe('quiet')
+  expect(SWITCHES.filter(s => quiet[s])).toEqual(['needs', 'hourglass', 'cache', 'log'])
+  expect(quiet.bubbles).toBe('off')
+  expect(quiet.alert).toBe('off')
+  // Back to full: a silent crab talks again, one that talked often keeps doing so, and the alert is yours.
+  expect(settingsFor('full', quiet).bubbles).toBe('rare')
+  expect(settingsFor('full', { ...EVERYTHING_ON, bubbles: 'often', alert: 'notify' })).toEqual({ ...EVERYTHING_ON, bubbles: 'often', alert: 'notify' })
+  expect(settingsFor('helper', { ...quiet, alert: 'chirp' })).toEqual({ ...EVERYTHING_ON, bubbles: 'off', alert: 'chirp' })
+  // One switch thrown by hand is none of them.
+  expect(modeOf({ ...EVERYTHING_ON, sound: false })).toBe('custom')
+  expect(offList({ ...EVERYTHING_ON, sound: false, cost: false, bubbles: 'off' })).toEqual(['cost signs', 'sound', 'bubbles'])
+  expect(modeText({ ...EVERYTHING_ON, sound: false })).toMatch(/^Mode: custom \(switched off: sound\)\. \/crab mode full, helper or quiet/)
+  expect(modeText(quiet)).toMatch(/^Mode: quiet, only the red flag and what is silent/)
+  for (const m of MODE_NAMES) expect(modeOf(settingsFor(m, EVERYTHING_ON))).toBe(m)
+})
+
+test('/crab mode sets every switch of a preset at once, says which stands, and a switch by hand makes it custom', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  expect((await crab($, 'mode')).text).toMatch(/^Mode: full, everything on\./)
+  expect((await crab($, 'mode loud')).text).toMatch(/^Use \/crab mode full, helper or quiet\. Mode: full/)
+  expect((await crab($, 'mode quiet')).text).toMatch(/^Mode: quiet,/)
+  expect((await crab($, 'feedback')).text).toMatch(/mode quiet, alert off, .*switched off: signs, tips, cost signs, breaks, sound, circles, bubbles$/)
+  // The flag and the silent parts stay.
+  expect((await crab($, 'feedback')).text).not.toMatch(/switched off: .*(needs|hourglass|cache fire|log)/)
+  await crab($, 'sound on')
+  expect((await crab($, 'mode')).text).toMatch(/^Mode: custom \(switched off: signs, tips, cost signs, breaks, circles, bubbles\)/)
+  expect((await crab($, 'mode helper')).text).toMatch(/^Mode: helper, everything on but the speech bubbles\./)
+  expect((await crab($, 'mode full')).text).toMatch(/^Mode: full,/)
+  expect((await crab($, 'feedback')).text).toMatch(/mode full, alert off, .*switched off: nothing$/)
+})
+
+test('a preset is remembered by the next session', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on, { areSignsOff: true, areTipsOff: true, isSpendOff: true, areBreaksOff: true, isSoundOff: true, areCirclesOff: true, bubbles: 'off' })
+  engine(on)
+  await start($)
+  expect((await crab($, 'mode')).text).toMatch(/^Mode: quiet,/)
+})
+
+test('the first time it is ever seen it says where the beach is explained, once, and news takes its place', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false }, isError: false }) as never)
+  await start($)
+  expect((await band($)).source).toContain(FIRST_HELLO)
+  await run($, 'git commit -m "x"')
+  expect((await band($)).source).not.toContain(FIRST_HELLO)
+  // A second start, the crab already met: no hello.
+  await clock.advance(MIN)
+  await start($)
+  expect((await band($)).source).not.toContain(FIRST_HELLO)
+})
+
+test('with bubbles off there is no hello, and switching bubbles off takes a bubble down at once', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  expect((await band($)).source).toContain(FIRST_HELLO)
+  await crab($, 'bubbles off')
+  expect((await band($)).source).not.toMatch(/class="bubble"/)
+})
+
+test('a cold fire on a big context is worth a /compact, once, and not where the engine compacts by itself', () => {
+  const c = { at: T0, ttlMs: TTL_5M, why: 'api' as const, tokens: COLD_COMPACT_TOKENS, model: 'm', nudged: true, fire: 'ashes' as const }
+  const cold = T0 + TTL_5M
+  expect(shouldTipCold(c, cold - 1, false, false)).toBe(false)
+  expect(shouldTipCold(c, cold, false, false)).toBe(true)
+  expect(shouldTipCold(c, cold, true, false)).toBe(false)
+  expect(shouldTipCold(c, cold, false, true)).toBe(false)
+  expect(shouldTipCold({ ...c, tokens: COLD_COMPACT_TOKENS - 1 }, cold, false, false)).toBe(false)
+  expect(shouldTipCold({ ...c, coldTipped: true }, cold, false, false)).toBe(false)
+  expect(shouldTipCold({ ...c, isCompacted: true }, cold, false, false)).toBe(false)
+  expect(shouldTipCold(c, cold + 16 * MIN, false, false)).toBe(false)
+  expect(shouldTipCold(null, cold, false, false)).toBe(false)
 })

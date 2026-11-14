@@ -23,7 +23,7 @@ export type Pose =
 export type LifeMode = 'idle' | 'work' | 'sleep' | 'stretch' | 'away'
 
 /** News the crab shows on a sign. */
-export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact' | 'fish' | 'boot' | 'limit' | 'budget' | 'spend' | 'news' | 'cache'
+export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' | 'mr' | 'merged' | 'green' | 'context' | 'compact' | 'fish' | 'boot' | 'limit' | 'budget' | 'spend' | 'news' | 'cache' | 'circles' | 'cold'
 
 /** A sign waiting its turn; `at` is when it was asked for. */
 export type QueuedSign = { kind: SignKind; text: string; at: number }
@@ -61,9 +61,10 @@ export type TtlWhy = 'env' | 'setting' | 'subscription' | 'overage' | 'api'
  * The main conversation's prompt cache. `at` is the last request seen (a reply, or a prompt going out), `ttlMs`
  * its lifetime, `tokens` the context it would write again once cold, on `model`. `nudged`: the cooling sign
  * went up for this pause. `isCompacted`: a compaction replaced the conversation, so the next prompt writes
- * the summary anew. `fire` is the picture last drawn, kept so a change of it redraws the beach.
+ * the summary anew. `fire` is the picture last drawn, kept so a change of it redraws the beach. `coldTipped`:
+ * the ready /compact was offered for this cold spell.
  */
-export type Cache = { at: number; ttlMs: number; why: TtlWhy; tokens: number; model: string; nudged: boolean; isCompacted?: boolean; fire: Fire | null } | null
+export type Cache = { at: number; ttlMs: number; why: TtlWhy; tokens: number; model: string; nudged: boolean; isCompacted?: boolean; coldTipped?: boolean; fire: Fire | null } | null
 
 /** The context as a tide. `level` runs 0 to 1, see tideOf; `mark` is null where there is none; `isCounted`: a local count, until the next reply measures it. */
 export type Tide = { tokens: number; level: number; mark: number | null; isCounted?: boolean } | null
@@ -144,6 +145,12 @@ export type Tokens = { fresh: number; out: number; cacheRead: number; cacheWrite
  * apart, and by model. `signed` is the highest dollar mark already signed.
  */
 export type Spend = { usd: number | null; isEstimate: boolean; main: Tokens; helpers: Tokens; byModel: Record<string, Tokens>; since: number; signed: number }
+
+/**
+ * Going in circles. `red` is the test or build runs failed in a row and `signedRed` the count the sign last went
+ * up at; `fails` counts each failing command of this turn by its fingerprint, never the command itself.
+ */
+export type Circles = { red: number; signedRed: number; fails: Record<string, number> }
 
 /** A prop in its claw that mirrors the tool Claude is using. */
 export type Prop = 'scroll' | 'magnifier' | 'hammer' | 'keyboard' | 'binoculars' | 'rod'
@@ -260,6 +267,7 @@ declare module 'claude-code' {
       cache: Cache
       /** No campfire and no cooling sign. */
       isCacheOff: boolean
+      circles: Circles
     }
     /** Read only: savvy-progress's flow, non-null while its bar is up. */
     'savvy-progress': {

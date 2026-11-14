@@ -2,6 +2,23 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.29.0
+See it sooner
+- The red flag says how long Claude has waited for you, from a minute on ("needs you: Bash · 4m"), and `/crab stats` adds up the day: "waited 37m for you (5 times)".
+- `/crab alert chirp`, `notify` or `both`: a chirp or a notification once Claude has waited a minute. Off unless you switch it on.
+- Going in circles: when the tests or the build fail three times in a row, or one command fails three times in a turn, a sign in the sand says so. `/crab circles off` turns it off.
+- A fire gone cold on a big context (100k tokens or more) gets a sign and the ready `/compact`: with the cache cold, compacting has nothing left to throw away.
+
+Understand it
+- `/crab what` explains everything on the beach right now, one line each. The first time the crab is ever seen it says so, once.
+- `/crab sea` lists what fills the context, biggest first, with the connected tools and memory files that take the most. Counted on your machine.
+- `/crab mode full`, `helper` or `quiet` sets every switch at once: everything, no speech bubbles, or only the red flag and what is silent. `/crab feedback` names the mode.
+- One sign stands in the sand at a time, and what matters more now keeps its place: a context or a limit nearly full, then circles, then the hints about compacting and the cache.
+- `/crab bubbles off` takes a bubble that is up down at once.
+
+Keep it
+- The bottle ashore: the logbook is kept for a week by project folder, on your machine. A new session there, or `/clear`, with work left open finds a bottle on the beach and a ready first prompt in the box ("Pick up where we left off: ..."). `/crab last` shows it, and `/crab log off` keeps and sends nothing.
+
 ## 0.28.1
 Fixes from a full security and bug review. Nothing new to learn.
 - The "cache cools" sign stayed in the sand after you came back in time and the fire blazed again, for up to ten minutes on the one-hour cache. It now comes down with your prompt.

@@ -2,13 +2,13 @@
 // update. The engine doesn't tell a plugin its own version, so it's written here, and a test keeps it equal
 // to plugin.json's.
 
-export const VERSION = '0.28.1'
+export const VERSION = '0.29.0'
 
 /** On the plank, after "new: ": 17 characters at most, so the whole sign fits. */
-export const NEWS = 'a round of fixes'
+export const NEWS = 'try /crab what'
 
 /** The longer line, in /crab help. */
-export const NEWS_LONG = 'New in 0.28.1: fixes from a full review. The "cache cools" sign comes down when you are back in time, an emoji is never cut in half, the beach is always drawn, and in VS Code the heartbeat rests while nothing happens.'
+export const NEWS_LONG = 'New in 0.29.0: /crab what explains the beach, the red flag says how long Claude has waited, a sign when Claude goes in circles, a bottle with what you left open last time, /crab sea for what fills the context, and /crab mode helper or quiet to switch it all at once.'
 
 export const REPO = 'https://github.com/donalfredo2/crab-buddy'
 
