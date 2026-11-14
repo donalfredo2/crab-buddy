@@ -11,6 +11,7 @@ export const KEY = {
   greeted: 'greetedDay', tank: 'isTank', fish: 'fishCaught', roam: 'isRoaming', logOff: 'isLogOff', earned: 'decorEarned',
   needsOff: 'areNeedsOff', tipsOff: 'areTipsOff', hourglassOff: 'isHourglassOff', spendOff: 'isSpendOff', cacheOff: 'isCacheOff', seenVersion: 'seenVersion',
   pulse: 'vscodePulse', fires: 'keptFires',
+  waited: 'waited', alert: 'waitAlert', circlesOff: 'areCirclesOff', logs: 'keptLogs',
 } as const
 
 // Set from the options each time the module loads.

@@ -20,7 +20,7 @@ import { care, cooldownLeft, freshNeeds, gain, isHungry, isSleepy, petMood, rest
 import type { Care } from './pet'
 import { COMMIT, EMPTY_LOG, GIT_OPTIONS, commitTitle, compactKeep, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { SCENE_H, sceneSvg, timeOfDay } from './scene'
-import { SIGN_MOOD, breakKind, enqueue, heldSign, nextInQueue } from './signs'
+import { SIGN_MOOD, breakKind, enqueue, heldSign, mayReplace, nextInQueue } from './signs'
 import type { HeldKind } from './signs'
 import { holiday, skyFor } from './sky'
 import type { Sky } from './sky'
@@ -75,13 +75,22 @@ const spend = atom({ plugin: 'crab-buddy', key: 'spend' } as const, EMPTY_SPEND)
 const isSpendOff = atom({ plugin: 'crab-buddy', key: 'isSpendOff' } as const, false)
 const cache = atom({ plugin: 'crab-buddy', key: 'cache' } as const, null)
 const isCacheOff = atom({ plugin: 'crab-buddy', key: 'isCacheOff' } as const, false)
+const circles = atom({ plugin: 'crab-buddy', key: 'circles' } as const, NO_CIRCLES)
 
 // savvy-progress draws its own crab in its bar: ours steps aside while that bar is up. Written here, where it's
 // read: the engine lists what a module reads from $.state, so the reference must be a literal in this file.
 const savvyFlow = { plugin: 'savvy-progress', key: 'flow' } as const
 import { nextUsage, usageMark, usageSign, usageStat } from './usage'
 import { EMPTY_SPEND, addTurn, measureSpend, nextMilestone, spendDetail, spendSign, spendStat } from './spend'
-import { cacheDetail, cacheStat, coldAt, fireOf, inWords, keepFire, nextChangeAt, relit, rewriteText, shouldNudge, ttlOf } from './cache'
+import { ASHES_MS, TTL_1H, cacheDetail, cacheStat, coldAt, fireOf, inWords, keepFire, nextChangeAt, relit, rewriteText, shouldNudge, shouldTipCold, ttlOf } from './cache'
+import { ALERTS, WAIT_ALERT_MS, addWait, alertOf, alertText, flagWords, waitStat, waitedWords } from './wait'
+import type { AlertMode } from './wait'
+import { NO_CIRCLES, afterCheck, afterFail, circlesToast, newTurn } from './circles'
+import { seaText } from './sea'
+import { ashorePrompt, ashoreText, hasLog, keepLog, keptLogs, markShown, washedUp } from './ashore'
+import { legend } from './legend'
+import { SWITCHES, isModeName, modeOf, modeText, offList, settingsFor } from './modes'
+import type { Bubbles, Settings, SwitchName } from './modes'
 import type { Costume, CrabLook } from './sprites'
 
 
@@ -405,16 +414,26 @@ async function holdUp($: EngineInterface, kind: HeldKind, opts: { time?: string;
   return true
 }
 
-/** After an update, what's new goes up on a sign once, for every window together; a first install hears nothing. */
+/** After an update, what's new goes up on a sign once, for every window together; a first install is pointed to /crab what. */
 async function announceNews($: EngineInterface, hasMet: boolean): Promise<void> {
   const what = newsFor(await $.store.get(KEY.seenVersion), hasMet)
   if (what === 'same') return
   await $.store.set(KEY.seenVersion, VERSION)
   if (what === 'updated') await holdUp($, 'news', { time: NEWS, isAlways: true })
+  // A first install: the crab says once where the beach is explained. A bubble, not a toast: it is the crab's hello.
+  else if ((await read($, bubbleMode)) !== 'off') await showBubble($, FIRST_HELLO, await $.clock.now(), GREET_MS)
+}
+
+/** What it says the first time it is ever seen: where to find out what the beach means. */
+export const FIRST_HELLO = 'new here? try /crab what'
+
+// A bubble is drawn where a sign would be held. The hello is small talk: news or the red flag takes its place.
+async function dropHello($: EngineInterface): Promise<void> {
+  if ((await read($, bubble))?.text === FIRST_HELLO) await update($, bubble, () => null)
 }
 
 /** The hint beside /crab in the prompt box: the commands most people want, help first, so it fits on one line. */
-export const ARGUMENT_HINT = '[help | feed | play | pet | tank | strip | weather | cost | stats | <costume> | …]'
+export const ARGUMENT_HINT = '[help | what | feed | play | pet | tank | weather | cost | stats | mode | <costume> | …]'
 
 /**
  * What /crab help says: every command, grouped. The hint in the prompt box only has room for a few, so this
@@ -430,7 +449,10 @@ const HELP = [
   '  /crab snooze               snooze the break reminder for 30 minutes',
   '',
   'Find out',
-  '  /crab stats                the session, its needs, shells and fish',
+  '  /crab what                 what everything on the beach means, right now',
+  '  /crab stats                the session, its needs, shells and fish, and how long Claude waited for you',
+  '  /crab sea                  what fills the context',
+  '  /crab last                 what was left open here last time',
   '  /crab cost                 what this session has cost, in dollars and tokens',
   '  /crab cache                how long the prompt cache likely stays warm (the campfire)',
   '  /crab weather              the real weather, and where it is for',
@@ -453,8 +475,10 @@ const HELP = [
   '  /crab today                today\'s costume; a bare /crab picks one',
   '',
   'Switch parts on or off',
-  '  /crab signs, needs, tips, hourglass, cost, cache, log, breaks or sound  on|off',
+  '  /crab mode full|helper|quiet   all of them at once: everything, no bubbles, or only what is silent',
+  '  /crab signs, needs, tips, hourglass, cost, cache, circles, log, breaks or sound  on|off',
   '  /crab bubbles often|rare|off',
+  '  /crab alert off|chirp|notify|both   a sound or a notification once Claude has waited a minute',
   '',
   `More: ${REPO}#buttons-and-commands`,
   'Tell the author what you think: /crab feedback',
@@ -462,19 +486,9 @@ const HELP = [
 
 /** What /crab feedback says: where to write, and the facts worth pasting. Nothing is sent from here. */
 async function feedbackText($: EngineInterface): Promise<string> {
-  const off = [
-    (await read($, areSignsOff)) && 'signs',
-    (await read($, areNeedsOff)) && 'needs',
-    (await read($, areTipsOff)) && 'tips',
-    (await read($, isHourglassOff)) && 'hourglass',
-    (await read($, isSpendOff)) && 'cost signs',
-    (await read($, isCacheOff)) && 'cache fire',
-    (await read($, areBreaksOff)) && 'breaks',
-    (await read($, isSoundOff)) && 'sound',
-    (await readStore($, KEY.logOff, false)) && 'log',
-    (await readStore($, KEY.hidden, false)) && 'the crab itself',
-  ].filter((w): w is string => typeof w === 'string')
-  const facts = `crab-buddy ${VERSION}, roaming ${(await readStore($, KEY.roam, false)) ? 'on' : 'off'}, VS Code pulse ${pulseCfg.mode === 'off' ? 'off' : `${pulseCfg.mode} ${pulseCfg.fps}`}, switched off: ${off.length ? off.join(', ') : 'nothing'}`
+  const now = await settingsNow($)
+  const off = [...offList(now), ...((await readStore($, KEY.hidden, false)) ? ['the crab itself'] : [])]
+  const facts = `crab-buddy ${VERSION}, mode ${modeOf(now)}, alert ${now.alert}, roaming ${(await readStore($, KEY.roam, false)) ? 'on' : 'off'}, VS Code pulse ${pulseCfg.mode === 'off' ? 'off' : `${pulseCfg.mode} ${pulseCfg.fps}`}, switched off: ${off.length ? off.join(', ') : 'nothing'}`
   return [
     'Thanks! Tell the author here, nothing is sent from this command:',
     `${REPO}/issues/new/choose`,
@@ -522,6 +536,7 @@ async function debugText($: EngineInterface): Promise<string> {
 }
 
 async function raiseSign($: EngineInterface, kind: HeldKind, text: string, first?: Activity): Promise<void> {
+  await dropHello($)
   await react($, SIGN_MOOD[kind], HELD_SIGN_MS, first, text)
   $.clock.after(HELD_SIGN_MS, () => void nextSign($))
 }
@@ -534,13 +549,20 @@ async function nextSign($: EngineInterface): Promise<void> {
   if (next) await raiseSign($, next.kind as HeldKind, next.text)
 }
 
-async function plantSign($: EngineInterface, kind: SignKind, ms: number, time?: string): Promise<void> {
+/**
+ * Plants a sign in the sand. One stands at a time: a sign that matters more than the new one keeps its place
+ * (signs.ts), and the answer says whether the new one went up.
+ */
+async function plantSign($: EngineInterface, kind: SignKind, ms: number, time?: string): Promise<boolean> {
   const now = await $.clock.now()
+  const standing = await read($, plantedSign)
+  if (standing && standing.until > now && !mayReplace(kind, standing.kind)) return false
   const until = now + ms
   await update($, plantedSign, () => ({ text: signLine(kind, now / 1000, time), until, kind }))
   $.clock.after(ms, () => {
     void update($, plantedSign, p => (p && p.until <= until ? null : p))
   })
+  return true
 }
 
 // Tool calls under way, newest last: a permission request names its tool and its agent, not its call.
@@ -548,16 +570,28 @@ const waiting = new Map<string, { tool: string; agentId: string | null }>()
 
 /**
  * Claude is waiting for you: it turns to you and holds up a red flag until the answer comes.
- * Silent on purpose: Claude Code raises its own notifications.
+ * Silent unless asked: Claude Code raises its own notifications, so a sound or one of the crab's own after a
+ * minute is for /crab alert to switch on.
  */
 async function raiseFlag($: EngineInterface, id: string, what: string): Promise<void> {
   if (await read($, areNeedsOff)) return
   if ((await read($, needsYou))?.id === id) return
   const now = await $.clock.now()
+  await dropHello($)
   await update($, needsYou, () => ({ what, id, since: now }))
   await claimCrab($, 'needs')
   await startSegment($, { hold: { pose: 'look', ms: NEEDS_MAX_MS } })
   $.clock.after(NEEDS_MAX_MS, () => void lowerFlag($, id, now))
+  $.clock.after(WAIT_ALERT_MS, () => void alertWaiting($, id, now).catch(() => undefined))
+}
+
+/** A minute on and the same flag still up: the chirp, a notification or both, where /crab alert asked for one. */
+async function alertWaiting($: EngineInterface, id: string, since: number): Promise<void> {
+  const flag = await read($, needsYou)
+  if (!flag || flag.id !== id || flag.since !== since) return
+  const mode = alertOf(await $.store.get(KEY.alert))
+  if (mode === 'chirp' || mode === 'both') void $.audio.play({ asset: CHIRP }, { gain: 0.5 }).catch(() => undefined)
+  if (mode === 'notify' || mode === 'both') await $.ui.notify(`Claude has waited a minute: ${flag.what}.`, { title: `${await read($, petName)} the crab`, key: 'crab-waiting' }).catch(() => undefined)
 }
 
 /** The answer came, or you're back: the flag comes down and news that waited goes up. */
@@ -567,6 +601,10 @@ async function lowerFlag($: EngineInterface, id?: string, since?: number): Promi
   await update($, needsYou, () => null)
   const seg = await read($, life)
   const now = await $.clock.now()
+  // The wait goes on the day's count, for every window together. Its own bookkeeping: a failure here costs nothing else.
+  await $.store.get(KEY.waited)
+    .then(kept => $.store.set(KEY.waited, addWait(kept, dayKey(now), now - cur.since, NEEDS_MAX_MS, now)))
+    .catch(() => undefined)
   // Still facing you for the flag: it gets on with its life.
   if (seg?.hold?.pose === 'look' && seg.startAt >= cur.since && now < seg.startAt + seg.hold.ms) await startSegment($)
   await nextSign($)
@@ -1101,7 +1139,7 @@ async function feedFire($: EngineInterface, model?: string): Promise<void> {
   // Warm again: a cooling sign still standing is old news.
   const prev = await read($, cache)
   // Told by its kind: its end is worked out from two readings of the clock, which are seldom the same millisecond.
-  if (prev?.nudged) await update($, plantedSign, p => (p?.kind === 'cache' ? null : p))
+  if (prev?.nudged || prev?.coldTipped) await update($, plantedSign, p => (p?.kind === 'cache' || p?.kind === 'cold' ? null : p))
   await update($, cache, (c): Cache => ({ at: now, ttlMs: ttl.ms, why: ttl.why, tokens: tokens || c?.tokens || 0, model: model || c?.model || '', nudged: false, fire: 'blaze' }))
   await keepCache($)
   await tendFire($)
@@ -1145,18 +1183,41 @@ async function tendFire($: EngineInterface): Promise<void> {
     await update($, cache, c => (c ? { ...c, nudged: true } : c))
     if (!(await read($, isCacheOff))) await nudgeCooling($, cur, now)
   }
+  // Gone cold with a big context and nothing running: compacting now throws no warm cache away. Not where the
+  // engine compacts an idle conversation by itself (a mark on the sand, on the one-hour cache).
+  const idleCompacts = cur.ttlMs >= TTL_1H && typeof (await read($, tide))?.mark === 'number'
+  if (shouldTipCold(cur, now, isTurnRunning, idleCompacts)) {
+    await update($, cache, c => (c ? { ...c, coldTipped: true } : c))
+    if (!(await read($, isCacheOff))) await tipCold($, cur, now)
+  }
   const next = nextChangeAt(cur, now)
   if (next !== null) $.clock.after(Math.max(1000, next - now), () => void (gen === fireGen && tendFire($)))
 }
 
-/** The cooling sign: in the sand, unless another stands there or signs are off; then a toast says it. */
+/**
+ * The cold tip: a sign in the sand while the ashes lie, and the ready /compact in the empty prompt box, where
+ * tips are on. Silent otherwise: /crab cache says the same when asked.
+ */
+async function tipCold($: EngineInterface, c: NonNullable<Cache>, now: number): Promise<void> {
+  if (!(await read($, areSignsOff))) await plantSign($, 'cold', Math.max(1000, coldAt(c) + ASHES_MS - now))
+  if (compactTip.isShown || (await read($, areTipsOff))) return
+  const shown = await $.prompt.suggest({ text: compactKeep(await read($, logbook)) }).catch(() => null)
+  if (shown?.isShown) compactTip.isShown = true
+}
+
+/**
+ * The cooling sign: in the sand, unless a sign that matters more stands there or signs are off; then a toast
+ * says it. With signs and bubbles both off (/crab mode quiet), the fire alone tells.
+ */
 async function nudgeCooling($: EngineInterface, c: NonNullable<Cache>, now: number): Promise<void> {
   const left = coldAt(c) - now
   const planted = await read($, plantedSign)
-  if (!(await read($, areSignsOff)) && !(planted && planted.until > now)) {
+  const signsOff = await read($, areSignsOff)
+  if (!signsOff && !(planted && planted.until > now)) {
     await plantSign($, 'cache', left, inWords(left))
     return
   }
+  if (signsOff && (await read($, bubbleMode)) === 'off') return
   $.ui.toast(`Prompt cache cools ${inWords(left)}: a prompt after that writes ${rewriteText(c, (await read($, spend)).isEstimate)} to the cache again. /crab cache has the details.`)
 }
 
@@ -1295,6 +1356,81 @@ async function setFlag($: EngineInterface, which: 'breaks' | 'sound', isOn: bool
 async function setBubbles($: EngineInterface, mode: string): Promise<void> {
   await update($, bubbleMode, () => mode)
   await $.store.set(KEY.bubbles, mode)
+  // Off is off at once: a bubble still up goes too.
+  if (mode === 'off') await update($, bubble, () => null)
+}
+
+/**
+ * One part of the crab on or off, here and for every later session: its atom where it has one, the store, and
+ * whatever has to go with it. The /crab switches and the presets (/crab mode) both come through here.
+ */
+async function setSwitch($: EngineInterface, name: SwitchName, isOn: boolean): Promise<void> {
+  const isOff = !isOn
+  switch (name) {
+    case 'signs':
+      await update($, areSignsOff, () => isOff)
+      await $.store.set(KEY.signsOff, isOff)
+      if (isOff) {
+        await update($, plantedSign, () => null)
+        await update($, signQueue, () => [])
+      }
+      return
+    case 'needs':
+      await update($, areNeedsOff, () => isOff)
+      await $.store.set(KEY.needsOff, isOff)
+      if (isOff) await lowerFlag($)
+      return
+    case 'tips':
+      await update($, areTipsOff, () => isOff)
+      await $.store.set(KEY.tipsOff, isOff)
+      return
+    case 'hourglass':
+      await update($, isHourglassOff, () => isOff)
+      await $.store.set(KEY.hourglassOff, isOff)
+      return
+    case 'cost':
+      await update($, isSpendOff, () => isOff)
+      await $.store.set(KEY.spendOff, isOff)
+      return
+    case 'cache':
+      await update($, isCacheOff, () => isOff)
+      await $.store.set(KEY.cacheOff, isOff)
+      return
+    case 'breaks':
+    case 'sound':
+      await setFlag($, name, isOn)
+      return
+    case 'log':
+      await $.store.set(KEY.logOff, isOff)
+      // Off means nothing leaves the session: not to the summarizer, and not to the next session either.
+      if (isOff) await $.store.set(KEY.logs, null)
+      return
+    case 'circles':
+      await $.store.set(KEY.circlesOff, isOff)
+  }
+}
+
+/** Where every switch stands now. */
+async function settingsNow($: EngineInterface): Promise<Settings> {
+  const talk = await read($, bubbleMode)
+  const bubbles: Bubbles = talk === 'often' || talk === 'off' ? talk : 'rare'
+  return {
+    signs: !(await read($, areSignsOff)), needs: !(await read($, areNeedsOff)), tips: !(await read($, areTipsOff)),
+    hourglass: !(await read($, isHourglassOff)), cost: !(await read($, isSpendOff)), cache: !(await read($, isCacheOff)),
+    breaks: !(await read($, areBreaksOff)), sound: !(await read($, isSoundOff)),
+    log: !(await readStore($, KEY.logOff, false)), circles: !(await readStore($, KEY.circlesOff, false)),
+    bubbles, alert: alertOf(await $.store.get(KEY.alert)),
+  }
+}
+
+/** A preset: every switch it decides is set, and only those that differ are touched. */
+async function applyMode($: EngineInterface, mode: 'full' | 'helper' | 'quiet'): Promise<Settings> {
+  const cur = await settingsNow($)
+  const want = settingsFor(mode, cur)
+  for (const name of SWITCHES) if (want[name] !== cur[name]) await setSwitch($, name, want[name])
+  if (want.bubbles !== cur.bubbles) await setBubbles($, want.bubbles)
+  if (want.alert !== cur.alert) await $.store.set(KEY.alert, want.alert)
+  return want
 }
 
 /** Your own close of the tank, by its mark or a key, not this plugin's or an unload. */
@@ -1468,7 +1604,7 @@ async function view($: EngineInterface, isWorking: boolean): Promise<View> {
   const isPastMark = !!water && water.mark !== null && water.tokens >= water.mark
   const summary = `${fmtDuration(now - (s.startedAt || now))} · ${s.turns} turns · ${s.toolCalls} tool calls${water ? ` · context ${fmtTokens(water.tokens)}${isPastMark ? ', past the mark' : ''}` : ''}`
   const flag = await read($, needsYou)
-  const heldNow = flag?.what ?? heldSign(seg, now) ?? (await breakSign($, now, seg))
+  const heldNow = (flag ? flagWords(flag.what, flag.since, now) : null) ?? heldSign(seg, now) ?? (await breakSign($, now, seg))
   const sign = away ? null : heldNow
   const isFlag = !!flag && !!sign
   const plantedNow = await read($, plantedSign)
@@ -1554,6 +1690,7 @@ async function afterTool($: EngineInterface, e: ToolCallInput, result: ToolCallR
   const command = String((e as { command?: unknown }).command ?? '')
   const wasRed = (await read($, logbook)).test === 'failed'
   await update($, logbook, l => logShell(l, command, isError))
+  if (!e.agentId) await watchCircles($, command, isError)
   const mood = reactionTo(command, isError)
   if (mood && !e.agentId) isCleanStop = mood !== 'nervous'
   const news = newsOf(command, isError) ?? (TEST.test(command) && !isError && wasRed ? 'green' : null)
@@ -1570,6 +1707,82 @@ async function afterTool($: EngineInterface, e: ToolCallInput, result: ToolCallR
       await say($, 'testsFail')
     }
   }
+}
+
+/**
+ * Going in circles (circles.ts): a test or build red three times running, or one command failing three times in
+ * a turn, is when a person should step in. A sign in the sand says so, or a toast where signs are off.
+ */
+async function watchCircles($: EngineInterface, command: string, isError: boolean): Promise<void> {
+  const isCheck = TEST.test(command) || BUILD.test(command)
+  if (!isCheck && !isError) return
+  const cur = await read($, circles)
+  const { next, sign } = isCheck ? afterCheck(cur, !isError) : afterFail(cur, command)
+  if (next !== cur) await update($, circles, () => next)
+  if (!sign || (await readStore($, KEY.circlesOff, false))) return
+  if (await read($, areSignsOff)) $.ui.toast(circlesToast(sign))
+  else await plantSign($, 'circles', SIGN_MS, sign)
+}
+
+/** The log as it stands, kept for this folder's next session (ashore.ts). Not with the bottle switched off. */
+async function keepAshore($: EngineInterface): Promise<void> {
+  if (!folder || (await readStore($, KEY.logOff, false))) return
+  const log = await read($, logbook)
+  if (!hasLog(log)) return
+  const now = await $.clock.now()
+  await $.store.set(KEY.logs, keepLog(await $.store.get(KEY.logs), folder, log, now)).catch(() => undefined)
+}
+
+/**
+ * A new conversation in a folder where work was left open: a bottle lies at the waterline, the crab says so, and
+ * a ready first prompt waits dim in the box. Once per kept log; /crab last shows it any time.
+ */
+async function washAshore($: EngineInterface): Promise<void> {
+  if (!folder || hasLog(await read($, logbook)) || (await readStore($, KEY.logOff, false))) return
+  const now = await $.clock.now()
+  const stored = await $.store.get(KEY.logs)
+  const kept = washedUp(stored, folder, now)
+  if (!kept) return
+  await $.store.set(KEY.logs, markShown(stored, folder, now))
+  const until = now + BOTTLE_MS
+  await update($, bottleUntil, () => until)
+  $.clock.after(BOTTLE_MS, () => {
+    void update($, bottleUntil, u => (u <= until ? 0 : u))
+  })
+  await say($, 'ashore', true)
+  if (await read($, areTipsOff)) return
+  // The box may not be ready this early: one more try a moment later.
+  const offer = async (): Promise<boolean> => !!(await $.prompt.suggest({ text: ashorePrompt(kept) }).catch(() => null))?.isShown
+  if (!(await offer())) $.clock.after(2000, () => void offer())
+}
+
+/** What /crab what says: everything on the beach right now, each in a line (legend.ts). */
+async function whatText($: EngineInterface): Promise<string> {
+  const v = await view($, isTurnRunning)
+  const water = await read($, tide)
+  const lines = await read($, tideLines)
+  const flag = await read($, needsYou)
+  const used = (await read($, isHourglassOff)) ? null : await read($, usage)
+  const w = await read($, weather)
+  return legend({
+    name: v.name,
+    away: await read($, crabAway),
+    sea: water ? { tokens: fmtTokens(water.tokens), full: lines && !lines.isGuessed ? fmtTokens(lines.full) : null, hasMark: typeof water.mark === 'number', isPastMark: water.mark !== null && water.tokens >= water.mark } : null,
+    fire: v.beach.fire ?? null,
+    cacheWords: cacheStat(await read($, cache), v.now),
+    usageWords: used ? usageStat(used, v.now) : null,
+    rods: (await read($, rods)).length,
+    flag: flag && v.beach.isFlag ? { what: flag.what, waited: waitedWords(flag.since, v.now) } : null,
+    held: v.beach.sign && !v.beach.isFlag ? v.beach.sign : null,
+    planted: v.beach.planted ?? null,
+    hasBottle: !!v.beach.hasBottle,
+    work: (await read($, turnWork)).length,
+    weather: w && w.kind !== 'clear' ? `${w.kind}${w.isWindy ? ', windy' : ''}` : null,
+    costume: v.costume,
+    theme: themeAt(v.now),
+    isPicked: isCostume(await read($, picked)),
+    shells: (await traces($)).shells,
+  })
 }
 
 export const register: Register = (on, options) => {
@@ -1618,6 +1831,7 @@ export const register: Register = (on, options) => {
     if (timeOfDay(hourOf(now)) === 'morning') await say($, 'morning')
     void refreshWeather($, showWeather($))
     await startSegment($)
+    await washAshore($)
     await announceNews($, hasMet)
     ticker?.cancel()
     ticker = $.clock.every(MIN, () => {
@@ -1676,8 +1890,7 @@ export const register: Register = (on, options) => {
     }
     if (word === 'cost') {
       if (value === 'on' || value === 'off') {
-        await update($, isSpendOff, () => value === 'off')
-        await $.store.set(KEY.spendOff, value === 'off')
+        await setSwitch($, 'cost', value === 'on')
         return { text: value === 'off' ? 'No signs for money spent. /crab cost still tells you.' : 'A sign goes up at $5, $10, $25, $50 and $100 spent, then every $100.' }
       }
       const startedAt = await $.session.usage().then(u => u.startedAt, () => 0)
@@ -1685,16 +1898,15 @@ export const register: Register = (on, options) => {
     }
     if (word === 'cache') {
       if (value === 'on' || value === 'off') {
-        await update($, isCacheOff, () => value === 'off')
-        await $.store.set(KEY.cacheOff, value === 'off')
+        await setSwitch($, 'cache', value === 'on')
         return { text: value === 'off' ? 'No campfire and no cooling sign. /crab cache still tells you.' : 'The campfire shows how warm the prompt cache likely is, and a sign says when it cools.' }
       }
       return { text: cacheDetail(await read($, cache), await $.clock.now(), (await read($, spend)).isEstimate, await read($, isCacheOff)) }
     }
     if (word === 'log') {
       if (value === 'on' || value === 'off') {
-        await $.store.set(KEY.logOff, value === 'off')
-        return { text: value === 'off' ? 'The bottle stays ashore: summaries get nothing from the crab. It keeps the log.' : 'Bottle on: the log goes to the summarizer before each compaction.' }
+        await setSwitch($, 'log', value === 'on')
+        return { text: value === 'off' ? 'The bottle stays ashore: summaries get nothing from the crab, and nothing is kept for your next session here. It keeps the log for this one.' : 'Bottle on: the log goes to the summarizer before each compaction, and is kept a week for your next session in this folder (/crab last).' }
       }
       const log = logText(await read($, logbook)) || 'Nothing logged yet.'
       return { text: `${log}\nThe bottle is ${(await readStore($, KEY.logOff, false)) ? 'off' : 'on'}: /crab log on|off.` }
@@ -1724,9 +1936,37 @@ export const register: Register = (on, options) => {
       const used = await read($, usage)
       const cost = spendStat(await read($, spend), used?.kind === 'budget')
       const warm = cacheStat(await read($, cache), v.now)
-      return { text: `${v.summary}${used ? ` · ${usageStat(used, v.now)}` : ''}${cost ? ` · ${cost}` : ''} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)}${warm ? ` · ${warm}` : ''} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''}${typeof fish === 'number' && fish > 0 ? ` · ${fish} fish` : ''}${temperament ? ` · ${TEMPERAMENTS[temperament].word}` : ''} · ${themeAt(v.now)}` }
+      const waited = waitStat(await $.store.get(KEY.waited), dayKey(v.now))
+      return { text: `${v.summary}${used ? ` · ${usageStat(used, v.now)}` : ''}${cost ? ` · ${cost}` : ''}${waited ? ` · ${waited}` : ''} · food ${Math.round(v.n.food)} · fun ${Math.round(v.n.fun)} · energy ${Math.round(v.n.energy)}${warm ? ` · ${warm}` : ''} · ${tr.shells} shells${tr.golden ? ` (+${tr.golden} golden)` : ''}${typeof fish === 'number' && fish > 0 ? ` · ${fish} fish` : ''}${temperament ? ` · ${TEMPERAMENTS[temperament].word}` : ''} · ${themeAt(v.now)}` }
     }
     if (word === 'weather') return { text: await weatherText($, await read($, weather)) }
+    if (word === 'what') return { text: await whatText($) }
+    if (word === 'sea') {
+      const counted = (await $.session.usage({ breakdown: 'summary' }).catch(() => null))?.context.breakdown
+      if (!counted) return { text: "The sea can't be counted here yet. /crab stats has the context's size once a reply has come." }
+      return { text: seaText(counted, (await read($, tide))?.mark ?? null) }
+    }
+    if (word === 'last') {
+      const now = await $.clock.now()
+      const kept = folder ? keptLogs(await $.store.get(KEY.logs), now)[folder] : undefined
+      return { text: `${ashoreText(kept ?? null, now)}${(await readStore($, KEY.logOff, false)) ? ' Nothing is kept while the log is off (/crab log on).' : ''}` }
+    }
+    if (word === 'alert') {
+      if (!value) return { text: alertText(alertOf(await $.store.get(KEY.alert))) }
+      if (!(ALERTS as readonly string[]).includes(value)) return { text: `Use /crab alert off, chirp, notify or both. ${alertText(alertOf(await $.store.get(KEY.alert)))}` }
+      await $.store.set(KEY.alert, value)
+      return { text: alertText(value as AlertMode) }
+    }
+    if (word === 'circles') {
+      if (value !== 'on' && value !== 'off') return { text: 'Use /crab circles on or /crab circles off.' }
+      await setSwitch($, 'circles', value === 'on')
+      return { text: value === 'on' ? 'A sign goes up when the tests fail three times running, or one command fails three times in a turn.' : 'No sign when Claude goes in circles.' }
+    }
+    if (word === 'mode') {
+      if (!value) return { text: modeText(await settingsNow($)) }
+      if (!isModeName(value)) return { text: `Use /crab mode full, helper or quiet. ${modeText(await settingsNow($))}` }
+      return { text: modeText(await applyMode($, value)) }
+    }
     if (word === 'lines') {
       const out = await read($, rods)
       if (!out.length) return { text: 'No lines in the water.' }
@@ -1779,23 +2019,14 @@ export const register: Register = (on, options) => {
     }
     if (word === 'signs') {
       if (value !== 'on' && value !== 'off') return { text: 'Use /crab signs on or /crab signs off.' }
-      await update($, areSignsOff, () => value === 'off')
-      await $.store.set(KEY.signsOff, value === 'off')
-      if (value === 'off') {
-        await update($, plantedSign, () => null)
-        await update($, signQueue, () => [])
-      }
+      await setSwitch($, 'signs', value === 'on')
       return { text: value === 'off' ? 'No more signs: bubbles and toasts carry the news.' : 'Signs are back.' }
     }
     // The helper's switches, each kept across sessions.
     if (word === 'needs' || word === 'tips' || word === 'hourglass') {
       if (value !== 'on' && value !== 'off') return { text: `Use /crab ${word} on or /crab ${word} off.` }
       const isOff = value === 'off'
-      if (word === 'needs') await update($, areNeedsOff, () => isOff)
-      else if (word === 'tips') await update($, areTipsOff, () => isOff)
-      else await update($, isHourglassOff, () => isOff)
-      await $.store.set(word === 'needs' ? KEY.needsOff : word === 'tips' ? KEY.tipsOff : KEY.hourglassOff, isOff)
-      if (word === 'needs' && isOff) await lowerFlag($)
+      await setSwitch($, word, !isOff)
       const said = {
         needs: ['It holds up a red flag while Claude waits for you.', 'No red flag: Claude Code still tells you when it waits.'],
         tips: ['It suggests a ready /compact at a good moment: Tab takes it.', 'No suggestions in the prompt box.'],
@@ -1805,7 +2036,7 @@ export const register: Register = (on, options) => {
     }
     if (word === 'breaks' || word === 'sound') {
       if (value !== 'on' && value !== 'off') return { text: `Use /crab ${word} on or /crab ${word} off.` }
-      await setFlag($, word, value === 'on')
+      await setSwitch($, word, value === 'on')
       // A timer set to 0 in the settings stays off: say so rather than promise a reminder that never comes.
       if (word === 'breaks') {
         if (value === 'off') return { text: 'Break reminders are off.' }
@@ -1815,7 +2046,7 @@ export const register: Register = (on, options) => {
       return { text: cfg.longMs > 0 ? 'The done chirp is on.' : 'The done chirp is on, but longTaskSeconds is 0 in the settings, so no task counts as long. Set it with /plugin configure crab-buddy@crab-buddy.' }
     }
     if (word && !isCostume(word)) {
-      return { text: `Unknown option "${word}". Try: feed, play, pet, ride, name, stats, cost, cache, debug, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, needs, tips, hourglass, roam, here, where, off, on, restart, pulse, today, or a costume (${COSTUMES.join(', ')}). /crab help says what each does.` }
+      return { text: `Unknown option "${word}". Try: what, feed, play, pet, ride, name, stats, cost, cache, sea, last, debug, weather, lines, log, theme, size, tank, strip, snooze, breaks, sound, bubbles, signs, needs, tips, hourglass, circles, alert, mode, roam, here, where, off, on, restart, pulse, today, or a costume (${COSTUMES.join(', ')}). /crab help says what each does.` }
     }
     const { shells } = await traces($)
     if (word === 'king' && shells < KING_SHELLS) return { text: `The crown takes ${KING_SHELLS} shells. ${await read($, petName)} has ${shells}.` }
@@ -1837,6 +2068,7 @@ export const register: Register = (on, options) => {
       seen.turnStart = now
       stirredAt = now
       await update($, reaction, () => null)
+      await update($, circles, newTurn)
       await feedFire($)
       await update($, breaks, b =>
         !b.streakStart || now - b.lastActive >= IDLE_MS ? { ...b, streakStart: now, lastActive: now, toastedFor: 0 } : { ...b, lastActive: now },
@@ -1895,6 +2127,7 @@ export const register: Register = (on, options) => {
       if (isOk && isCleanStop) await hintCompact($)
       if (isOk) await suggestCompact($)
       isCleanStop = false
+      await keepAshore($)
     } else {
       lookAtLines($)
     }
@@ -1957,12 +2190,15 @@ export const register: Register = (on, options) => {
       // A new conversation costs from nothing again.
       await update($, spend, () => EMPTY_SPEND)
       await update($, cache, () => null)
+      await update($, circles, () => NO_CIRCLES)
       await keepCache($)
       compactTip = { isShown: false, tries: 0 }
       $.clock.after(CLEAR_MS, async () => {
         await loadChoices($, options)
         await saveNeeds($, await currentNeeds($))
         await startSegment($)
+        // What the conversation just cleared left open is the first thing the new one may want.
+        await washAshore($)
       })
     } else if (rover) {
       await leaveBeach($)

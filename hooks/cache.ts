@@ -67,6 +67,17 @@ export const nudgeAt = (c: NonNullable<Cache>): number => coldAt(c) - leadMs(c.t
 export const shouldNudge = (c: Cache, now: number, isWorking: boolean): boolean =>
   !!c && !c.nudged && !c.isCompacted && c.tokens >= NUDGE_TOKENS && !isWorking && now >= nudgeAt(c) && now < coldAt(c)
 
+/** With this much context or more, a cold cache is worth a word about compacting. */
+export const COLD_COMPACT_TOKENS = 100_000
+
+/**
+ * Time to offer a /compact: the cache has just gone cold on a big context, nothing runs, and nobody compacted
+ * since. Compacting throws the cached conversation away, which costs nothing once it is cold anyway. Once per
+ * cold spell, while the ashes lie; never where the engine compacts an idle conversation by itself.
+ */
+export const shouldTipCold = (c: Cache, now: number, isTurnRunning: boolean, idleCompacts: boolean): boolean =>
+  !!c && !c.coldTipped && !c.isCompacted && !isTurnRunning && !idleCompacts && c.tokens >= COLD_COMPACT_TOKENS && now >= coldAt(c) && now < coldAt(c) + ASHES_MS
+
 /** The next moment the picture or the nudge can change, or null when nothing more will. */
 export const nextChangeAt = (c: Cache, now: number): number | null => {
   if (!c) return null
@@ -148,6 +159,7 @@ export const cacheDetail = (c: Cache, now: number, isEstimate: boolean, isOff: b
         ? `Gone cold, the next prompt writes ${rewriteText(c, isEstimate)} to the cache again; warm, it reads them for a fraction of that.`
         : `The next prompt writes ${rewriteText(c, isEstimate)} to the cache again.`)
     }
+    if (!c.isCompacted && left <= 0 && c.tokens >= COLD_COMPACT_TOKENS) lines.push('Cold is a good moment for /compact: it throws the cached conversation away, and there is none left to lose.')
     lines.push("Counted from Claude's last reply. The cache really counts from when that request started, and Claude Code sometimes keeps it warm on its own, so take the minutes as a guide.")
   }
   lines.push(`The fire and its sign: ${isOff ? 'off' : 'on'} (/crab cache on|off).`)

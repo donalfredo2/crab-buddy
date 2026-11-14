@@ -8,7 +8,7 @@ const MAX_QUEUE = 3
 const STALE_MS = 30_000
 
 /** How the crab looks while it holds each sign up; the first two bring the plane and the fireworks. */
-export const SIGN_MOOD: Record<Exclude<SignKind, 'coffee' | 'walk' | 'context' | 'compact' | 'limit' | 'budget' | 'cache'>, ReactionMood> = {
+export const SIGN_MOOD: Record<Exclude<SignKind, 'coffee' | 'walk' | 'context' | 'compact' | 'limit' | 'budget' | 'cache' | 'circles' | 'cold'>, ReactionMood> = {
   done: 'wave', commit: 'party', merged: 'party', pushed: 'cheer', pr: 'cheer', mr: 'cheer', green: 'cool', fish: 'cheer', boot: 'daze', news: 'wave', spend: 'wave',
 }
 export type HeldKind = keyof typeof SIGN_MOOD
@@ -29,3 +29,19 @@ export const heldSign = (seg: Segment | null, now: number): string | null =>
 /** Coffee when the break is due; a long stretch past it earns a walk. */
 export const breakKind = (streakStart: number, now: number, limitMs: number): 'coffee' | 'walk' =>
   now - streakStart >= 2 * limitMs ? 'walk' : 'coffee'
+
+// One sign stands in the sand at a time. What matters most first: a context or a limit nearly full (each as
+// urgent as the other, so the newer of them stands), Claude going in circles, then the hints about compacting and
+// the cache.
+const PLANT_RANK: Partial<Record<SignKind, number>> = { context: 0, limit: 0, budget: 0, circles: 1, cold: 2, compact: 3, cache: 4 }
+
+/**
+ * Whether a new sign may take the place of the one standing: its own kind again, or one that matters as much or
+ * more. A sign from before kinds were kept, or of a kind with no rank, gives way to any.
+ */
+export const mayReplace = (kind: SignKind, standing: SignKind | undefined): boolean => {
+  if (standing === undefined || standing === kind) return true
+  const theirs = PLANT_RANK[standing]
+  const mine = PLANT_RANK[kind]
+  return theirs === undefined || (mine !== undefined && mine <= theirs)
+}

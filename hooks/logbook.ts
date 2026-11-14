@@ -55,7 +55,7 @@ export const logCommit = (log: Logbook, title: string): Logbook =>
 const shortPath = (path: string): string => path.split('/').filter(Boolean).slice(-2).join('/')
 
 // Newest first, as many as fit.
-const fileList = (files: readonly string[], room: number): string => {
+export const fileList = (files: readonly string[], room: number): string => {
   const shown: string[] = []
   for (const file of [...files].reverse().map(shortPath)) {
     if (shown.join(', ').length + file.length + 2 > room) break

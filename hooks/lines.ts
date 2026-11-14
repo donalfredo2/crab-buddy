@@ -9,7 +9,7 @@ export type Moment =
   | 'long' | 'commit' | 'testsFail' | 'testsPass' | 'hungry' | 'sleepy' | 'morning' | 'late'
   | 'fed' | 'played' | 'petted' | 'full' | 'tired' | 'pettedAgain' | 'named' | 'grumpy'
   | 'muse' | 'aware' | 'butterfly' | 'neighbour' | 'hic' | 'sky' | 'found' | 'built' | 'peek' | 'friend' | 'golden'
-  | 'compact' | 'bottle' | 'caught' | 'lost'
+  | 'compact' | 'bottle' | 'caught' | 'lost' | 'ashore'
   | `ride-${Costume}`
 
 const LINES: Record<Moment, readonly string[]> = {
@@ -44,6 +44,7 @@ const LINES: Record<Moment, readonly string[]> = {
   bottle: ['message in a bottle!', 'bottle sent', 'ahoy, summarizer'],
   caught: ['got one!', 'fish on!', 'a nice catch'],
   lost: ['just an old boot', 'that is no fish', 'a boot. again.'],
+  ashore: ['a bottle! /crab last', 'washed up: /crab last', 'from last time: /crab last'],
   'ride-racer': ['vroom!', 'pit stop? never', 'new lap record'],
   'ride-viking': ['row, row, row', 'to Valhalla!', 'land ho… oh, it is land'],
   'ride-engineer': ['digging it', 'mind the bucket', 'structurally sound'],
@@ -90,6 +91,8 @@ const SIGNS: Record<SignKind, readonly string[]> = {
   spend: ['{time} so far', '{time} this session'],
   news: ['new: {time}'],
   cache: ['cache cools {time}', 'fire out {time}'],
+  circles: ['{time} in a row', 'stuck? {time}'],
+  cold: ['cold: /compact first', 'fire out: /compact?'],
 }
 
 /** The red flag's words: what Claude is waiting for you on, short enough for a plank. */

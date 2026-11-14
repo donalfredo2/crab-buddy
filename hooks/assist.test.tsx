@@ -25,7 +25,7 @@ const BAND = {
 const TURN = { answer: 'hi', durationMs: 1000, isAborted: false, turnId: 't1', reason: 'answer' } as const
 const RUN = { origin: { kind: 'user' }, presentation: { isFullscreen: false, columns: 100 } } as never
 
-type Ctx = { tokens: number | null; rateLimits?: { kind: string; percentUsed: number; resetsAt?: string }[]; usd?: number; counted?: number; isBoxBusy?: boolean }
+type Ctx = { tokens: number | null; rateLimits?: { kind: string; percentUsed: number; resetsAt?: string }[]; usd?: number; counted?: number; isBoxBusy?: boolean; sea?: object }
 
 /** The engine beneath the plugin. A tool call waits until the test lets it go, as one does while a dialog is open. */
 function engine(on: On, ctx: Ctx = { tokens: null }) {
@@ -49,7 +49,7 @@ function engine(on: On, ctx: Ctx = { tokens: null }) {
       context: {
         window: 1_000_000,
         ...(ctx.tokens === null ? {} : { tokens: ctx.tokens, percent: ctx.tokens / 10_000 }),
-        ...((e as { breakdown?: string }).breakdown ? { breakdown: { autoCompactThreshold: 967_000, isAutoCompactEnabled: true, totalTokens: ctx.counted ?? ctx.tokens ?? 0 } } : {}),
+        ...((e as { breakdown?: string }).breakdown ? { breakdown: { autoCompactThreshold: 967_000, isAutoCompactEnabled: true, totalTokens: ctx.counted ?? ctx.tokens ?? 0, ...ctx.sea } } : {}),
       },
       rateLimits: ctx.rateLimits ?? [],
       ...(ctx.usd === undefined ? {} : { cost: { usd: ctx.usd } }),
@@ -140,7 +140,8 @@ test('the flag is silent: no toast, no sound, no notification', async ($, on) =>
   await tick()
   await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: {} })
   await clock.advance(2 * MIN)
-  expect(await flagOf($)).toBe('needs you: Bash')
+  // Two minutes on, the flag says so; nothing else does unless /crab alert asked for it.
+  expect(await flagOf($)).toBe('needs you: Bash · 2m')
   expect(toasts).toEqual([])
   expect(sounds).toEqual([])
   expect(notified).toEqual([])
@@ -890,4 +891,243 @@ test('every reply keeps the fire for a restart', async ($, on) => {
   const kept = held.get('keptFires') as Record<string, { at: number; tokens: number }>
   expect(kept['/repo']?.at).toBe(T0)
   expect(kept['/repo']?.tokens).toBe(150_000)
+})
+
+// --- 0.29: the wait counted, the alert, the cold tip, the bottle ashore, /crab sea and /crab what
+
+/** A Bash call the dialog asks about. `done` settles once the test answers it (not returned bare: an async function would wait for it). */
+const ask = async ($: Tester, id: string): Promise<{ done: Promise<unknown> }> => {
+  const done = call($, 'Bash', id)
+  await tick()
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: {} })
+  return { done }
+}
+
+test('the waits of a day add up in /crab stats, and under a minute nothing is said', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const { answer } = engine(on)
+  await start($)
+  const first = await ask($, 'c1')
+  await clock.advance(40_000)
+  await answer('c1')
+  await first.done
+  expect(await said($, 'stats')).not.toContain('waited')
+  const second = await ask($, 'c2')
+  await clock.advance(3 * MIN)
+  expect(await flagOf($)).toBe('needs you: Bash · 3m')
+  await answer('c2')
+  await second.done
+  const third = await ask($, 'c3')
+  await clock.advance(2 * MIN)
+  await answer('c3')
+  await third.done
+  expect(await said($, 'stats')).toContain(' · waited 6m for you (3 times) · ')
+})
+
+test('/crab alert adds a chirp, a notification or both once Claude has waited a minute, and only once', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const { sounds, notified, answer } = engine(on)
+  await start($)
+  expect(await said($, 'alert')).toMatch(/^No alert: the red flag alone/)
+  expect(await said($, 'alert loud')).toMatch(/^Use \/crab alert off, chirp, notify or both\./)
+  expect(await said($, 'alert both')).toBe('After a minute of Claude waiting for you: a chirp and a notification. /crab alert off stops it.')
+  const waiting = await ask($, 'c1')
+  await clock.advance(59_000)
+  expect(sounds.length + notified.length).toBe(0)
+  await clock.advance(2000)
+  expect(sounds.length).toBe(1)
+  expect(notified).toEqual(['Claude has waited a minute: needs you: Bash.'])
+  await clock.advance(5 * MIN)
+  expect(sounds.length).toBe(1)
+  expect(notified.length).toBe(1)
+  await answer('c1')
+  await waiting.done
+})
+
+test('no alert for an answer that came in time, and each kind of alert alone', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on, { waitAlert: 'notify' })
+  const { sounds, notified, answer } = engine(on)
+  await start($)
+  expect(await said($, 'alert')).toMatch(/a notification\./)
+  const quick = await ask($, 'c1')
+  await clock.advance(30_000)
+  await answer('c1')
+  await quick.done
+  await clock.advance(2 * MIN)
+  expect(notified).toEqual([])
+  const slow = await ask($, 'c2')
+  await clock.advance(61_000)
+  expect(notified.length).toBe(1)
+  expect(sounds).toEqual([])
+  await answer('c2')
+  await slow.done
+  await said($, 'alert chirp')
+  const third = await ask($, 'c3')
+  await clock.advance(61_000)
+  expect(notified.length).toBe(1)
+  expect(sounds.length).toBe(1)
+  await answer('c3')
+  await third.done
+})
+
+const COLD = /beside a sign saying (cold: \/compact first|fire out: \/compact\?)/
+
+test('a fire gone cold on a big context plants a sign and offers the ready /compact, once', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const { suggested } = engine(on, { tokens: 150_000 })
+  await start($)
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  await clock.advance(4 * MIN + 59_000)
+  expect((await band($)).alt).not.toMatch(COLD)
+  expect(suggested).toEqual([])
+  await clock.advance(2000)
+  expect((await band($)).alt).toMatch(COLD)
+  expect(suggested).toEqual(['/compact'])
+  expect(await said($, 'cache')).toContain('Cold is a good moment for /compact')
+  await clock.advance(5 * MIN)
+  expect(suggested.length).toBe(1)
+  // A prompt lights the fire again: the sign is old news.
+  await $.turn.start({ text: 'go on', turnId: 't2' })
+  expect((await band($)).alt).not.toMatch(COLD)
+})
+
+test('no cold tip on a small context, none in the box with tips off, and none at all with the fire off', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 60_000 }
+  const { suggested } = engine(on, ctx)
+  await start($)
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  await clock.advance(6 * MIN)
+  expect((await band($)).alt).not.toMatch(COLD)
+  expect(suggested).toEqual([])
+  expect(await said($, 'cache')).not.toContain('good moment for /compact')
+  // Big now, tips off: the sign alone.
+  ctx.tokens = 150_000
+  await said($, 'tips off')
+  await $.turn.start({ text: 'go', turnId: 't2' })
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  await clock.advance(6 * MIN)
+  expect((await band($)).alt).toMatch(COLD)
+  expect(suggested).toEqual([])
+  // The fire switched off: nothing.
+  await said($, 'tips on')
+  await said($, 'cache off')
+  await $.turn.start({ text: 'go', turnId: 't3' })
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  await clock.advance(6 * MIN)
+  expect((await band($)).alt).not.toMatch(COLD)
+  expect(suggested).toEqual([])
+})
+
+const LEFT_OPEN = { files: ['/repo/src/a.ts', '/repo/src/b.ts'], test: 'failed', build: null, commits: ['Fix the tide'] }
+const BOTTLE = '#6FB98F'
+
+test('work left open in this folder washes up as a bottle at the next start, with a ready first prompt, once', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on, { firstMet: T0 - 86_400_000, seenVersion: '0.0.0', keptLogs: { '/repo': { at: T0 - 86_400_000, log: LEFT_OPEN } } })
+  const { suggested } = engine(on)
+  await start($)
+  const drawn = await band($)
+  expect(drawn.source).toContain(BOTTLE)
+  expect(drawn.source).toContain('/crab last')
+  expect(suggested).toEqual(['Pick up where we left off: the work on src/b.ts, src/a.ts; the tests were failing. Check where it stands first.'])
+  expect(await said($, 'last')).toBe('Last time here (yesterday): files changed since the last commit: src/b.ts, src/a.ts; the tests were failing; last commit "Fix the tide".')
+  expect(await said($, 'what')).toContain('The bottle at the waterline')
+  // The bottle goes after a while, and it washes up once: a second start says nothing.
+  await clock.advance(6 * MIN)
+  expect((await band($)).source).not.toContain(BOTTLE)
+  await start($)
+  expect(suggested.length).toBe(1)
+  expect((await band($)).source).not.toContain(BOTTLE)
+})
+
+test('no bottle from another folder, from more than a week ago, with nothing left open, or with the log off', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  const WEEK = 7 * 86_400_000
+  mock.store(on, {
+    isLogOff: false,
+    keptLogs: {
+      '/elsewhere': { at: T0 - 1000, log: LEFT_OPEN },
+      '/repo': { at: T0 - WEEK - 1000, log: LEFT_OPEN },
+    },
+  })
+  const { suggested } = engine(on)
+  await start($)
+  expect(suggested).toEqual([])
+  expect((await band($)).source).not.toContain(BOTTLE)
+  expect(await said($, 'last')).toBe('Nothing kept from last time in this folder.')
+})
+
+test('the log is kept at each turn\'s end, washes up after /clear, and /crab log off forgets it', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const { suggested, answer } = engine(on)
+  await start($)
+  expect(await said($, 'last')).toBe('Nothing kept from last time in this folder.')
+  const edit = call($, 'Edit', 'e1', { file_path: '/repo/src/tide.ts' })
+  await tick()
+  await answer('e1')
+  await edit
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  expect(await said($, 'last')).toBe('Last time here (earlier today): files changed since the last commit: src/tide.ts.')
+  // /clear starts a new conversation: what the old one left open is offered to the new one.
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } } as never)
+  await clock.advance(1500)
+  expect(suggested).toContain('Pick up where we left off: the work on src/tide.ts. Check where it stands first.')
+  expect(await said($, 'log off')).toContain('nothing is kept for your next session here')
+  expect(await said($, 'last')).toBe('Nothing kept from last time in this folder. Nothing is kept while the log is off (/crab log on).')
+  // Off, a turn's end keeps nothing.
+  const again = call($, 'Edit', 'e2', { file_path: '/repo/src/sea.ts' })
+  await tick()
+  await answer('e2')
+  await again
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  expect(await said($, 'last')).toMatch(/^Nothing kept from last time/)
+})
+
+test('/crab sea lists what fills the context from the local count, and says so where there is none', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = {
+    tokens: 246_000,
+    sea: {
+      totalTokens: 246_000, rawMaxTokens: 1_000_000,
+      categories: [{ name: 'Messages', tokens: 212_000, kind: 'used' }, { name: 'MCP tools', tokens: 34_000, kind: 'used' }, { name: 'Free space', tokens: 754_000, kind: 'free' }],
+      mcpTools: [{ serverName: 'linear', tokens: 34_000, isLoaded: true }], memoryFiles: [],
+    },
+  }
+  engine(on, ctx)
+  await start($)
+  const text = await said($, 'sea')
+  expect(text).toContain('The sea: 246k of a 1000k window (25%).')
+  expect(text).toMatch(/Messages\s+212k\s+86%/)
+  expect(text).toContain('Biggest connected tools: linear 34k.')
+  expect(await said($, 'help')).toContain('/crab sea')
+})
+
+test('/crab what explains the beach as it is: the far sea at first, then the flag, the fire and the wait', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: null }
+  const { answer } = engine(on, ctx)
+  await start($)
+  const fresh = await said($, 'what')
+  expect(fresh).toMatch(/^On Crabby's beach right now:\n- The sea: your context, /)
+  for (const absent of ['campfire', 'red flag', 'hourglass', 'fishing rod']) expect(fresh).not.toContain(absent)
+  ctx.tokens = 310_000
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  const waiting = await ask($, 'c1')
+  await clock.advance(2 * MIN)
+  const busy = await said($, 'what')
+  expect(busy).toContain('The sea: your context, 310k of the 967k where Claude compacts.')
+  expect(busy).toContain('The campfire, blazing: the prompt cache is warm (cache warm ~3 min). /crab cache says more.')
+  expect(busy).toContain('The block by the sandcastle')
+  expect(busy).toContain('The red flag: Claude is waiting for you (needs you: Bash), for 2m now.')
+  await answer('c1')
+  await waiting.done
 })
