@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+# Actions are pinned to a commit, with the version beside it: a tag can be moved, a commit can't. Dependabot
+# (.github/dependabot.yml) moves both.
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,13 +25,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       # Pinned so a new Claude Code release can't turn CI red on its own. Bump on purpose.
       - run: npm install -g @anthropic-ai/claude-code@2.1.316
-      - run: claude plugin validate .
+      - name: claude plugin validate . (type errors fail)
+        run: scripts/validate.sh
       - name: hooks/news.ts has the version plugin.json gives
         run: |
           node -e '
@@ -50,13 +54,16 @@ jobs:
     timeout-minutes: 15
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       - run: npm install -g @anthropic-ai/claude-code@latest
       - run: claude --version
-      - run: claude plugin validate .
+      # validate passes "with warnings" on a type error, so a release that changes a type the crab or its tests
+      # use would leave this canary green: the script fails on one.
+      - name: claude plugin validate . (type errors fail)
+        run: scripts/validate.sh
       - run: claude plugin test .
 
   animations:
@@ -67,8 +74,8 @@ jobs:
       # Pinned so the cache key holds. Bump on purpose.
       BUN_VERSION: 1.4.4
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       # Bun from the cache, else from npm (Bun's own @oven/bun-linux-x64 package, integrity-checked by npm pack).
@@ -76,7 +83,7 @@ jobs:
       # and failed the job before any check ran.
       - name: Cache Bun
         id: bun-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/bin
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}

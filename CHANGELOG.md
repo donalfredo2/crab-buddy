@@ -2,6 +2,20 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.28.1
+Fixes from a full security and bug review. Nothing new to learn.
+- The "cache cools" sign stayed in the sand after you came back in time and the fire blazed again, for up to ten minutes on the one-hour cache. It now comes down with your prompt.
+- A commit title, a name or a repo with an emoji right where the text is cut could be left with half of it, which is not valid text, and that half went into the note for the summarizer and the ready `/compact`. Text is now cut between characters, everywhere.
+- In VS Code the heartbeat kept asking for pictures all night in a window left open. It now rests after a quarter of an hour with nothing happening, and while the band is collapsed, and beats again when the session stirs. A running turn never rests.
+- A very busy picture (a wide strip, a long walk's footprints, a storm, a holiday's sky) could come out longer than Claude Code draws, and the whole beach was gone for a few minutes. Such a picture now thins its footprints instead.
+- If the line where Claude compacts could not be read once, the sea stayed scaled to the whole window for the rest of the session. It is asked for again until it can be read.
+- Roaming: a link or a folder in the beaches folder is never read or written through, a file that can't be written no longer stops roaming, and with no home folder known nothing is written (before: a folder at the root of the disk). On Windows the folder goes under your user profile, and a window is named by its folder, not its whole path.
+- A `git commit` with a heredoc followed by many blank lines, or a command with a long run of `-c` options, could take seconds to read while Claude waited. Both are read in a moment, and `git -C commit status` is no longer taken for a commit.
+- Two looks at the fishing lines at the same moment could land one catch twice.
+- A name like `$&` is said as it is.
+- Newer Claude Code: a collapsed band is not repainted, the tank's small form (a minimized pane) is drawn, and the code and tests type-check again.
+- For the repo: the workflows' actions are pinned to a commit, and CI now fails on a type error, which `claude plugin validate` alone lets pass with a warning.
+
 ## 0.28.0
 - The sea stayed at the far end all session in VS Code, which can leave out the context's size that the crab read. It now also takes the size each measurement carries and, failing both, a count made on your machine that sends nothing (at most every 20 seconds, and at each turn's end). A read with no size no longer takes a measured sea away.
 - The campfire was hidden behind the house the shells unlock, and was small. It is now about half as big again and stands in a stretch nothing else can take: between the house (and a holiday's pumpkin or tree) and the costume's own props.

@@ -20,7 +20,7 @@ const at = (hour: number, minute = 0) => new Date(2026, 9, 29, hour, minute).get
 const T0 = at(12)
 const BAND = {
   plugin: 'crab-buddy', component: 'AbovePrompt', requestId: 'above-prompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
 const TURN = { answer: 'hi', durationMs: 1000, isAborted: false, turnId: 't1', reason: 'answer' } as const
 const RUN = { origin: { kind: 'user' }, presentation: { isFullscreen: false, columns: 100 } } as never
@@ -699,6 +699,55 @@ test('a prompt in time feeds the fire again and takes the cooling sign down', as
   await $.turn.start({ text: 'go on', turnId: 't2' })
   expect((await band($)).alt).not.toMatch(COOLING)
   expect((await band($)).alt).toContain('by a blazing campfire')
+})
+
+// Its end comes from two readings of the clock. On a real machine they are seldom the same millisecond, and the
+// sign then outlasted the prompt that warmed the cache again. Here the crab's look at the sand between the two
+// readings is held while the clock moves on by one millisecond.
+test('the cooling sign comes down for a prompt in time, even when the clock ticks while it is planted', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  let isArmed = false
+  let wasHeld = false
+  let open: () => void = () => undefined
+  const gate = new Promise<void>(resolve => {
+    open = resolve
+  })
+  on('state.get', async (_, e, next) => {
+    if (isArmed && (e as { key?: string }).key === 'plantedSign') {
+      isArmed = false
+      wasHeld = true
+      await gate
+    }
+    return next(e)
+  })
+  mock.store(on)
+  engine(on, { tokens: 150_000 })
+  await start($)
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  isArmed = true
+  await clock.advance(4 * MIN)
+  await clock.advance(1)
+  open()
+  await clock.settle()
+  expect(wasHeld).toBe(true)
+  expect((await band($)).alt).toMatch(COOLING)
+  await $.turn.start({ text: 'go on', turnId: 't2' })
+  expect((await band($)).alt).not.toMatch(COOLING)
+  expect((await band($)).alt).toContain('by a blazing campfire')
+})
+
+test('another sign in the sand is left standing when the fire is fed', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on, { tokens: 950_000 })
+  await start($)
+  // Near the top of the window: the high-tide warning goes up, for ten minutes.
+  await $.turn.complete({ ...TURN, usage: USED } as never)
+  const warned = (await band($)).alt
+  expect(warned).toMatch(/beside a sign saying (high tide|the sea is rising)/)
+  await clock.advance(4 * MIN)
+  await $.turn.start({ text: 'go on', turnId: 't2' })
+  expect((await band($)).alt).toMatch(/beside a sign saying (high tide|the sea is rising)/)
 })
 
 test('a small context gets the fire but no sign', async ($, on) => {

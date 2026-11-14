@@ -28,8 +28,8 @@ export type SignKind = 'done' | 'coffee' | 'walk' | 'commit' | 'pushed' | 'pr' |
 /** A sign waiting its turn; `at` is when it was asked for. */
 export type QueuedSign = { kind: SignKind; text: string; at: number }
 
-/** A sign in the sand, standing until `until`. */
-export type PlantedSign = { text: string; until: number } | null
+/** A sign in the sand, standing until `until`. `kind` says what it is about; one planted before 0.28.1 has none. */
+export type PlantedSign = { text: string; until: number; kind?: SignKind } | null
 
 /** What is on the beach besides the crab's own life. */
 export type Beach = {
@@ -68,8 +68,11 @@ export type Cache = { at: number; ttlMs: number; why: TtlWhy; tokens: number; mo
 /** The context as a tide. `level` runs 0 to 1, see tideOf; `mark` is null where there is none; `isCounted`: a local count, until the next reply measures it. */
 export type Tide = { tokens: number; level: number; mark: number | null; isCounted?: boolean } | null
 
-/** Where compactions come, read once for a window: the engine's line, and the idle one if it's on. */
-export type TideLines = { window: number; full: number; idleMark: number | null } | null
+/**
+ * Where compactions come, read once for a window: the engine's line, and the idle one if it's on.
+ * `isGuessed`: the engine's line could not be read, so `full` is the whole window until it can be.
+ */
+export type TideLines = { window: number; full: number; idleMark: number | null; isGuessed?: boolean } | null
 
 /** A running subagent's line in the water. */
 export type Rod = { id: string; description: string }

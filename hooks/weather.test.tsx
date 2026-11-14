@@ -10,7 +10,7 @@ const MIN = 60_000
 const T0 = new Date(2026, 9, 29, 12).getTime()
 const BAND = {
   plugin: 'crab-buddy', component: 'AbovePrompt', requestId: 'above-prompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
 
 type Net = {

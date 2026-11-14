@@ -10,7 +10,7 @@ import { moonLit } from './sky'
 import type { Sky } from './sky'
 import { CLAY, CRAB_CSS, crab, overlay, propSvg, umbrellaSvg } from './sprites'
 import type { Costume, CrabLook } from './sprites'
-import { xml } from './text'
+import { cut, xml } from './text'
 
 export const SCENE_H = 40
 const GROUND = 35
@@ -573,7 +573,7 @@ const habitat = (width: number, tod: TimeOfDay, sky: Sky, shore: number, now: nu
 }
 
 const bubbleSvg = (text: string): { svg: string; width: number } => {
-  const t = text.length > 34 ? `${text.slice(0, 33)}…` : text
+  const t = text.length > 34 ? `${cut(text, 33)}…` : text
   const width = Math.round(t.length * 4.7 + 10)
   return {
     width,
@@ -744,10 +744,12 @@ const compile = (pl: Plan, width: number, elapsed: number, shore: number, own: L
 
 // Footprints: dots where it walked, each fading on its own. Only the ones still
 // to come or still fading are drawn.
-const footprints = (pl: Plan, width: number, elapsed: number): string => {
+// `thin`: 1 draws them all, 2 every other one, and so on; 0 draws none.
+const footprints = (pl: Plan, width: number, elapsed: number, thin = 1): string => {
+  if (thin <= 0) return ''
   const walks = pl.beats.filter(b => isWalking(b.pose) && b.p0 !== b.p1)
   const total = walks.reduce((s, b) => s + Math.abs(xOf(b.p1, width) - xOf(b.p0, width)), 0)
-  const step = Math.max(7, total / MAX_PRINTS)
+  const step = Math.max(7, total / MAX_PRINTS) * thin
   const out: string[] = []
   for (const b of walks) {
     const x0 = xOf(b.p0, width)
@@ -764,7 +766,25 @@ const footprints = (pl: Plan, width: number, elapsed: number): string => {
   return out.join('')
 }
 
+/** The engine draws no Svg whose source is longer than this: the row, or the pane, would show nothing at all. */
+export const SVG_MAX = 131_072
+// Where a picture is made lighter: a little under the limit.
+const SVG_ROOM = SVG_MAX - 2048
+
+/**
+ * The beach as an SVG. A busy picture (a wide strip, a long walk's footprints, rain, a holiday's sky) can come
+ * out longer than the engine draws; then the footprints, the one part that only decorates, are thinned and at
+ * last left out, so the beach is always drawn.
+ */
 export const sceneSvg = (s: SceneInput): string => {
+  for (const thin of [1, 2, 4]) {
+    const svg = draw(s, thin)
+    if (svg.length <= SVG_ROOM) return svg
+  }
+  return draw(s, 0)
+}
+
+const draw = (s: SceneInput, prints: number): string => {
   const width = Math.max(120, Math.round(s.width))
   const height = Math.max(SCENE_H, Math.round(s.height ?? SCENE_H))
   // The tank's extra sky sits above y 0, so the beach keeps its own coordinates.
@@ -843,7 +863,7 @@ export const sceneSvg = (s: SceneInput): string => {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" ${fit}><style>${CRAB_CSS}${SCENE_CSS}${SKY_CSS}${skyCss}${css}${castleCss}${shellCss}${pebbleCss}${workCss}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}.z,.hrt{opacity:.6}}</style>
-<g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells, !!s.beach?.hasMark, own)}${footprints(pl, width, elapsed)}
+<g${s.sky.isWindy ? ' class="windy"' : ''}>${skyBack(width, s.timeOfDay, s.sky, s.hour, s.now, top)}${habitat(width, s.timeOfDay, s.sky, shore, s.now, s.costume, s.seg.shells, !!s.beach?.hasMark, own)}${footprints(pl, width, elapsed, prints)}
 <g shape-rendering="crispEdges">${pile}${found}${pixels(SHELL, SHELL_COLORS, HOME_SHELL_X, GROUND - 7)}${s.beach?.usage !== undefined ? hourglassSvg(s.beach.usage) : ''}${s.beach?.fire ? fireSvg(s.beach.fire, s.timeOfDay === 'night' || s.timeOfDay === 'evening', width) : ''}${castleSvg}${work}</g>${pebble}${marks}${s.beach?.planted ? plantedSvg(Math.round(width * 0.38), s.beach.planted, width) : ''}${s.beach?.hasBottle ? bottleSvg(at.sea - 13, s.now) : ''}${s.beach?.rods ? rodsSvg(width, shore, s.beach.rods, s.now) : ''}
 <g class="mv" transform="translate(${xNow},0)"><g transform="translate(0,${CRAB_Y})">
 ${isGone ? '' : `<ellipse cx="${CRAB_W / 2}" cy="${GROUND - CRAB_Y + 0.6}" rx="${CRAB_W / 2 - 3}" ry="1.4" fill="#000" opacity=".12"/>`}

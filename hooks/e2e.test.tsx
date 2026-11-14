@@ -23,6 +23,7 @@ const BAND = {
   requestId: 'above-prompt',
   props: {
     hasSurvey: false,
+    isCollapsed: false,
     isWorking: false,
     maxRows: 10,
     bodyColumns: 100,

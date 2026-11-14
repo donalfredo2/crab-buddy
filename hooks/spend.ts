@@ -2,6 +2,7 @@
 // (the main conversation and its subagents). Pure, so it is easy to test.
 
 import type { Spend, Tokens } from '../types'
+import { cut } from './text'
 import { clockOf } from './usage'
 
 /** A turn's counts as the engine reports them (TurnUsage). */
@@ -34,7 +35,7 @@ const isEmpty = (t: Tokens): boolean => t.fresh + t.out + t.cacheRead + t.cacheW
 
 /** One turn's tokens added to the tally: the main loop's or a helper's, and its model's. The first sets `since`. */
 export const addTurn = (prev: Spend, u: TurnTokens, isHelper: boolean, now: number): Spend => {
-  const model = (u.model || 'unknown').slice(0, 60)
+  const model = cut(u.model || 'unknown', 60)
   return {
     ...prev,
     main: isHelper ? prev.main : plus(prev.main, u),

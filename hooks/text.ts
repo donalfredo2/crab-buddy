@@ -11,8 +11,18 @@ export const isUnsafeChar = (c: string): boolean => UNSAFE_CHAR.test(c)
 /** Safe inside an SVG text node or a double-quoted attribute. */
 export const xml = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
 
+// Half of a character outside the basic plane (most emoji), on its own: not valid text, and a request that
+// carries one may be turned down for it.
+const LONE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
+/** Text with every half character dropped: what's left is well formed. */
+export const whole = (s: string): string => s.replace(LONE, '')
+
+/** The first `max` units of `s`, never ending on half a character: an emoji at the cut goes whole. */
+export const cut = (s: string, max: number): string => whole(s.slice(0, Math.max(0, max)))
+
 /** One line: control characters (newlines too) become spaces. */
-export const oneLine = (s: string): string => s.replace(CONTROL, ' ').trim()
+export const oneLine = (s: string): string => whole(s.replace(CONTROL, ' ')).trim()
 
 /** Control characters dropped, trimmed and cut to `max`; trimmed again so a cut at a space doesn't keep it. */
-export const clip = (s: string, max: number): string => s.replace(CONTROL, '').trim().slice(0, max).trim()
+export const clip = (s: string, max: number): string => cut(s.replace(CONTROL, '').trim(), max).trim()

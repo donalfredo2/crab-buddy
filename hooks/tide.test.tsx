@@ -12,12 +12,12 @@ const at = (hour: number, minute = 0) => new Date(2026, 9, 29, hour, minute).get
 const T0 = at(12)
 const BAND = {
   plugin: 'crab-buddy', component: 'AbovePrompt', requestId: 'above-prompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
 const TURN = { answer: 'hi', durationMs: 1000, isAborted: false, turnId: 't1', reason: 'answer' } as const
 
-/** What the engine reports: the tokens in the live window (null: no reply measured yet), its size, and where it compacts. */
-type Ctx = { tokens: number | null; window: number; full: number; counted?: number; isOnPlan?: boolean }
+/** What the engine reports: the tokens in the live window (null: no reply measured yet), its size, and where it compacts. `isSummaryDown`: the summary can't be read; `summaries` counts how often it was asked for. */
+type Ctx = { tokens: number | null; window: number; full: number; counted?: number; isOnPlan?: boolean; isSummaryDown?: boolean; summaries?: number }
 
 function engine(on: On, ctx: Ctx): string[] {
   const blits: string[] = []
@@ -30,17 +30,21 @@ function engine(on: On, ctx: Ctx): string[] {
   on('command.run', () => ({ text: '' }))
   on('prompt.submit', (_, e) => ({ text: e.text }) as never)
   on('session.compact', (_, e) => ({ messages: e.messages }) as never)
-  on('session.usage', (_, e) => ({
-    value: {
-      startedAt: T0,
-      context: {
-        window: ctx.window,
-        ...(ctx.tokens === null ? {} : { tokens: ctx.tokens, percent: (100 * ctx.tokens) / ctx.window }),
-        ...((e as { breakdown?: string }).breakdown ? { breakdown: { autoCompactThreshold: ctx.full, isAutoCompactEnabled: true, totalTokens: ctx.counted ?? ctx.tokens ?? 0 } } : {}),
+  on('session.usage', (_, e) => {
+    const isSummary = !!(e as { breakdown?: string }).breakdown
+    if (isSummary) ctx.summaries = (ctx.summaries ?? 0) + 1
+    return {
+      value: {
+        startedAt: T0,
+        context: {
+          window: ctx.window,
+          ...(ctx.tokens === null ? {} : { tokens: ctx.tokens, percent: (100 * ctx.tokens) / ctx.window }),
+          ...(isSummary && !ctx.isSummaryDown ? { breakdown: { autoCompactThreshold: ctx.full, isAutoCompactEnabled: true, totalTokens: ctx.counted ?? ctx.tokens ?? 0 } } : {}),
+        },
+        rateLimits: ctx.isOnPlan ? [{ kind: 'five_hour', percentUsed: 18 }] : [],
       },
-      rateLimits: ctx.isOnPlan ? [{ kind: 'five_hour', percentUsed: 18 }] : [],
-    },
-  }) as never)
+    } as never
+  })
   on('settings.read', () => ({ value: { idleCompaction: undefined } }) as never)
   on('ui.toast', () => ({ value: undefined }))
   on('audio.play', () => ({ value: undefined }))
@@ -404,4 +408,42 @@ test('/crab debug says which source the sea goes by, and sends nothing', async (
   expect(text).toMatch(/compacts at: 967k, mark: 200k/)
   expect(text).toMatch(/campfire[\s\S]*not lit yet/)
   expect(text).toContain('Nothing is sent from this command.')
+})
+
+// The line where the engine compacts comes from the summary. When that could not be read, the whole window stood
+// in for it, and stayed for the rest of the session: one failed read at the start left the sea far too low.
+test('a summary that could not be read at first is asked for again, and the sea then goes by the real line', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 300_000, window: 1_000_000, full: 600_000, isSummaryDown: true }
+  engine(on, ctx)
+  await start($)
+  const debug = async () => String(((await crab($, 'debug')) as { text?: string }).text)
+  const guessed = await sea($)
+  expect(await debug()).toMatch(/compacts at: 1000k/)
+  // Asked again before long, not on every measurement.
+  await measure($, ctx)
+  expect(await debug()).toMatch(/compacts at: 1000k/)
+  ctx.isSummaryDown = false
+  await clock.advance(21_000)
+  await measure($, ctx)
+  await clock.advance(1000)
+  expect(await debug()).toMatch(/compacts at: 600k/)
+  // 300k is half the way to 600k, not three tenths of the window: the sea stands further up the beach.
+  expect((await sea($)).x).toBeLessThan(guessed.x - 20)
+})
+
+test('a line that was read is kept: the summary is not counted again for the same window', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const ctx: Ctx = { tokens: 300_000, window: 1_000_000, full: 600_000 }
+  engine(on, ctx)
+  await start($)
+  const asked = ctx.summaries ?? 0
+  expect(asked).toBeGreaterThanOrEqual(1)
+  for (let i = 0; i < 5; i++) {
+    await clock.advance(30_000)
+    await measure($, ctx)
+  }
+  expect(ctx.summaries).toBe(asked)
 })

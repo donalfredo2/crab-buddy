@@ -8,9 +8,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PaneCloseInput, PluginOptions, Register, Timer, ToolCallInput, ToolCallResult } from 'claude-code'
 
-import type { Activity, Antic, Beach, BreakState, Bubble, Cache, CatchKind, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, SignKind, TideLines, Tiredness, Weather } from '../types'
+import type { Activity, Antic, Beach, BreakState, Bubble, Cache, CatchKind, LifeMode, Logbook, Mood, Needs, Pose, Prop, ReactionMood, Segment, SignKind, TideLines, Tiredness, Weather, WeatherNow } from '../types'
 import { reconcile, sameRods } from './fishing'
-import { FRESH_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, wantsNote, whereCrabIs } from './roam'
+import { FRESH_MS, beachFolder, finishedElsewhere, folderName, holderOf, isBeachFile, parseBeach, pickSlot, wantsNote, whereCrabIs } from './roam'
 import type { BeachRecord } from './roam'
 import { DECOR, MARK_TIDE, MAX_RODS, NO_CONTEXT_SHORE, TEMPERAMENTS, hasDecor, layoutOf, planOf, rideFits, shoreFrac, tideOf, whereAt } from './life'
 import type { LifeEvent } from './life'
@@ -18,7 +18,7 @@ import { line, needsLine, signLine, themeLine, themeName } from './lines'
 import type { Moment } from './lines'
 import { care, cooldownLeft, freshNeeds, gain, isHungry, isSleepy, petMood, rest, tick } from './pet'
 import type { Care } from './pet'
-import { COMMIT, EMPTY_LOG, commitTitle, compactKeep, logCheck, logCommit, logFile, logNote, logText } from './logbook'
+import { COMMIT, EMPTY_LOG, GIT_OPTIONS, commitTitle, compactKeep, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { SCENE_H, sceneSvg, timeOfDay } from './scene'
 import { SIGN_MOOD, breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import type { HeldKind } from './signs'
@@ -30,7 +30,7 @@ import { clip } from './text'
 import { NEWS, NEWS_LONG, REPO, VERSION, newsFor } from './news'
 import { KEY, MIN, cfg } from './state'
 import { refreshWeather, weatherText } from './weather'
-import { DEFAULT_PULSE, PULSE_IDLE_MS, nudged, pulseFrom, pulseOf, pulseText } from './pulse'
+import { DEFAULT_PULSE, PULSE_IDLE_MS, isResting, nudged, pulseFrom, pulseOf, pulseText } from './pulse'
 import type { Pulse } from './pulse'
 
 const reaction = atom({ plugin: 'crab-buddy', key: 'reaction' } as const, null)
@@ -168,8 +168,8 @@ const ACT_WORD: Partial<Record<Activity, string>> = {
   cast: 'casting a line', reel: 'reeling a line in',
 }
 
-// git's own options may sit before the subcommand: `git -c user.name=x -C repo --no-pager commit`.
-const PUSH = /\bgit(?:\s+-[cC]\s+\S+|\s+-[\w-]+(?:=\S+)?){0,12}\s+push\b/
+// git's own options may sit before the subcommand, read as the commit's are (logbook.ts).
+const PUSH = new RegExp(String.raw`\bgit${GIT_OPTIONS}\s+push\b`)
 const MERGED = /\b(?:gh\s+pr|glab\s+mr)\s+merge\b/
 const PR_OPEN = /\bgh\s+pr\s+create\b/
 const MR_OPEN = /\bglab\s+mr\s+create\b/
@@ -272,6 +272,11 @@ let pulseTick = 0
 let beat = 0
 /** When VS Code last drew the beach, wall clock: none for a while and the heartbeat stops. */
 let pictureAt = -Infinity
+/**
+ * When the session last stirred: a turn, a reply, a tool call, a prompt, a command, a care button. A picture the heartbeat asked for
+ * is no sign of life (it would keep itself going for ever), so this is what lets it rest.
+ */
+let stirredAt = -Infinity
 let ticker: Timer | null = null
 // Only while a line is out.
 let watcher: Timer | null = null
@@ -281,6 +286,8 @@ let lastCast = -CAST_GAP_MS
 // copied to an atom because a reload does the opposite.
 const beachOf = { slot: '', token: '', repo: '', personAt: 0, doneAt: 0, isNeeds: false }
 const others = new Map<string, { mtimeMs: number; beach: BeachRecord }>()
+/** Slots this session could not write: never picked again, so one bad file can't hold roaming up. */
+const badSlots = new Set<string>()
 let rover: Timer | null = null
 let isRoamBusy = false
 
@@ -335,12 +342,15 @@ export const stripWidth = (bodyColumns: number, isDue: boolean, surface?: string
   return Math.max(200, Math.min(1600, Math.round((bodyColumns || 100) * room.cell) - room.buttons - (isDue ? room.snooze : 0)))
 }
 
+/** Where a surface seats a pane. `widget` is the desktop's small form of a minimized pane: drawn as the low band. */
+export type Seat = 'dock' | 'inline' | 'widget'
+
 /**
  * The tank: the same beach drawn bigger (2x in a 352 px dock by default; 1x to 2.5x
  * by width), with more sky above. Docked beside the chat it is nearly square; seated
  * above the prompt, a low band. 8 px a cell, less a cell of margin.
  */
-export const tankSize = (bodyColumns: number, placement: 'dock' | 'inline') => {
+export const tankSize = (bodyColumns: number, placement: Seat) => {
   const width = Math.max(200, Math.min(1600, (bodyColumns || 40) * 8 - 8))
   const scale = Math.max(1, Math.min(2.5, width / 176))
   const height = placement === 'dock' ? Math.max(160, Math.min(640, Math.round(width * 0.8))) : 160
@@ -354,7 +364,7 @@ export const STRIP_ROWS = 4
 export const terminalColumns = (bodyColumns: number, isDue: boolean): number => Math.max(20, (bodyColumns || 100) - (isDue ? 30 : 18))
 
 /** The tank in a terminal: docked, as tall as the dock allows up to 14 rows; inline, 4. */
-export const terminalTankRows = (bodyRows: number, placement: 'dock' | 'inline'): number =>
+export const terminalTankRows = (bodyRows: number, placement: Seat): number =>
   placement === 'dock' ? Math.max(4, Math.min(14, bodyRows - 2)) : 4
 
 async function todays($: EngineInterface): Promise<Costume> {
@@ -527,7 +537,7 @@ async function nextSign($: EngineInterface): Promise<void> {
 async function plantSign($: EngineInterface, kind: SignKind, ms: number, time?: string): Promise<void> {
   const now = await $.clock.now()
   const until = now + ms
-  await update($, plantedSign, () => ({ text: signLine(kind, now / 1000, time), until }))
+  await update($, plantedSign, () => ({ text: signLine(kind, now / 1000, time), until, kind }))
   $.clock.after(ms, () => {
     void update($, plantedSign, p => (p && p.until <= until ? null : p))
   })
@@ -667,8 +677,7 @@ async function maybeShift($: EngineInterface): Promise<void> {
   if (!cur || cur.mode !== (await desiredMode($))) await startSegment($)
 }
 
-async function showProp($: EngineInterface, prop: Prop): Promise<void> {
-  const now = await $.clock.now()
+async function showProp($: EngineInterface, prop: Prop, now: number): Promise<void> {
   const cur = await read($, antic)
   const isOn = !!cur && cur.until > now
   const next: Antic = isOn && cur.prop === prop ? { ...cur, until: now + PROP_MS }
@@ -689,7 +698,29 @@ function lookAtLines($: EngineInterface): void {
   })
 }
 
+// One look at a time: two at once would each find the same line come home, and land its catch twice.
+// A look asked for meanwhile is made right after, so no catch waits for the next timer.
+let isLooking = false
+let isLookQueued = false
+
 async function checkLines($: EngineInterface): Promise<void> {
+  if (isLooking) {
+    isLookQueued = true
+    return
+  }
+  isLooking = true
+  try {
+    await lookOnce($)
+  } finally {
+    isLooking = false
+    if (isLookQueued) {
+      isLookQueued = false
+      void checkLines($).catch(() => undefined)
+    }
+  }
+}
+
+async function lookOnce($: EngineInterface): Promise<void> {
   const before = await read($, rods)
   const agents = await $.agent.list().catch(() => null)
   if (!agents) return
@@ -728,9 +759,13 @@ async function landHauls($: EngineInterface, hauls: readonly CatchKind[], left: 
   })
 }
 
-async function beachDir($: EngineInterface): Promise<string> {
-  const base = (await $.env.get('CLAUDE_CONFIG_DIR')) || `${(await $.env.get('HOME')) ?? ''}/.claude`
-  return `${base}/crab-buddy/beaches`
+// Null where no home is known: roaming then stays off rather than write at the root of the disk.
+async function beachDir($: EngineInterface): Promise<string | null> {
+  // Each name written out: the engine lists which variables a mod reads.
+  const configDir = await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)
+  const home = await $.env.get('HOME').catch(() => undefined)
+  const userProfile = await $.env.get('USERPROFILE').catch(() => undefined)
+  return beachFolder(configDir, home, userProfile)
 }
 
 // A window that shows nothing, or a crab that's hiding or stepped aside, can't have it.
@@ -748,14 +783,22 @@ async function settleOnBeach($: EngineInterface, dir: string, now: number): Prom
     if (mine && mine.token !== beachOf.token && beachOf.token && now - mine.at < ROAM_MS * 3) beachOf.slot = ''
   }
   if (!beachOf.slot) {
-    beachOf.slot = pickSlot(await $.fs.list(dir).catch(() => []), now)
+    beachOf.slot = pickSlot((await $.fs.list(dir).catch(() => [])).filter(f => !badSlots.has(f.name)), now)
     beachOf.token = `${now.toString(36)}${Math.random().toString(36).slice(2, 8)}`
   }
   if ((await read($, beachSlot)) !== beachOf.slot) {
     const slot = beachOf.slot
     await update($, beachSlot, () => slot)
   }
-  if (!beachOf.repo) beachOf.repo = ((await $.session.repo().catch(() => null))?.root ?? (await $.session.cwd())).split('/').filter(Boolean).pop() ?? ''
+  if (!beachOf.repo) beachOf.repo = folderName((await $.session.repo().catch(() => null))?.root ?? (await $.session.cwd()))
+}
+
+// A slot that can't be written (a folder of that name, a file locked away) is let go, so the next look picks another.
+async function dropSlot($: EngineInterface): Promise<void> {
+  if (beachOf.slot) badSlots.add(beachOf.slot)
+  beachOf.slot = ''
+  beachOf.token = ''
+  await update($, beachSlot, () => '')
 }
 
 async function writeBeach($: EngineInterface, dir: string, at: number, canHold: boolean): Promise<BeachRecord> {
@@ -766,7 +809,7 @@ async function writeBeach($: EngineInterface, dir: string, at: number, canHold: 
 
 // Only files that changed are read, and a half-written one keeps its last good reading.
 async function readOthers($: EngineInterface, dir: string, now: number): Promise<BeachRecord[]> {
-  const files = (await $.fs.list(dir)).filter(f => f.name.endsWith('.json') && f.name !== beachOf.slot && now - f.mtimeMs < FRESH_MS)
+  const files = (await $.fs.list(dir)).filter(f => isBeachFile(f) && f.name !== beachOf.slot && now - f.mtimeMs < FRESH_MS)
   for (const file of files) {
     if (others.get(file.name)?.mtimeMs === file.mtimeMs) continue
     const beach = parseBeach(await $.fs.read(`${dir}/${file.name}`).catch(() => ''), file.name)
@@ -795,8 +838,13 @@ async function roamTick($: EngineInterface): Promise<void> {
   try {
     const now = await $.clock.now()
     const dir = await beachDir($)
+    if (!dir) return
     await settleOnBeach($, dir, now)
-    const mine = await writeBeach($, dir, now, await canHoldCrab($))
+    const canHold = await canHoldCrab($)
+    const mine = await writeBeach($, dir, now, canHold).catch(async (err: unknown) => {
+      await dropSlot($)
+      throw err
+    })
     const beaches = [mine, ...(await readOthers($, dir, now))]
     const holder = holderOf(beaches, now)
     const finished = holder?.slot === beachOf.slot ? finishedElsewhere(beaches, holder, now) : null
@@ -831,12 +879,23 @@ async function syncRoam($: EngineInterface): Promise<void> {
     rover.cancel()
     rover = null
     await followCrab($, null, null)
-    if (beachOf.slot) await writeBeach($, await beachDir($), 0, false).catch(() => undefined)
+    await leaveBeach($)
   }
 }
 
+// Closing, or roaming switched off: the others needn't wait for this file to go stale.
+async function leaveBeach($: EngineInterface): Promise<void> {
+  const dir = await beachDir($)
+  if (dir && beachOf.slot) await writeBeach($, dir, 0, false).catch(() => undefined)
+}
+
+/** How weather.ts hands the sky back: it touches no atom itself. */
+const showWeather = ($: EngineInterface) => async (w: WeatherNow): Promise<void> => {
+  await update($, weather, () => w)
+}
+
 async function minuteTick($: EngineInterface): Promise<void> {
-  await refreshWeather($, w => update($, weather, () => w))
+  await refreshWeather($, showWeather($))
   await syncRoam($)
   if ((await read($, rods)).length) await checkLines($)
   await checkBreak($)
@@ -910,6 +969,7 @@ async function tickNeeds($: EngineInterface): Promise<void> {
 }
 
 async function doCare($: EngineInterface, what: Care): Promise<string> {
+  stirredAt = await $.clock.now()
   if (await read($, crabAway)) {
     await claimCrab($, 'person')
     return `${await read($, petName)} is on its way.`
@@ -951,14 +1011,23 @@ async function snooze($: EngineInterface): Promise<void> {
 }
 
 // Where compactions come for this window. The summary is counted locally and sends nothing.
+// When the summary can't be read (a surface that has none yet, a call that failed), the whole window stands in
+// for the engine's line. That is a guess, kept only until the summary can be read: asked for again now and then,
+// so one failed read does not leave the sea scaled to the wrong line for the rest of the session.
+let linesTriedAt = -Infinity
+
 async function linesFor($: EngineInterface, window: number): Promise<NonNullable<TideLines>> {
   const known = await read($, tideLines)
-  if (known?.window === window) return known
+  const now = await $.clock.now()
+  const isTriedLately = now >= linesTriedAt && now - linesTriedAt < COUNT_EVERY_MS
+  if (known?.window === window && (!known.isGuessed || isTriedLately)) return known
+  linesTriedAt = now
   const counted = (await $.session.usage({ breakdown: 'summary' }).catch(() => null))?.context.breakdown
   const isIdleOff = counted?.isAutoCompactEnabled === false || (await $.settings.read({ key: 'idleCompaction' }).catch(() => undefined)) === false
   const minimum = Number(await $.env.get('CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS').catch(() => undefined))
-  const lines = { window, full: counted?.autoCompactThreshold ?? window, idleMark: isIdleOff ? null : minimum > 0 ? Math.max(IDLE_FLOOR, minimum) : IDLE_MARK }
-  await update($, tideLines, () => lines)
+  const lines: NonNullable<TideLines> = { window, full: counted?.autoCompactThreshold ?? window, idleMark: isIdleOff ? null : minimum > 0 ? Math.max(IDLE_FLOOR, minimum) : IDLE_MARK, ...(counted ? {} : { isGuessed: true }) }
+  const isSame = known?.window === lines.window && known.full === lines.full && known.idleMark === lines.idleMark && !!known.isGuessed === !!lines.isGuessed
+  if (!isSame) await update($, tideLines, () => lines)
   return lines
 }
 
@@ -1031,8 +1100,9 @@ async function feedFire($: EngineInterface, model?: string): Promise<void> {
   const tokens = (await read($, tide))?.tokens ?? 0
   // Warm again: a cooling sign still standing is old news.
   const prev = await read($, cache)
-  if (prev?.nudged) await update($, plantedSign, p => (p && p.until === coldAt(prev) ? null : p))
-  await update($, cache, c => ({ at: now, ttlMs: ttl.ms, why: ttl.why, tokens: tokens || c?.tokens || 0, model: model || c?.model || '', nudged: false, fire: 'blaze' }))
+  // Told by its kind: its end is worked out from two readings of the clock, which are seldom the same millisecond.
+  if (prev?.nudged) await update($, plantedSign, p => (p?.kind === 'cache' ? null : p))
+  await update($, cache, (c): Cache => ({ at: now, ttlMs: ttl.ms, why: ttl.why, tokens: tokens || c?.tokens || 0, model: model || c?.model || '', nudged: false, fire: 'blaze' }))
   await keepCache($)
   await tendFire($)
 }
@@ -1323,12 +1393,17 @@ async function repaint($: EngineInterface): Promise<void> {
 
 // VS Code draws the beach as an image whose own clock can fall to a frame a second. While a picture is up there,
 // this asks for the drawing again `fps` times a second (once a second while it naps), so the beach moves anyway.
-function startPulse($: EngineInterface): void {
-  if (pulseCfg.mode === 'off') return
+// Not while the band is collapsed, and not once the session has been quiet for a good while: by then the crab
+// naps, the image's own clock carries that, and nobody is paying for ten pictures a second through the night.
+function startPulse($: EngineInterface, now: number): void {
+  if (pulseCfg.mode === 'off' || isAtRest(now)) return
   pulse ??= $.clock.every(Math.round(1000 / pulseCfg.fps), () => {
     void heartbeat($)
   })
 }
+
+/** Nothing has happened here for a while and no turn runs: the heartbeat waits for the session to stir. */
+const isAtRest = (now: number): boolean => !isTurnRunning && isResting(stirredAt, now)
 
 function stopPulse(): void {
   pulse?.cancel()
@@ -1347,7 +1422,7 @@ async function heartbeat($: EngineInterface): Promise<void> {
   try {
     const now = await $.clock.now()
     // Hidden, closed or drawn elsewhere: the next picture VS Code draws starts it again.
-    if (pulseCfg.mode === 'off' || now - pictureAt > PULSE_IDLE_MS) return stopPulse()
+    if (pulseCfg.mode === 'off' || now - pictureAt > PULSE_IDLE_MS || isAtRest(now)) return stopPulse()
     pulseTick++
     if (pulseTick % pulseCfg.fps && (await view($, isTurnRunning)).mood === 'nap') return
     beat++
@@ -1451,9 +1526,12 @@ async function watchTool($: EngineInterface, e: ToolCallInput, next: (e: ToolCal
 
 async function beforeTool($: EngineInterface, e: ToolCallInput): Promise<void> {
   await update($, stats, s => ({ ...s, toolCalls: s.toolCalls + 1 }))
+  // A tool call is a sign of life, also where a surface reports its turns late or not at all.
+  const now = await $.clock.now()
+  stirredAt = now
   const prop = PROPS[e.tool]
   if (!e.agentId) {
-    if (prop) await showProp($, prop)
+    if (prop) await showProp($, prop, now)
     await update($, turnWork, w => (w.length >= 15 ? w : [...w, prop ?? 'other']))
   }
 }
@@ -1509,6 +1587,7 @@ export const register: Register = (on, options) => {
       argumentHint: ARGUMENT_HINT,
     })
     const now = await $.clock.now()
+    stirredAt = now
     await loadChoices($, options)
     // A reload lost the timer, and the rods are still out.
     if ((await read($, rods)).length) await checkLines($)
@@ -1537,7 +1616,7 @@ export const register: Register = (on, options) => {
     await relight($)
     await tendFire($)
     if (timeOfDay(hourOf(now)) === 'morning') await say($, 'morning')
-    void refreshWeather($, w => update($, weather, () => w))
+    void refreshWeather($, showWeather($))
     await startSegment($)
     await announceNews($, hasMet)
     ticker?.cancel()
@@ -1552,6 +1631,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'crab' }, async ($, e) => {
+    stirredAt = await $.clock.now()
     const args = (e.args ?? '').trim()
     const [rawWord = '', ...rest] = args.split(/\s+/)
     const word = rawWord.toLowerCase()
@@ -1623,7 +1703,7 @@ export const register: Register = (on, options) => {
       const opened = await openTank($)
       await setTank($, true)
       if (!opened.isPlaced) return { text: `The tank is open but this surface isn't showing it (${opened.reason}), so the crab stays above the prompt for now. /crab strip cancels.` }
-      const where = tankSeat ? `${tankSeat.placement === 'dock' ? 'docked beside the chat' : 'above the prompt'}, ${tankSeat.columns} columns wide` : 'just opened'
+      const where = tankSeat ? `${tankSeat.placement === 'dock' ? 'docked beside the chat' : tankSeat.placement === 'widget' ? 'minimized to its small form' : 'above the prompt'}, ${tankSeat.columns} columns wide` : 'just opened'
       return { text: `The crab is in its tank (${where}). /crab strip brings it back above the prompt.` }
     }
     if (word === 'strip') {
@@ -1682,6 +1762,8 @@ export const register: Register = (on, options) => {
     }
     if (word === 'roam') {
       if (value !== 'on' && value !== 'off') return { text: 'Use /crab roam on or /crab roam off. On, one crab goes between your windows.' }
+      // The windows find each other through files in the Claude folder: with no folder to be found, say so.
+      if (value === 'on' && !(await beachDir($))) return { text: "Roaming needs your Claude folder, and none can be found here (no CLAUDE_CONFIG_DIR, HOME or USERPROFILE is set). Every window keeps its own crab." }
       await $.store.set(KEY.roam, value === 'on')
       await syncRoam($)
       return { text: value === 'on' ? 'One crab now: it comes to whichever window you write in, and goes to one that finishes a long task. Your other sessions join within a minute.' : 'Every window keeps its own crab again.' }
@@ -1753,6 +1835,7 @@ export const register: Register = (on, options) => {
       isTurnRunning = true
       const now = await $.clock.now()
       seen.turnStart = now
+      stirredAt = now
       await update($, reaction, () => null)
       await feedFire($)
       await update($, breaks, b =>
@@ -1787,6 +1870,7 @@ export const register: Register = (on, options) => {
       await lowerFlag($)
       const now = await $.clock.now()
       seen.turnComplete = now
+      stirredAt = now
       await update($, stats, s => ({ ...s, turns: s.turns + 1 }))
       await update($, breaks, b => ({ ...b, lastActive: now }))
       await saveNeeds($, gain(await currentNeeds($), { food: 3 }))
@@ -1820,6 +1904,8 @@ export const register: Register = (on, options) => {
   // Fires during a turn too, so a long turn raises the tide, and the sea moves with it at once.
   on('session.measure', async ($, e, next) => {
     seen.measure = await $.clock.now()
+    // The context moved: a reply came. A limit window ticking on, with nobody here, is no sign of life.
+    if (e.changed?.includes('context')) stirredAt = seen.measure
     const before = await read($, tide)
     await refreshContext($, (e as { context?: SentContext }).context)
     const after = await read($, tide)
@@ -1840,7 +1926,7 @@ export const register: Register = (on, options) => {
       await update($, plantedSign, () => null)
       // A new conversation to cache: the old fire is out, and the next prompt lights a new one.
       const now = await $.clock.now()
-      await update($, cache, c => (c ? { ...c, at: now - c.ttlMs, nudged: true, isCompacted: true, fire: 'ashes' } : c))
+      await update($, cache, (c): Cache => (c ? { ...c, at: now - c.ttlMs, nudged: true, isCompacted: true, fire: 'ashes' } : c))
       await keepCache($)
       await tendFire($)
       $.clock.after(EBB_MS, () => void ebbTide($))
@@ -1878,9 +1964,8 @@ export const register: Register = (on, options) => {
         await saveNeeds($, await currentNeeds($))
         await startSegment($)
       })
-    } else if (rover && beachOf.slot) {
-      // Closing: the others needn't wait for this file to go stale.
-      await writeBeach($, await beachDir($), 0, false).catch(() => undefined)
+    } else if (rover) {
+      await leaveBeach($)
     }
     return next(e)
   })
@@ -1910,6 +1995,7 @@ export const register: Register = (on, options) => {
   // You sent a message: it stops, a "!" pops up, and it turns toward you. The day's first also gets today's theme.
   on('prompt.submit', async ($, e, next) => {
     if (!e.isMeta && !e.command) {
+      stirredAt = await $.clock.now()
       await lowerFlag($)
       await update($, signQueue, () => [])
       const wasAway = !!(await read($, crabAway))
@@ -1952,6 +2038,8 @@ export const register: Register = (on, options) => {
 
     const v = await view($, e.props.isWorking)
     const b = await read($, bubble)
+    // Newer Claude Code lets the person collapse the band: the tree is still asked for, and none of it shows.
+    const isCollapsed = (e.props as { isCollapsed?: boolean }).isCollapsed === true
 
     const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
@@ -1968,9 +2056,10 @@ export const register: Register = (on, options) => {
       const width = stripWidth(e.props.bodyColumns, v.isDue, e.surface)
       lastWidth = width
       lastBand = { surface: e.surface, columns: e.props.bodyColumns, viewport: e.viewport?.columns, width }
-      if (e.surface === 'vscode') {
+      // Collapsed, nothing of the tree is on screen: no heartbeat for a picture nobody sees.
+      if (e.surface === 'vscode' && !isCollapsed) {
         pictureAt = v.now
-        startPulse($)
+        startPulse($, v.now)
       }
       const pic = pulsed(e.surface, SCENE_H)
       // A plain image, not the hover-capable frame: that frame paints a solid box behind the crab.
@@ -1996,8 +2085,12 @@ export const register: Register = (on, options) => {
       const size = { columns: terminalColumns(e.props.bodyColumns, v.isDue), rows: STRIP_ROWS }
       lastWidth = stripWidth(e.props.bodyColumns, v.isDue)
       lastBand = { surface: e.surface, columns: e.props.bodyColumns, viewport: e.viewport?.columns, width: lastWidth }
-      rasters.set(e.requestId, size)
-      startPainting($)
+      // Collapsed, it is drawn this once and not repainted four times a second behind the fold.
+      if (isCollapsed) rasters.delete(e.requestId)
+      else {
+        rasters.set(e.requestId, size)
+        startPainting($)
+      }
       return (
         <Box flexDirection="column">
           {above}
@@ -2053,7 +2146,7 @@ export const register: Register = (on, options) => {
       lastWidth = t.sceneWidth
       if (e.surface === 'vscode') {
         pictureAt = v.now
-        startPulse($)
+        startPulse($, v.now)
       }
       const pic = pulsed(e.surface, t.height)
       return (

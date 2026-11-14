@@ -4,24 +4,24 @@ import type { On } from 'claude-code'
 
 import type { Beach, Rod, Segment } from '../types'
 import { reconcile, sameRods } from './fishing'
-import { ACTIVE_MS, finishedElsewhere, holderOf, parseBeach, pickSlot, whereCrabIs } from './roam'
+import { ACTIVE_MS, beachFolder, finishedElsewhere, folderName, holderOf, isBeachFile, parseBeach, pickSlot, wantsNote, whereCrabIs } from './roam'
 import type { BeachRecord } from './roam'
 import { CRAB_W, HAMMOCK, MARK_SHORE, MARK_TIDE, MAX_RODS, POOLS, RIDES, ROOFS, STRIPES, TEMPERAMENTS, TRACK_MIN, ZONES, activityStarts, hasDecor, layoutOf, plan, planOf, rideFits, rodSpots, shoreFrac, spots, tideOf, trackSpan, weights, whereAt, xOf } from './life'
 import type { Decor, Temperament } from './life'
 
-import { line, signLine, themeLine, themeName } from './lines'
-import { EMPTY_LOG, NOTE_MAX, commitTitle, logCheck, logCommit, logFile, logNote, logText } from './logbook'
+import { line, needsLine, signLine, themeLine, themeName } from './lines'
+import { EMPTY_LOG, NOTE_MAX, commitTitle, compactKeep, logCheck, logCommit, logFile, logNote, logText } from './logbook'
 import { WORK_FLOOR, care, cooldownLeft, freshNeeds, petMood, rest, tick } from './pet'
 import { KING_SHELLS, cleanName, costumeAt, dayKey, isClosedByYou, logShell, newsOf, nextCastle, nextShells, reactionTo, stripWidth, tankSize, terminalColumns, terminalTankRows, themeAt, toolNewsOf, wornAt } from './register'
-import { FIRE_W, fireX, sceneSvg, timeOfDay, unlocked } from './scene'
-import { DEFAULT_PULSE, nudged, pulseFrom, pulseOf } from './pulse'
+import { FIRE_W, SVG_MAX, fireX, sceneSvg, timeOfDay, unlocked } from './scene'
+import { DEFAULT_PULSE, PULSE_REST_MS, isResting, nudged, pulseFrom, pulseOf } from './pulse'
 import { breakKind, enqueue, heldSign, nextInQueue } from './signs'
 import { holiday, moonLit, moonPhase, season, skyFor, weatherOf } from './sky'
 import { COSTUMES, SPECIAL_COSTUMES, costumeOfDay, crab as crabArt, crabRects } from './sprites'
 import { CRAB_CELLS, cellsOf as spriteCells, downsample } from './pixelart'
 import type { Costume } from './sprites'
 import { beachCells, beachPixels, cellText, decodeCells, fireColumn } from './terminal'
-import { clip, oneLine, xml } from './text'
+import { clip, cut, oneLine, whole, xml } from './text'
 
 const DAY = 86_400_000
 const MIN = 60_000
@@ -35,6 +35,7 @@ const BAND = {
   requestId: 'above-prompt',
   props: {
     hasSurvey: false,
+    isCollapsed: false,
     isWorking: false,
     maxRows: 10,
     bodyColumns: 100,
@@ -2946,10 +2947,10 @@ test('an empty beach draws no crab anywhere', () => {
 })
 
 // A folder in memory, and a way to stand in for the other sessions' files.
-function shoreline(on: On, clockNow: () => number, surfaces: string[] = ['desktop']) {
+function shoreline(on: On, clockNow: () => number, surfaces: string[] = ['desktop'], env: Record<string, string> = { HOME: '/home/u' }) {
   const files = new Map<string, { text: string; mtimeMs: number }>()
   const DIR = '/home/u/.claude/crab-buddy/beaches'
-  mock.env(on, { HOME: '/home/u' })
+  mock.env(on, env)
   on('session.surfaces', () => ({ value: surfaces }) as never)
   on('session.cwd', () => ({ value: '/work/api' }) as never)
   on('session.repo', () => ({ value: { root: '/work/api', remote: null, internal: false, repository: null } }) as never)
@@ -3162,4 +3163,307 @@ test('in the terminal the campfire is the column right of the crab resting at ho
     expect(t.px[(G - 1) * columns + col]).toBe(0x7a4a26)
     expect(t.px[(G - 1) * columns + 3]).not.toBe(0x7a4a26)
   }
+})
+
+// --- found in the 0.28.1 review
+
+/** No half characters in it: what a request, a file or a picture can carry. */
+const isWhole = (text: string): boolean => whole(text) === text
+
+test('a cut never leaves half an emoji behind, wherever outside text is shortened', () => {
+  expect(cut('ab🦀cd', 3)).toBe('ab')
+  expect(cut('ab🦀cd', 4)).toBe('ab🦀')
+  expect(whole('a\ud83eb\udd80c')).toBe('abc')
+  expect(oneLine('a\ud83e b')).toBe('a b')
+  expect(clip(`${'a'.repeat(15)}🦀`, 16)).toBe('a'.repeat(15))
+  expect(cleanName(`${'a'.repeat(15)}🦀`)).toBe('a'.repeat(15))
+  // A commit title with an emoji right at the cut: the summarizer's note and the ready /compact stay well formed.
+  const title = commitTitle(`git commit -m "${'x'.repeat(59)}🎉 release"`)
+  expect(title).toBe('x'.repeat(59))
+  const log = logCommit(EMPTY_LOG, title)
+  expect(isWhole(logNote(log))).toBe(true)
+  expect(isWhole(compactKeep(log))).toBe(true)
+  // Cut by the note's own room, and by the /compact's.
+  const crowded = Array.from({ length: 30 }, (_, i) => `src/${'d'.repeat(i)}🦀${'e'.repeat(7)}.ts`).reduce(logFile, EMPTY_LOG)
+  expect(isWhole(logNote(crowded))).toBe(true)
+  expect(isWhole(compactKeep({ ...crowded, commits: [`${'c'.repeat(58)}🦀`] }))).toBe(true)
+  expect(() => encodeURIComponent(logNote(crowded))).not.toThrow()
+  // A repo's name on a sign, a tool's on the flag, a long bubble in the picture.
+  expect(isWhole(wantsNote({ slot: 's', token: 't', at: 1, repo: `${'r'.repeat(15)}🦀`, personAt: 0, doneAt: 1, canHold: true }))).toBe(true)
+  expect(isWhole(whereCrabIs(`${'r'.repeat(17)}🦀`, 'api'))).toBe(true)
+  expect(isWhole(needsLine(`mcp__srv__${'t'.repeat(17)}🦀`))).toBe(true)
+  const svg = sceneSvg({ width: 800, costume: 'plain', look: {}, timeOfDay: 'day', bubble: `${'b'.repeat(32)}🦀 and more`, now: T0 + 1000, seg: seg(), prop: null, sky: skyFor(T0), work: [], hour: 12 })
+  expect(isWhole(svg)).toBe(true)
+})
+
+test('a name is put into a line as it is, whatever characters it has', () => {
+  for (const name of ['$&', "$'", '$`', 'Bob$$']) expect(line('named', 0, { name })).toBe(`${name}! I like it`)
+  expect(line('long', 0, { name: 'x', time: '$&' })).toBe('phew, $&!')
+  expect(signLine('spend', 0, '$&')).toBe('$& so far')
+})
+
+// A heredoc followed only by blank lines was read again from every one of them (100,000: six seconds), and a
+// run of `-c` options in every way they pair up; each inside the tool hook, with the call's result waiting.
+test('blank lines after a heredoc and long runs of git options are read in one pass', () => {
+  const blank = `git commit -F - <<EOF${'\n'.repeat(200_000)}`
+  const spaced = `git commit -F - <<EOF${'  \n'.repeat(100_000)}`
+  const many = `git${' -c'.repeat(24)} x; `.repeat(5000)
+  const t0 = performance.now()
+  expect(commitTitle(blank)).toBe('a commit')
+  expect(commitTitle(spaced)).toBe('a commit')
+  expect(newsOf(many, false)).toBe(null)
+  expect(reactionTo(many, false)).toBe(null)
+  expect(logShell(EMPTY_LOG, many, false)).toEqual(EMPTY_LOG)
+  expect(performance.now() - t0).toBeLessThan(1000)
+  // And they read what they read before.
+  expect(commitTitle('git commit -m "$(cat <<\'EOF\'\n\n  Fix the tide\n\nbody\nEOF\n)"')).toBe('Fix the tide')
+  expect(commitTitle('git commit -F - <<-EOF\n\tTabs lead\nEOF')).toBe('Tabs lead')
+  expect(commitTitle('git commit -F- << "END"  \nSpaced\nEND')).toBe('Spaced')
+  expect(newsOf('git -c user.name=x -C repo --no-pager push', false)).toBe('pushed')
+  expect(newsOf('git -c core.x=1 -c core.y=2 -c core.z=3 push origin', false)).toBe('pushed')
+  expect(newsOf('git -cfoo=bar commit -m x', false)).toBe('commit')
+  // `-C commit` names a folder called commit: no commit was made.
+  expect(reactionTo('git -C commit status', false)).toBe(null)
+  expect(newsOf('git -c push.default=current status', false)).toBe(null)
+})
+
+test('a link or a folder is never taken for a beach file', () => {
+  const entry = (name: string, over: object = {}) => ({ name, mtimeMs: 0, kind: 'file', isLink: false, ...over })
+  const link = entry('link.json', { kind: 'other', isLink: true })
+  const folder = entry('folder.json', { kind: 'dir' })
+  expect(isBeachFile(link)).toBe(false)
+  expect(isBeachFile(folder)).toBe(false)
+  expect(isBeachFile(entry('a.json'))).toBe(true)
+  expect(isBeachFile(entry('a.txt'))).toBe(false)
+  // Both list with no time, which made them the oldest "free" slot of all.
+  expect(pickSlot([link, folder], T0)).toBe(`${T0.toString(36)}.json`)
+  expect(pickSlot([link, folder, entry('old.json', { mtimeMs: T0 - 900_000 })], T0)).toBe('old.json')
+})
+
+test('the beaches live under the config folder, else the home folder, and nowhere without one', () => {
+  expect(beachFolder('/cfg', '/home/u', undefined)).toBe('/cfg/crab-buddy/beaches')
+  expect(beachFolder(undefined, '/home/u', 'C:\\Users\\u')).toBe('/home/u/.claude/crab-buddy/beaches')
+  expect(beachFolder(undefined, undefined, 'C:\\Users\\u')).toBe('C:\\Users\\u/.claude/crab-buddy/beaches')
+  expect(beachFolder(undefined, undefined, undefined)).toBe(null)
+  expect(beachFolder('', '', '')).toBe(null)
+  expect(folderName('/work/api/')).toBe('api')
+  expect(folderName('C:\\Users\\u\\dev\\web')).toBe('web')
+  expect(folderName('')).toBe('')
+})
+
+test('with no home folder known, roaming writes nothing and the crab stays', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const { files } = shoreline(on, clock.now, ['desktop'], {})
+  await start($)
+  expect((await crab($, 'roam on')).text).toMatch(/needs your Claude folder/)
+  await clock.advance(10_000)
+  expect(files.size).toBe(0)
+  expect(await alt($)).toMatch(/^Crabby the crab/)
+  expect((await crab($, 'where')).text).toMatch(/is here/)
+})
+
+test('where Windows sets no HOME, the beaches go under the user profile, and the window is named by its folder', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const files = new Map<string, string>()
+  mock.env(on, { USERPROFILE: 'C:\\Users\\u' })
+  on('session.surfaces', () => ({ value: ['desktop'] }) as never)
+  on('session.cwd', () => ({ value: 'C:\\Users\\u\\dev\\api' }) as never)
+  on('session.repo', () => ({ value: null }) as never)
+  on('fs.write', (_, e) => {
+    files.set(e.path, e.text)
+    return { value: undefined } as never
+  })
+  on('fs.read', (_, e) => ({ value: files.get(e.path) ?? '' }) as never)
+  on('fs.list', () => ({ value: [] }) as never)
+  await start($)
+  await crab($, 'roam on')
+  await clock.advance(3100)
+  expect(files.size).toBe(1)
+  const [[path, text] = ['', '{}']] = [...files]
+  expect(path).toContain('C:\\Users\\u/.claude/crab-buddy/beaches/')
+  expect((JSON.parse(text) as BeachRecord).repo).toBe('api')
+})
+
+test('a link in the folder is not written through, and a file that can\'t be written is given up for another', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const DIR = '/home/u/.claude/crab-buddy/beaches'
+  const written = new Map<string, string>()
+  const tried: string[] = []
+  mock.env(on, { HOME: '/home/u' })
+  on('session.surfaces', () => ({ value: ['desktop'] }) as never)
+  on('session.cwd', () => ({ value: '/work/api' }) as never)
+  on('session.repo', () => ({ value: null }) as never)
+  on('fs.write', (_, e) => {
+    tried.push(e.path)
+    if (e.path.endsWith('/locked.json')) throw new Error('EACCES')
+    written.set(e.path, e.text)
+    return { value: undefined } as never
+  })
+  on('fs.read', (_, e) => {
+    const text = written.get(e.path)
+    if (text === undefined) throw new Error('ENOENT')
+    return { value: text } as never
+  })
+  on('fs.list', () => ({
+    value: [
+      { name: 'link.json', kind: 'other', size: 0, mtimeMs: 0, isLink: true },
+      { name: 'locked.json', kind: 'file', size: 1, mtimeMs: T0 - 900_000, isLink: false },
+      ...[...written.keys()].map(path => ({ name: path.split('/').pop(), kind: 'file', size: 1, mtimeMs: clock.now(), isLink: false })),
+    ],
+  }) as never)
+  await start($)
+  await crab($, 'roam on')
+  await clock.advance(10_000)
+  expect(tried).not.toContain(`${DIR}/link.json`)
+  // Tried once, then left alone: roaming goes on from a file of its own.
+  expect(tried.filter(path => path === `${DIR}/locked.json`).length).toBe(1)
+  expect(written.size).toBe(1)
+  expect([...written.keys()][0]).not.toBe(`${DIR}/locked.json`)
+  expect((await crab($, 'where')).text).toMatch(/is here/)
+})
+
+test('two looks at the lines at once land a catch once', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  const list = [agent('a', 'running')]
+  let isSlow = false
+  // The engine answers late once the agent is done: long enough for a second look to start meanwhile.
+  on('agent.list', async () => {
+    if (isSlow) await clock.sleep(300)
+    return { value: [...list] } as never
+  })
+  await start($)
+  await $.turn.start({ turnId: 'main' } as never)
+  await subagentTurn($)
+  await clock.advance(600)
+  expect(await alt($)).toMatch(/1 fishing line out/)
+  // The watcher looks every five seconds from the first look (at 500 ms): next at 5500. A subagent's turn now
+  // asks for a look of its own half a second on, at 5600, while the watcher's still waits for its answer.
+  await clock.advance(4500)
+  list[0] = agent('a', 'completed')
+  isSlow = true
+  await subagentTurn($)
+  await clock.advance(3000)
+  isSlow = false
+  await clock.advance(20_000)
+  expect((await crab($, 'stats')).text).toMatch(/ 1 fish/)
+  expect((await crab($, 'lines')).text).toBe('No lines in the water.')
+})
+
+test('the heartbeat rests once the session has been quiet a good while, and beats again when it stirs', async ($, on) => {
+  expect(isResting(T0, T0 + PULSE_REST_MS - 1)).toBe(false)
+  expect(isResting(T0, T0 + PULSE_REST_MS)).toBe(true)
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  const first = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  expect(changes((await beats(first, clock, 3000)).map(b => b.source))).toBeGreaterThanOrEqual(2)
+  await first.unmount()
+  // A minute short of the rest, a picture still gets its heartbeat.
+  await clock.advance(PULSE_REST_MS - MIN - 3000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  expect(changes((await beats(ui, clock, 3000)).map(b => b.source))).toBeGreaterThanOrEqual(2)
+  // Nothing has happened for a quarter of an hour: the beats stop with the picture still up, however long the
+  // window stays open.
+  await clock.advance(MIN)
+  expect(changes((await beats(ui, clock, 5000)).map(b => b.source))).toBe(0)
+  // You're back: it beats again.
+  await $.prompt.submit({ text: 'hi', isMeta: false } as never)
+  expect(changes((await beats(ui, clock, 3000)).map(b => b.source))).toBeGreaterThanOrEqual(2)
+  await ui.unmount()
+})
+
+test('a picture drawn while the session rests starts no heartbeat until it stirs, and a long turn never rests', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false }, isError: false }) as never)
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  await start($)
+  // Where a surface reports no turns at all, a tool call or a reply that moved the context is the sign of life.
+  for (const stir of [
+    () => $.tool.call({ tool: 'Read', file_path: '/a.ts', tool_use_id: 'u1' } as never),
+    () => $.session.measure({ context: { window: 1_000_000, tokens: 50_000 }, rateLimits: [], changed: ['context'] } as never),
+  ]) {
+    await clock.advance(PULSE_REST_MS + MIN)
+    const quiet = await $.ui.mount({ ...BAND, surface: 'vscode' })
+    expect(changes((await beats(quiet, clock, 3000)).map(b => b.source))).toBe(0)
+    await stir()
+    expect(changes((await beats(quiet, clock, 3000)).map(b => b.source))).toBeGreaterThanOrEqual(2)
+    await quiet.unmount()
+  }
+  // A turn that has been running for longer than that is still a turn: ten pictures a second.
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(PULSE_REST_MS + MIN)
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  expect(changes((await beats(ui, clock, 1000)).map(b => b.source))).toBeGreaterThanOrEqual(8)
+  await ui.unmount()
+})
+
+// Newer Claude Code lets the person fold the band away: the tree is still asked for, and none of it is on screen.
+const COLLAPSED = { ...BAND.props, isCollapsed: true }
+
+test('a collapsed band is not redrawn in VS Code', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on)
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode', props: COLLAPSED })
+  expect(await ui.find({ type: 'Svg' })).not.toBeUndefined()
+  expect(changes((await beats(ui, clock, 2000)).map(b => b.source))).toBe(0)
+  await ui.unmount()
+})
+
+test('a collapsed band is not repainted in the terminal', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const { blits } = engine(on, { percent: null, isBlitOk: true })
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal', props: COLLAPSED })
+  expect(await ui.find({ type: 'Raster' })).not.toBeUndefined()
+  await clock.advance(3000)
+  expect(blits.length).toBe(0)
+  await ui.unmount()
+})
+
+// The engine draws no Svg longer than SVG_MAX, and then the whole row is empty. These pictures were: a wide strip
+// on New Year's Eve with a long walk's footprints, the ghost in a storm, the tank on Halloween night.
+test('a picture too long for the engine loses footprints, never the beach', () => {
+  const busy: Beach = { usage: 0.97, fire: 'blaze', planted: 'cache cools in 10 min', hasBottle: true, rods: 3, hasMark: true }
+  const cases = [
+    { width: 1600, height: undefined, costume: 'ghost', weather: 'cloudy', date: new Date(2026, 11, 31, 23), mode: 'work' },
+    { width: 800, height: undefined, costume: 'ghost', weather: 'storm', date: new Date(2026, 9, 31, 23), mode: 'idle' },
+    { width: 640, height: 256, costume: 'chef', weather: 'storm', date: new Date(2026, 9, 31, 3), mode: 'idle' },
+  ] as const
+  for (const c of cases) for (const seed of [1, 7, 99]) for (const frac of [0.02, 0.5, 0.95]) {
+    const startAt = c.date.getTime()
+    const s = seg({ seed, startAt, startP: 0.3, mode: c.mode, width: c.width, castle: 5, shells: 60, golden: 1, timeOfDay: 'night', weather: c.weather, shore: 0.9, ride: c.costume, layout: 12345 + seed, earned: 0 })
+    const now = startAt + plan(s).duration * frac
+    const svg = sceneSvg({
+      width: c.width, ...(c.height ? { height: c.height } : { fill: true }), costume: c.costume, look: { tiredness: 'sweaty', isGrumpy: true, isHungry: true }, timeOfDay: 'night',
+      bubble: "purr… wait, crabs don't purr", now, seg: s, prop: 'hammer', sky: skyFor(now, c.weather, true), hour: c.date.getHours(), work: Array.from({ length: 15 }, () => 'hammer'), beach: busy,
+    })
+    expect(svg.length).toBeLessThanOrEqual(SVG_MAX)
+    expect(svg).toContain('class="sea"')
+    expect(svg).toContain('class="cfire"')
+  }
+  // An everyday picture keeps every footprint.
+  const walk = seg({ mode: 'work', startP: 0.2 })
+  const calm = sceneSvg({ width: 800, costume: 'plain', look: {}, timeOfDay: 'day', bubble: null, now: T0 + 20_000, seg: walk, prop: null, sky: skyFor(T0), work: [], hour: 12 })
+  expect(calm).toContain('class="fp fpd"')
+})
+
+test('the tank minimized to its small form is drawn as the low band', () => {
+  expect(tankSize(40, 'widget')).toEqual(tankSize(40, 'inline'))
+  expect(terminalTankRows(20, 'widget')).toBe(4)
 })
