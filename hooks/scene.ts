@@ -52,9 +52,9 @@ const r1 = (n: number): string => String(Math.round(n * 10) / 10)
 
 const SCENE_CSS = `
 .sand{fill:#E9D8AE}.sand2{fill:#D9C493}.peb{fill:#BDB6A8}.bub{fill:#fff;stroke:#D9D6CF}.bubt{fill:#3A3936}.z{fill:#8a8a86}.sw{stroke:#4FA36B}
-.cs{fill:#E2CC95}.cs2{fill:#CDB57C}.pool{fill:#9FD3E8}.hole{fill:#C9B27E}.fpd{fill:#CDB57C}
+.cs{fill:#E2CC95}.cs2{fill:#CDB57C}.pool{fill:#9FD3E8}.hole{fill:#C9B27E}.fpd{fill:#CDB57C}.hgo{fill:#6E5A3C}
 @media (prefers-color-scheme: dark){.sand{fill:#5E5442}.sand2{fill:#6E6250}.peb{fill:#6E675C}.bub{fill:#2A2927;stroke:#4A4844}.bubt{fill:#EDEBE6}.z{fill:#9a9a96}.sw{stroke:#3F8A58}
-.cs{fill:#7A6B50}.cs2{fill:#655841}.pool{fill:#3E6A7A}.hole{fill:#4A4234}.fpd{fill:#4A4234}}
+.cs{fill:#7A6B50}.cs2{fill:#655841}.pool{fill:#3E6A7A}.hole{fill:#4A4234}.fpd{fill:#4A4234}.hgo{fill:#D9C9A3}}
 .sw{fill:none;stroke-width:1.6;stroke-linecap:round;transform-box:fill-box;transform-origin:50% 100%;animation:sway2 4.2s ease-in-out infinite}
 .sw2{animation-duration:3.6s;animation-delay:-1.3s}.sw3{animation-duration:4.8s;animation-delay:-2.1s}
 @keyframes sway2{50%{transform:rotate(9deg)}}
@@ -471,16 +471,21 @@ const FLAG = '#D9435E'
  * the bottom what is gone, and a grain trickles through while it runs. Red sand from 95%.
  */
 export const hourglassSvg = (used: number): string => {
-  // Seven cells of sand in each bulb, bottom up: [x, y] inside a 7 by 9 frame.
-  const top = [[3, 3], [2, 2], [3, 2], [4, 2], [2, 1], [3, 1], [4, 1]]
-  const bottom = [[2, 7], [3, 7], [4, 7], [2, 6], [3, 6], [4, 6], [3, 5]]
-  const left = Math.round(7 * (1 - Math.min(1, Math.max(0, used))))
+  // A 9 by 13 frame: bars on rows 0 and 12, two bulbs and a one-cell neck on row 6. Twelve cells of sand in each
+  // bulb, listed bottom up for the top one (it empties from the top) and from the floor up for the bottom one.
+  const top = [[4, 5], [4, 4], [3, 4], [5, 4], [4, 3], [3, 3], [5, 3], [2, 3], [6, 3], [4, 2], [3, 2], [5, 2]]
+  const bottom = [[4, 11], [3, 11], [5, 11], [2, 11], [6, 11], [1, 11], [7, 11], [4, 10], [3, 10], [5, 10], [2, 10], [6, 10]]
+  const left = Math.round(top.length * (1 - Math.min(1, Math.max(0, used))))
   const sand = used >= 0.95 ? '#E8577A' : '#E8C27A'
-  const x0 = HOME_SHELL_X + 2
-  const y0 = GROUND - 16
+  const x0 = HOME_SHELL_X + 1
+  const y0 = GROUND - 20
   const cell = ([x, y]: number[], fill: string, cls = '') => `<rect${cls ? ` class="${cls}"` : ''} x="${x0 + (x ?? 0)}" y="${y0 + (y ?? 0)}" width="1" height="1" fill="${fill}"/>`
-  const glass = [[1, 1], [5, 1], [1, 2], [5, 2], [2, 3], [4, 3], [3, 4], [2, 5], [4, 5], [1, 6], [5, 6], [1, 7], [5, 7]]
-  return `<g class="hourglass" shape-rendering="crispEdges"><rect x="${x0}" y="${y0}" width="7" height="1" fill="#8A5A2B"/><rect x="${x0}" y="${y0 + 8}" width="7" height="1" fill="#8A5A2B"/>${glass.map(c => cell(c, '#CFE8F2')).join('')}${top.slice(0, left).map(c => cell(c, sand)).join('')}${bottom.slice(0, 7 - left).map(c => cell(c, sand)).join('')}${left > 0 && left < 7 ? cell([3, 4], sand, 'trk') : ''}</g>`
+  // Outline cells, a row at a time: the sides narrow towards the neck and widen again.
+  const wall = [[0, 8], [0, 8], [0, 8], [1, 7], [2, 6], [3, 5], [3, 5], [3, 5], [2, 6], [1, 7], [0, 8], [0, 8], [0, 8]]
+  const outline = wall.flatMap(([l, r], row) => (row === 0 || row === 12 ? [] : [[l ?? 0, row], [r ?? 0, row]]))
+  const glass = wall.flatMap(([l, r], row) => (row === 0 || row === 12 ? [] : Array.from({ length: (r ?? 0) - (l ?? 0) - 1 }, (_, i) => [(l ?? 0) + 1 + i, row])))
+  const bar = (y: number) => `<rect class="hgo" x="${x0}" y="${y0 + y}" width="9" height="1"/>`
+  return `<g class="hourglass" shape-rendering="crispEdges">${bar(0)}${bar(12)}${glass.map(c => cell(c, '#CFE8F2')).join('')}${top.slice(0, left).map(c => cell(c, sand)).join('')}${bottom.slice(0, top.length - left).map(c => cell(c, sand)).join('')}${outline.map(c => cell(c, '#6E5A3C', 'hgo')).join('')}${left > 0 && left < top.length ? cell([4, 6], sand, 'trk') : ''}</g>`
 }
 
 /** The campfire's width in px: a ring of logs with a stone at each end. */

@@ -534,19 +534,43 @@ test('the forecast needs a real rise over five minutes, and gives way to a reset
   expect(usageMark({ kind: 'limit', percent: 79, resetsAt: null, samples: [], signed: 0 })).toBe(null)
 })
 
+test('the hourglass is big and dark enough to see', () => {
+  const g = hourglassSvg(0.4)
+  const xs = [...g.matchAll(/x="([\d.]+)"/g)].map(m => Number(m[1])), ys = [...g.matchAll(/y="([\d.]+)"/g)].map(m => Number(m[1]))
+  expect(Math.max(...xs) - Math.min(...xs) + 1).toBeGreaterThanOrEqual(9)
+  expect(Math.max(...ys) - Math.min(...ys) + 1).toBeGreaterThanOrEqual(12)
+  expect(g).toContain('class="hgo"')            // the outline, themed in CSS
+  expect(Math.min(...xs)).toBeGreaterThanOrEqual(0)
+  expect(Math.max(...xs)).toBeLessThan(26)       // left of TRACK_MIN: it never stands in the crab's track
+})
+
 test('the hourglass moves its sand from top to bottom, and stops trickling when empty or full', () => {
   const cells = (svg: string, y: number) => (svg.match(new RegExp(`y="${y}" width="1" height="1" fill="#(E8C27A|E8577A)"`, 'g')) ?? []).length
+  // GROUND is 35: the frame is rows 15..27, the top bulb's sand on rows 17..20, the bottom bulb's on rows 25 and 26.
+  const top = (svg: string) => [17, 18, 19, 20].reduce((n, y) => n + cells(svg, y), 0)
+  const bottom = (svg: string) => cells(svg, 25) + cells(svg, 26)
   const fresh = hourglassSvg(0)
   const half = hourglassSvg(0.5)
   const gone = hourglassSvg(1)
-  // GROUND is 35: the bulbs sit at 20..22 (top) and 24..26 (bottom).
-  expect(cells(fresh, 21) + cells(fresh, 20) + cells(fresh, 22)).toBe(7)
-  expect(cells(fresh, 26)).toBe(0)
-  expect(cells(gone, 26)).toBe(3)
-  expect(cells(gone, 20)).toBe(0)
+  expect(top(fresh)).toBe(12)
+  expect(bottom(fresh)).toBe(0)
+  expect(bottom(gone)).toBe(12)
+  expect(top(gone)).toBe(0)
+  // More used: less on top and more below, always twelve in all.
+  let prev = 13
+  for (let u = 0; u <= 1.001; u += 0.05) {
+    const g = hourglassSvg(u)
+    expect(top(g) + bottom(g)).toBe(12)
+    expect(top(g)).toBeLessThanOrEqual(prev)
+    prev = top(g)
+  }
+  expect(top(half)).toBe(6)
+  expect(hourglassSvg(-1)).toBe(fresh)
+  expect(hourglassSvg(2)).toBe(gone)
   expect(half).toMatch(/class="trk"/)
   expect(fresh).not.toMatch(/class="trk"/)
   expect(gone).not.toMatch(/class="trk"/)
+  expect(hourglassSvg(0.94)).not.toContain('#E8577A')
   expect(hourglassSvg(0.97)).toContain('#E8577A')
 })
 
