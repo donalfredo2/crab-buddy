@@ -92,7 +92,7 @@ export type Reading = {
   tokens: number | null; tokensFrom: 'event' | 'poll' | 'none'
   window: number | null
   limits: readonly Limit[]; limitsFrom: Source
-  /** The event named `rateLimits` as changed and carried none: the windows left. Nothing kept is used, and nothing stays kept. */
+  /** The event named `rateLimits` as changed and carried none, and the poll has none either: the windows left. Nothing kept is used, and nothing stays kept. A poll that still has windows wins (limitsFrom 'poll', hasLeft false). */
   hasLeft: boolean
   usd: number | undefined
 }
@@ -136,8 +136,10 @@ test('what is kept is the newest list seen, never an empty one', () => {
 })
 test('an empty list the engine names as changed means the windows left', () => {
   const kept = { limits: [five(40)], at: NOW - 1000 }
-  const left = mergeReading({ rateLimits: [], changed: ['rateLimits'] }, { rateLimits: [five(40)] }, kept, NOW)
+  const left = mergeReading({ rateLimits: [], changed: ['rateLimits'] }, { rateLimits: [] }, kept, NOW)
   expect(left).toMatchObject({ limits: [], limitsFrom: 'none', hasLeft: true })
+  expect(mergeReading({ rateLimits: [], changed: ['rateLimits'] }, null, kept, NOW)).toMatchObject({ limitsFrom: 'none', hasLeft: true })
+  expect(mergeReading({ rateLimits: [], changed: ['rateLimits'] }, { rateLimits: [five(40)] }, kept, NOW)).toMatchObject({ limitsFrom: 'poll', hasLeft: false })
   expect(keepLimits(kept, left, NOW)).toBe(null)
   expect(mergeReading({ rateLimits: [], changed: ['context'] }, null, kept, NOW)).toMatchObject({ limitsFrom: 'kept', hasLeft: false })
 })
@@ -156,7 +158,7 @@ test('an empty list the engine names as changed means the windows left', () => {
 
 **Interfaces:**
 - Consumes: `mergeReading`, `keepLimits`, `Figures`, `Reading` from Task 2; `probe.sent`, `probe.polled` from Task 1.
-- Produces: the atom `limitsKept` (`atom({ plugin: 'crab-buddy', key: 'limitsKept' } as const, null)`, value `KeptLimits`); `async function takeReading($: EngineInterface, sent?: Figures): Promise<Reading>` in `hooks/register.tsx`, which polls once, merges, stores what `keepLimits` returns and fills `probe`. `refreshContext($, sent?: Figures, isCountDue?: boolean)` now takes the whole event. Task 5 calls `takeReading`.
+- Produces: the atom `limitsKept` (`atom({ plugin: 'crab-buddy', key: 'limitsKept' } as const, null)`, value `KeptLimits`); `async function takeReading($: EngineInterface, sent?: Figures): Promise<Reading>` in `hooks/register.tsx`, which polls once, merges, stores what `keepLimits` returns and fills `probe` (`probe.polled` always; `probe.sent` only when `sent` is given, so a call without an event leaves the last event's record standing). `refreshContext($, sent?: Figures, isCountDue?: boolean)` now takes the whole event. Task 5 calls `takeReading`.
 
 - [ ] **Step 1: Write the failing tests** in `hooks/signals.test.tsx`. Copy the `engine`, `start`, `crab` and `BAND` helpers from `hooks/tide.test.tsx:11-64`, with two changes: the fake poll takes `poll: 'full' | 'empty' | 'throws'` (`'empty'`: `{ startedAt, context: { window }, rateLimits: [] }`; `'throws'`: the hook throws), and `measure($, figures, changed = ['context'])` sends `{ ...figures, changed }`. Add `const band = async ($) => String((await (await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props } })).find({ type: 'Svg' }))?.props.source ?? '')`. Tests:
 
@@ -211,9 +213,9 @@ test('on API billing a cost that only the event carries fills the budget hourgla
 - Test: `hooks/assist.test.tsx` (beside the hourglass tests from `:403`), `hooks/crab.test.tsx:3704-3712` (the `/crab what` test)
 
 **Interfaces:**
-- Produces: `export const noHourglass = (i: { isOff: boolean; hasLimits: boolean; budgetUsd: number }): string | null` in `hooks/usage.ts`, returning exactly `'switched off (/crab hourglass on)'`, `'no usage limit reported yet'`, `'API billing and no budget set (budgetUsd)'` or `null` when an hourglass stands. `'no usage limit reported yet'` is the answer while `hasLimits` is false and `budgetUsd` is 0 and no reading has arrived; `'API billing and no budget set (budgetUsd)'` once a reading arrived with a cost and no limits.
+- Produces: `export const noHourglass = (i: { isOff: boolean; hasLimits: boolean; budgetUsd: number; hasCost: boolean }): string | null` in `hooks/usage.ts`. In this order: `isOff`: `'switched off (/crab hourglass on)'`; `hasLimits`, or `budgetUsd > 0 && hasCost`: `null` (an hourglass stands); `hasCost` (a cost is known, no limit window is, no budget is set): `'no usage limit reported, as on API billing (budgetUsd sets a budget to count down)'`; else `'no usage limit reported yet'`. The third string does not claim API billing: a subscription whose limits never arrive looks the same from here, which is the bug this plan is about.
 
-- [ ] **Step 1: Write the failing tests.** Pure, in `hooks/assist.test.tsx`: the four return values above. In `hooks/crab.test.tsx`, in the `/crab what` test, with no limits and no budget: `expect(quiet).toContain('No hourglass: no usage limit reported yet.')`.
+- [ ] **Step 1: Write the failing tests.** Pure, in `hooks/assist.test.tsx`: the four return values above, one assertion per branch, and `budgetUsd: 10` with `hasCost: false` giving `'no usage limit reported yet'`. In `hooks/crab.test.tsx`, in the `/crab what` test, with no limits and no budget: `expect(quiet).toContain('No hourglass: no usage limit reported yet.')`.
 - [ ] **Step 2: Run `claude plugin test .`** Expected: both fail.
 - [ ] **Step 3: Implement.** `legend.ts` gains `noHourglass?: string | null` on its input and the line `No hourglass: ${why}.` when set. `debugText` uses the same function for the line Task 1 added.
 - [ ] **Step 4: Run `claude plugin test .` and `scripts/validate.sh`.** Expected: 0 fail, "No type errors."
@@ -262,7 +264,7 @@ test('a sea that goes by the local count still lights the fire when it grows', a
 
   `poll: 'counted'` answers the plain call with no size and the `breakdown: 'summary'` call with `totalTokens: ctx.counted`, as `hooks/tide.test.tsx:40-45` does. Read the exact `/crab cache` wording from `cacheText` (`hooks/cache.ts:120-166`) and pin it instead of the regex.
 - [ ] **Step 2: Run `claude plugin test .`** Expected: the three fail.
-- [ ] **Step 3: Implement.** `cacheTtl` takes its limits from `(await takeReading($)).limits`. `refreshUsage` ends by applying `retimed` to the `cache` atom and, when it changed, calling `keepCache` and `tendFire`. In `session.measure`, `hasGrown` drops its two `!isCounted` terms.
+- [ ] **Step 3: Implement.** `cacheTtl($, limits?: readonly Limit[])` uses the limits it is given, else `(await takeReading($)).limits`. `refreshUsage` receives the reading's limits already: it ends by applying `retimed(cache, await cacheTtl($, limits), now)` to the `cache` atom and, when the result is another object, calling `keepCache` and `tendFire`. It never calls `takeReading` itself (that would poll again inside a poll). In `session.measure`, `hasGrown` drops its two `!isCounted` terms.
 - [ ] **Step 4: Run `claude plugin test .` and `scripts/validate.sh`.** Expected: 0 fail, "No type errors."
 - [ ] **Step 5: Commit.** `git commit -am "The campfire knows a subscription late, and lights from a counted sea"`
 
