@@ -117,7 +117,21 @@ const sizeOf = (n: unknown): number | null => (typeof n === 'number' && Number.i
 /** What each source last said about the context, for /crab debug. */
 /** When the turn and measurement hooks last came, for /crab debug. */
 const seen = { turnStart: 0, turnComplete: 0, measure: 0 }
-const probe = { event: null as number | null, usage: null as number | null, counted: null as number | null, countedAt: -Infinity, window: 0, used: 'none' }
+/** What a source carried: whether it had a size (and which), the kinds of limit windows, whether a cost, and for the poll whether the last summary had a breakdown. */
+type Carried = { tokens: boolean; size: number | null; limits: string[]; cost: boolean; breakdown?: boolean }
+const probe = {
+  event: null as number | null, usage: null as number | null, counted: null as number | null, countedAt: -Infinity, window: 0, used: 'none',
+  /** The last measurement event, and the last plain poll ('failed': it threw). */
+  sent: null as Carried | null, polled: null as Carried | null | 'failed',
+}
+/** The limit kinds and cost a source carried, read through a cast: older engines' types may lack them. */
+function carriedOf(size: number | null, source: { rateLimits?: { kind?: string }[]; cost?: unknown } | undefined): Carried {
+  return { tokens: size !== null, size, limits: (source?.rateLimits ?? []).map(l => String(l.kind)), cost: !!source?.cost }
+}
+/** Whether the latest summary call returned a breakdown, kept on the last poll's record too. */
+function noteBreakdown(has: boolean): void {
+  if (probe.polled && probe.polled !== 'failed') probe.polled.breakdown = has
+}
 /** The engine compacts a conversation this big left idle for about 54 minutes. */
 const IDLE_MARK = 200_000
 /** The engine won't let its minimum go lower than this. */
@@ -502,6 +516,16 @@ async function feedbackText($: EngineInterface): Promise<string> {
 const clockAt = (at: number, now: number): string => (at > 0 ? `${fmtDuration(now - at)} ago` : 'never')
 const tokensOr = (n: number | null): string => (n === null ? 'none' : fmtTokens(n))
 
+const carriedWords = (c: Carried): string =>
+  [c.size !== null ? `size ${fmtTokens(c.size)}` : 'no size', c.limits.length ? `limits ${c.limits.join(', ')}` : 'no limits', c.cost ? 'cost' : 'no cost'].join(', ')
+
+/** The hourglass block's first line for /crab debug: the reading in words, or why there is none. */
+async function hourglassWords($: EngineInterface, now: number): Promise<string> {
+  if (await read($, isHourglassOff)) return 'switched off'
+  const used = await read($, usage)
+  return used ? usageStat(used, now) : 'no usage limit reported yet'
+}
+
 /**
  * What /crab debug says: where the sea and the campfire get what they show, source by source, so a report
  * from a surface the author can't run says which one is missing. Read only, and nothing is sent.
@@ -522,9 +546,15 @@ async function debugText($: EngineInterface): Promise<string> {
     '',
     'The sea (the context):',
     `  last measurement: ${tokensOr(probe.event)}, plain usage: ${plain ? tokensOr(sizeOf(plain.context.tokens)) : 'unavailable'} of a ${fmtTokens(plain?.context.window ?? probe.window)} window, local count: ${tokensOr(counted)}`,
+    `  measurement carried: ${probe.sent ? carriedWords(probe.sent) : 'nothing yet'}`,
+    `  poll answered: ${probe.polled === 'failed' ? 'failed' : probe.polled ? `${carriedWords(probe.polled)}, ${probe.polled.breakdown ? 'a breakdown' : 'no breakdown'}` : 'nothing yet'}`,
     `  going by: ${probe.used}${water ? `, ${fmtTokens(water.tokens)}${water.isCounted ? ' (counted)' : ''}` : ', nothing yet'}`,
     `  compacts at: ${lines ? fmtTokens(lines.full) : 'not read yet'}, mark: ${water?.mark ? fmtTokens(water.mark) : 'none'}${plain && !plain.rateLimits.length ? ' (no plan limits seen)' : ''}`,
     `  level: ${water ? water.level.toFixed(2) : 'none'}, shoreline at ${Math.round(100 * shoreAt(water?.level ?? null, now))}% now, ${Math.round(100 * (seg?.shore ?? NO_CONTEXT_SHORE))}% as drawn`,
+    '',
+    'The hourglass (the usage limit):',
+    `  ${await hourglassWords($, now)}`,
+    `  limits known from: ${probe.polled && probe.polled !== 'failed' && probe.polled.limits.length ? 'poll' : 'none'}`,
     '',
     'The campfire (the prompt cache):',
     `  ${c ? `${fire ?? 'gone'}, fed ${clockAt(c.at, now)}, ${Math.round(c.ttlMs / 60_000)} min cache (${c.why})` : 'not lit yet'}${(await read($, isCacheOff)) ? ', switched off' : ''}`,
@@ -1061,6 +1091,7 @@ async function linesFor($: EngineInterface, window: number): Promise<NonNullable
   if (known?.window === window && (!known.isGuessed || isTriedLately)) return known
   linesTriedAt = now
   const counted = (await $.session.usage({ breakdown: 'summary' }).catch(() => null))?.context.breakdown
+  noteBreakdown(!!counted)
   const isIdleOff = counted?.isAutoCompactEnabled === false || (await $.settings.read({ key: 'idleCompaction' }).catch(() => undefined)) === false
   const minimum = Number(await $.env.get('CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS').catch(() => undefined))
   const lines: NonNullable<TideLines> = { window, full: counted?.autoCompactThreshold ?? window, idleMark: isIdleOff ? null : minimum > 0 ? Math.max(IDLE_FLOOR, minimum) : IDLE_MARK, ...(counted ? {} : { isGuessed: true }) }
@@ -1227,7 +1258,11 @@ async function nudgeCooling($: EngineInterface, c: NonNullable<Cache>, now: numb
 // and the local count, made on this machine and sending nothing, still has it.
 async function refreshContext($: EngineInterface, sent?: SentContext, isCountDue = false): Promise<void> {
   const usage = await $.session.usage().catch(() => null)
-  if (!usage) return
+  if (!usage) {
+    probe.polled = 'failed'
+    return
+  }
+  probe.polled = { ...carriedOf(sizeOf(usage.context.tokens), usage as { rateLimits?: { kind?: string }[]; cost?: unknown }), breakdown: probe.polled && probe.polled !== 'failed' ? probe.polled.breakdown : undefined }
   await refreshUsage($, usage.rateLimits, usage.cost?.usd)
   await refreshSpend($, usage.rateLimits, usage.cost?.usd)
   const now = await $.clock.now()
@@ -1268,7 +1303,9 @@ async function refreshContext($: EngineInterface, sent?: SentContext, isCountDue
 
 /** The local count of the conversation's tokens, or null. Made on this machine; it sends nothing. */
 async function localCount($: EngineInterface): Promise<number | null> {
-  const counted = sizeOf((await $.session.usage({ breakdown: 'summary' }).catch(() => null))?.context.breakdown?.totalTokens)
+  const breakdown = (await $.session.usage({ breakdown: 'summary' }).catch(() => null))?.context.breakdown
+  noteBreakdown(!!breakdown)
+  const counted = sizeOf(breakdown?.totalTokens)
   probe.counted = counted
   return counted
 }
@@ -2137,6 +2174,7 @@ export const register: Register = (on, options) => {
   // Fires during a turn too, so a long turn raises the tide, and the sea moves with it at once.
   on('session.measure', async ($, e, next) => {
     seen.measure = await $.clock.now()
+    probe.sent = carriedOf(sizeOf((e as { context?: SentContext }).context?.tokens), e as { rateLimits?: { kind?: string }[]; cost?: unknown })
     // The context moved: a reply came. A limit window ticking on, with nobody here, is no sign of life.
     if (e.changed?.includes('context')) stirredAt = seen.measure
     const before = await read($, tide)

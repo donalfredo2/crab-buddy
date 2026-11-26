@@ -408,6 +408,15 @@ test('/crab debug says which source the sea goes by, and sends nothing', async (
   expect(text).toMatch(/compacts at: 967k, mark: 200k/)
   expect(text).toMatch(/campfire[\s\S]*not lit yet/)
   expect(text).toContain('Nothing is sent from this command.')
+
+  // A measurement that carries limits and a cost, while the plain poll carries neither.
+  ctx.isOnPlan = false
+  await $.session.measure({ context: { window: ctx.window }, rateLimits: [{ kind: 'five_hour', percentUsed: 18 }], cost: { usd: 1.2 }, changed: ['context'] } as never)
+  const text2 = String(((await crab($, 'debug')) as { text?: string }).text)
+  expect(text2).toContain('measurement carried: no size, limits five_hour, cost')
+  expect(text2).toContain('poll answered: no size, no limits, no cost, a breakdown')
+  expect(text2).toContain('The hourglass (the usage limit):')
+  expect(text2).toContain('Nothing is sent from this command.')
 })
 
 // The line where the engine compacts comes from the summary. When that could not be read, the whole window stood
