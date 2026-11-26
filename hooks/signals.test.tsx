@@ -177,3 +177,71 @@ test('a sea that goes by the local count still lights the fire when it grows', a
   await measure($, { context: { window: 200_000 }, rateLimits: [] })
   expect(await band($)).toContain('class="cfire"')
 })
+
+test('/crab debug says where the limits last came from once a turn has ended', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on, { poll: 'empty' })
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  await measure($, EVENT)
+  await $.turn.complete(TURN)
+  const text = (await crab($, 'debug')).text
+  expect(text).toContain('limits known from: kept (last came with a measurement,')
+  expect(text).not.toContain('(no plan limits seen)')
+  expect(text).not.toContain('last measurement: none')
+})
+
+test('/crab debug counts the limit windows it could not read', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on, { poll: 'empty' })
+  await start($)
+  await measure($, { ...EVENT, rateLimits: [...PLAN, { kind: 5, used: 'half' }] })
+  expect((await crab($, 'debug')).text).toContain('limits five_hour (1 not understood)')
+  await measure($, { ...EVENT, rateLimits: [{ name: 'five_hour' }, null] })
+  expect((await crab($, 'debug')).text).toContain('no limits (2 not understood)')
+})
+
+test('a budget hourglass stands through a reading with no cost, and its 80% mark comes once', { options: { budgetUsd: 10 } }, async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  const toasts = engine(on, { poll: 'throws' })
+  await start($)
+  // With signs off a mark is a toast, which the test can count.
+  await crab($, 'signs off')
+  const at82 = { context: { tokens: 10_000, window: 200_000 }, rateLimits: [], cost: { usd: 8.2 } }
+  await measure($, at82)
+  expect(await band($)).toContain('class="hourglass"')
+  await $.turn.complete(TURN)
+  expect(await band($)).toContain('class="hourglass"')
+  await measure($, at82)
+  expect(await band($)).toContain('class="hourglass"')
+  expect(toasts.filter(t => t.startsWith('Budget at'))).toHaveLength(1)
+})
+
+test('a budget hourglass ends with its conversation', { options: { budgetUsd: 10 } }, async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on, { poll: 'throws' })
+  await start($)
+  await measure($, { context: { tokens: 10_000, window: 200_000 }, rateLimits: [], cost: { usd: 8.5 } })
+  expect(await band($)).toContain('class="hourglass"')
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } } as never)
+  await clock.advance(5000)
+  await measure($, { context: { window: 200_000 }, rateLimits: [] })
+  expect(await band($)).not.toContain('class="hourglass"')
+  const what = (await crab($, 'what')).text
+  expect(what.split('\n').some(l => l.startsWith('The hourglass on the home shell'))).toBe(false)
+})
+
+test('with a poll that throws, a turn\'s end after a measurement with plan limits lights the hour-long fire', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on, { poll: 'throws' })
+  await start($)
+  await measure($, EVENT)
+  await $.turn.complete(TURN)
+  expect(await band($)).toContain('class="cfire"')
+  expect((await crab($, 'cache')).text).toContain('A one-hour cache: a subscription within its usage limits gets an hour.')
+})

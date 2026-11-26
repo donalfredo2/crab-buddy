@@ -5,10 +5,10 @@
 export const VERSION = '0.29.1'
 
 /** On the plank, after "new: ": 17 characters at most, so the whole sign fits. */
-export const NEWS = 'try /crab debug'
+export const NEWS = 'bigger hourglass'
 
 /** The longer line, in /crab help. */
-export const NEWS_LONG = 'New in 0.29.1: the hourglass is bigger and stays through a reading without limits, the campfire lasts its hour on a subscription that shows itself late, the sea, hourglass and cost take what each measurement carries, and /crab what and /crab debug say why a sign is missing.'
+export const NEWS_LONG = 'New in 0.29.1: the hourglass is bigger and stays through a reading without limits, the campfire lasts its hour on a subscription that shows itself late, the sea, hourglass and cost take what each measurement carries. /crab what says why there is no hourglass, and /crab debug says what each source carried.'
 
 export const REPO = 'https://github.com/donalfredo2/crab-buddy'
 

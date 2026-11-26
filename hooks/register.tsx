@@ -116,32 +116,40 @@ const EBB_TRIES = 5
 /** With no size in the plain usage, the local count is made at most this often, outside turn ends. */
 const COUNT_EVERY_MS = 20_000
 const sizeOf = (n: unknown): number | null => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null)
-/** What each source last said about the context, for /crab debug. */
 /** When the turn and measurement hooks last came, for /crab debug. */
 const seen = { turnStart: 0, turnComplete: 0, measure: 0 }
-/** What a source carried: whether it had a size (and which), the kinds of limit windows, whether a cost, and for the poll whether the last summary had a breakdown. */
-type Carried = { tokens: boolean; size: number | null; limits: string[]; cost: boolean; breakdown?: boolean }
+/** What a source carried: whether it had a size (and which), the kinds of limit windows, how many windows it sent that could not be read, whether a cost, and for the poll whether the last summary had a breakdown. */
+type Carried = { tokens: boolean; size: number | null; limits: string[]; unread: number; cost: boolean; breakdown?: boolean }
+/** What each source last said about the context, for /crab debug. */
 const probe = {
   event: null as number | null, usage: null as number | null, counted: null as number | null, countedAt: -Infinity, window: 0, used: 'none',
   /** The last measurement event, and the last plain poll ('failed': it threw). */
   sent: null as Carried | null, polled: null as Carried | null | 'failed',
   /** Where the last reading's limit windows came from. */
   limitsFrom: 'none' as Source,
+  /** Where and when limit windows last actually arrived; null before any did, and once they have left. */
+  limitsCame: null as { from: 'event' | 'poll'; at: number } | null,
 }
+/** The figures of one source, with how many of the limit windows it sent were not ones and were dropped. */
+type Received = Figures & { unread?: number }
 /** The limit kinds and cost a source carried, read through a cast: older engines' types may lack them. */
-function carriedOf(size: number | null, source: { rateLimits?: readonly { kind?: string }[]; cost?: unknown } | undefined): Carried {
-  return { tokens: size !== null, size, limits: (source?.rateLimits ?? []).map(l => String(l.kind)), cost: !!source?.cost }
+function carriedOf(size: number | null, source: Received | undefined): Carried {
+  return { tokens: size !== null, size, limits: (source?.rateLimits ?? []).map(l => String(l.kind)), unread: source?.unread ?? 0, cost: !!source?.cost }
 }
 const isLimit = (l: unknown): l is Limit => !!l && typeof l === 'object' && typeof (l as Limit).kind === 'string' && Number.isFinite((l as Limit).percentUsed)
 /**
  * The figures an event or a poll carries, read through a cast: older engines' types may lack the limits and
- * the cost, and nothing is typed at run time. A limit window that is not one (no kind, no percent) is dropped.
+ * the cost, and nothing is typed at run time. A limit window that is not one (no kind, no percent) is dropped,
+ * and counted, so /crab debug can say a surface sent windows in a shape this does not read.
  */
-function figuresOf(source: unknown): Figures {
+function figuresOf(source: unknown): Received {
   const f = (source ?? {}) as { context?: Figures['context']; rateLimits?: unknown; cost?: Figures['cost']; changed?: unknown }
+  const sentLimits: unknown[] | undefined = Array.isArray(f.rateLimits) ? f.rateLimits : undefined
+  const rateLimits = sentLimits?.filter(isLimit)
   return {
     context: f.context,
-    rateLimits: Array.isArray(f.rateLimits) ? f.rateLimits.filter(isLimit) : undefined,
+    rateLimits,
+    unread: sentLimits && rateLimits ? sentLimits.length - rateLimits.length : 0,
     cost: f.cost,
     changed: Array.isArray(f.changed) ? f.changed : undefined,
   }
@@ -535,9 +543,19 @@ const clockAt = (at: number, now: number): string => (at > 0 ? `${fmtDuration(no
 const tokensOr = (n: number | null): string => (n === null ? 'none' : fmtTokens(n))
 
 const carriedWords = (c: Carried): string =>
-  [c.size !== null ? `size ${fmtTokens(c.size)}` : 'no size', c.limits.length ? `limits ${c.limits.join(', ')}` : 'no limits', c.cost ? 'cost' : 'no cost'].join(', ')
+  [
+    c.size !== null ? `size ${fmtTokens(c.size)}` : 'no size',
+    `${c.limits.length ? `limits ${c.limits.join(', ')}` : 'no limits'}${c.unread ? ` (${c.unread} not understood)` : ''}`,
+    c.cost ? 'cost' : 'no cost',
+  ].join(', ')
 
-/** The hourglass block's first line for /crab debug: the reading in words, or why there is none. */
+/** Where the last reading's limit windows came from, and for kept ones where and when they last arrived. */
+function limitsFromWords(now: number): string {
+  const came = probe.limitsCame
+  if (probe.limitsFrom !== 'kept' || !came) return probe.limitsFrom
+  return `kept (last came with ${came.from === 'event' ? 'a measurement' : 'a poll'}, ${clockAt(came.at, now)})`
+}
+
 /** Why there is no hourglass, or null when one stands; the same words for /crab what and /crab debug. */
 async function hourglassWhy($: EngineInterface): Promise<string | null> {
   const used = await read($, usage)
@@ -549,6 +567,7 @@ async function hourglassWhy($: EngineInterface): Promise<string | null> {
   })
 }
 
+/** The hourglass block's first line for /crab debug: the reading in words, or why there is none. */
 async function hourglassWords($: EngineInterface, now: number): Promise<string> {
   const why = await hourglassWhy($)
   const used = await read($, usage)
@@ -562,6 +581,8 @@ async function hourglassWords($: EngineInterface, now: number): Promise<string> 
 async function debugText($: EngineInterface): Promise<string> {
   const now = await $.clock.now()
   const plain = await $.session.usage().catch(() => null)
+  // The answer is untyped at run time: a window only when the poll itself has one.
+  const pollWindow = sizeOf(plain?.context?.window) || 0
   const counted = await localCount($)
   const water = await read($, tide)
   const lines = await read($, tideLines)
@@ -574,16 +595,16 @@ async function debugText($: EngineInterface): Promise<string> {
     `crab-buddy ${VERSION} on ${lastBand?.surface ?? 'no strip drawn yet'}, strip ${lastWidth} px, VS Code pulse ${pulseCfg.mode} ${pulseCfg.fps}`,
     '',
     'The sea (the context):',
-    `  last measurement: ${tokensOr(probe.event)}, plain usage: ${plain ? tokensOr(sizeOf(plain.context.tokens)) : 'unavailable'} of a ${fmtTokens(plain?.context.window ?? probe.window)} window, local count: ${tokensOr(counted)}`,
+    `  last measurement: ${tokensOr(probe.event)}, plain usage: ${plain ? `${tokensOr(sizeOf(plain?.context?.tokens))}${pollWindow ? ` of a ${fmtTokens(pollWindow)} window` : ', window not in the poll'}` : 'unavailable'}, local count: ${tokensOr(counted)}`,
     `  measurement carried: ${probe.sent ? carriedWords(probe.sent) : 'nothing yet'}`,
     `  poll answered: ${probe.polled === 'failed' ? 'failed' : probe.polled ? `${carriedWords(probe.polled)}, ${probe.polled.breakdown ? 'a breakdown' : 'no breakdown'}` : 'nothing yet'}`,
     `  going by: ${probe.used}${water ? `, ${fmtTokens(water.tokens)}${water.isCounted ? ' (counted)' : ''}` : ', nothing yet'}`,
-    `  compacts at: ${lines ? fmtTokens(lines.full) : 'not read yet'}, mark: ${water?.mark ? fmtTokens(water.mark) : 'none'}${plain && !plain.rateLimits.length ? ' (no plan limits seen)' : ''}`,
+    `  compacts at: ${lines ? fmtTokens(lines.full) : 'not read yet'}, mark: ${water?.mark ? fmtTokens(water.mark) : 'none'}${probe.limitsFrom === 'none' ? ' (no plan limits seen)' : ''}`,
     `  level: ${water ? water.level.toFixed(2) : 'none'}, shoreline at ${Math.round(100 * shoreAt(water?.level ?? null, now))}% now, ${Math.round(100 * (seg?.shore ?? NO_CONTEXT_SHORE))}% as drawn`,
     '',
     'The hourglass (the usage limit):',
     `  ${await hourglassWords($, now)}`,
-    `  limits known from: ${probe.limitsFrom}`,
+    `  limits known from: ${limitsFromWords(now)}`,
     '',
     'The campfire (the prompt cache):',
     `  ${c ? `${fire ?? 'gone'}, fed ${clockAt(c.at, now)}, ${Math.round(c.ttlMs / 60_000)} min cache (${c.why})` : 'not lit yet'}${(await read($, isCacheOff)) ? ', switched off' : ''}`,
@@ -1307,7 +1328,7 @@ async function nudgeCooling($: EngineInterface, c: NonNullable<Cache>, now: numb
  * record for /crab debug is always new; the event's only when an event came, so a reading without one
  * leaves the last event's record standing.
  */
-async function takeReading($: EngineInterface, sent?: Figures): Promise<Reading> {
+async function takeReading($: EngineInterface, sent?: Received): Promise<Reading> {
   const answer = await $.session.usage().catch(() => null)
   const polled = answer ? figuresOf(answer) : null
   const now = await $.clock.now()
@@ -1318,6 +1339,9 @@ async function takeReading($: EngineInterface, sent?: Figures): Promise<Reading>
   probe.polled = polled ? { ...carriedOf(sizeOf(polled.context?.tokens), polled), breakdown: probe.polled && probe.polled !== 'failed' ? probe.polled.breakdown : undefined } : 'failed'
   if (sent) probe.sent = carriedOf(sizeOf(sent.context?.tokens), sent)
   probe.limitsFrom = reading.limitsFrom
+  // Where windows last actually arrived: a reading that only kept them leaves this as it was.
+  if (reading.hasLeft) probe.limitsCame = null
+  else if (reading.limitsFrom === 'event' || reading.limitsFrom === 'poll') probe.limitsCame = { from: reading.limitsFrom, at: now }
   return reading
 }
 
@@ -1326,15 +1350,16 @@ async function takeReading($: EngineInterface, sent?: Figures): Promise<Reading>
 // then the local count. Some surfaces (VS Code among them) can leave the plain size out for a whole session,
 // and the local count, made on this machine and sending nothing, still has it. Where the poll answers
 // nothing at all, the event's figures still move the hourglass and the spend, and the sea too.
-async function refreshContext($: EngineInterface, sent?: Figures, isCountDue = false): Promise<void> {
+async function refreshContext($: EngineInterface, sent?: Received, isCountDue = false): Promise<void> {
   const reading = await takeReading($, sent)
-  // A reading without the cost leaves a budget hourglass where it stood: the money went uncounted, not back.
-  const standing = await read($, usage)
-  await refreshUsage($, reading.limits, reading.usd ?? (standing?.kind === 'budget' ? standing.usd : undefined))
+  // A reading without the cost goes by the last cost seen: the money went uncounted, not back. A new
+  // conversation (/clear) forgets that cost, and its budget hourglass goes with it.
+  await refreshUsage($, reading.limits, reading.usd ?? (await read($, spend)).usd ?? undefined)
   await refreshSpend($, reading.limits, reading.usd)
   const now = await $.clock.now()
   const fromEvent = reading.tokensFrom === 'event' ? reading.tokens : null
-  probe.event = fromEvent
+  // What the last measurement carried: a reading with no event leaves it standing.
+  if (sent) probe.event = fromEvent
   probe.usage = probe.polled && probe.polled !== 'failed' ? probe.polled.size : null
   // The window the reading names, else the last one known.
   if (reading.window !== null) probe.window = reading.window
@@ -2251,7 +2276,8 @@ export const register: Register = (on, options) => {
     const after = await read($, tide)
     // A reply in the main conversation changes its context: the cache was just used. A context that grew
     // between turns says the same, where a surface reports its turns late or not at all.
-    const hasGrown = !!before && !!after && after.tokens > before.tokens
+    // Two sizes from the same source only: a count made here and a measured size differ by the estimate alone.
+    const hasGrown = !!before && !!after && !!before.isCounted === !!after.isCounted && after.tokens > before.tokens
     if (e.changed?.includes('context') && (isTurnRunning || hasGrown)) await feedFire($)
     return next(e)
   })
