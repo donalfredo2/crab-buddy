@@ -70,6 +70,8 @@ const needsYou = atom({ plugin: 'crab-buddy', key: 'needsYou' } as const, null)
 const areNeedsOff = atom({ plugin: 'crab-buddy', key: 'areNeedsOff' } as const, false)
 const areTipsOff = atom({ plugin: 'crab-buddy', key: 'areTipsOff' } as const, false)
 const usage = atom({ plugin: 'crab-buddy', key: 'usage' } as const, null)
+/** The limit windows last seen, so one reading without them does not take the hourglass away. */
+const limitsKept = atom({ plugin: 'crab-buddy', key: 'limitsKept' } as const, null)
 const isHourglassOff = atom({ plugin: 'crab-buddy', key: 'isHourglassOff' } as const, false)
 const spend = atom({ plugin: 'crab-buddy', key: 'spend' } as const, EMPTY_SPEND)
 const isSpendOff = atom({ plugin: 'crab-buddy', key: 'isSpendOff' } as const, false)
@@ -82,6 +84,8 @@ const circles = atom({ plugin: 'crab-buddy', key: 'circles' } as const, NO_CIRCL
 const savvyFlow = { plugin: 'savvy-progress', key: 'flow' } as const
 import { nextUsage, usageMark, usageSign, usageStat } from './usage'
 import { EMPTY_SPEND, addTurn, measureSpend, nextMilestone, spendDetail, spendSign, spendStat } from './spend'
+import { keepLimits, mergeReading } from './reading'
+import type { Figures, Limit, Reading, Source } from './reading'
 import { ASHES_MS, TTL_1H, cacheDetail, cacheStat, coldAt, fireOf, inWords, keepFire, nextChangeAt, relit, rewriteText, shouldNudge, shouldTipCold, ttlOf } from './cache'
 import { ALERTS, WAIT_ALERT_MS, addWait, alertOf, alertText, flagWords, waitStat, waitedWords } from './wait'
 import type { AlertMode } from './wait'
@@ -111,8 +115,6 @@ const EBB_MS = 200
 const EBB_TRIES = 5
 /** With no size in the plain usage, the local count is made at most this often, outside turn ends. */
 const COUNT_EVERY_MS = 20_000
-/** The context a measurement carries with it, when it does. */
-type SentContext = { tokens?: number; window?: number } | undefined
 const sizeOf = (n: unknown): number | null => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null)
 /** What each source last said about the context, for /crab debug. */
 /** When the turn and measurement hooks last came, for /crab debug. */
@@ -123,10 +125,26 @@ const probe = {
   event: null as number | null, usage: null as number | null, counted: null as number | null, countedAt: -Infinity, window: 0, used: 'none',
   /** The last measurement event, and the last plain poll ('failed': it threw). */
   sent: null as Carried | null, polled: null as Carried | null | 'failed',
+  /** Where the last reading's limit windows came from. */
+  limitsFrom: 'none' as Source,
 }
 /** The limit kinds and cost a source carried, read through a cast: older engines' types may lack them. */
-function carriedOf(size: number | null, source: { rateLimits?: { kind?: string }[]; cost?: unknown } | undefined): Carried {
+function carriedOf(size: number | null, source: { rateLimits?: readonly { kind?: string }[]; cost?: unknown } | undefined): Carried {
   return { tokens: size !== null, size, limits: (source?.rateLimits ?? []).map(l => String(l.kind)), cost: !!source?.cost }
+}
+const isLimit = (l: unknown): l is Limit => !!l && typeof l === 'object' && typeof (l as Limit).kind === 'string' && Number.isFinite((l as Limit).percentUsed)
+/**
+ * The figures an event or a poll carries, read through a cast: older engines' types may lack the limits and
+ * the cost, and nothing is typed at run time. A limit window that is not one (no kind, no percent) is dropped.
+ */
+function figuresOf(source: unknown): Figures {
+  const f = (source ?? {}) as { context?: Figures['context']; rateLimits?: unknown; cost?: Figures['cost']; changed?: unknown }
+  return {
+    context: f.context,
+    rateLimits: Array.isArray(f.rateLimits) ? f.rateLimits.filter(isLimit) : undefined,
+    cost: f.cost,
+    changed: Array.isArray(f.changed) ? f.changed : undefined,
+  }
 }
 /** Whether the latest summary call returned a breakdown, kept on the last poll's record too. */
 function noteBreakdown(has: boolean): void {
@@ -554,7 +572,7 @@ async function debugText($: EngineInterface): Promise<string> {
     '',
     'The hourglass (the usage limit):',
     `  ${await hourglassWords($, now)}`,
-    `  limits known from: ${probe.polled && probe.polled !== 'failed' && probe.polled.limits.length ? 'poll' : 'none'}`,
+    `  limits known from: ${probe.limitsFrom}`,
     '',
     'The campfire (the prompt cache):',
     `  ${c ? `${fire ?? 'gone'}, fed ${clockAt(c.at, now)}, ${Math.round(c.ttlMs / 60_000)} min cache (${c.why})` : 'not lit yet'}${(await read($, isCacheOff)) ? ', switched off' : ''}`,
@@ -1252,27 +1270,44 @@ async function nudgeCooling($: EngineInterface, c: NonNullable<Cache>, now: numb
   $.ui.toast(`Prompt cache cools ${inWords(left)}: a prompt after that writes ${rewriteText(c, (await read($, spend)).isEstimate)} to the cache again. /crab cache has the details.`)
 }
 
+/**
+ * One reading of the figures: the poll asked once, merged with the event's figures when there are some and
+ * with the limit windows kept from earlier. What is kept is stored again only when it changed. The poll's
+ * record for /crab debug is always new; the event's only when an event came, so a reading without one
+ * leaves the last event's record standing.
+ */
+async function takeReading($: EngineInterface, sent?: Figures): Promise<Reading> {
+  const answer = await $.session.usage().catch(() => null)
+  const polled = answer ? figuresOf(answer) : null
+  const now = await $.clock.now()
+  const kept = await read($, limitsKept)
+  const reading = mergeReading(sent, polled, kept, now)
+  const keep = keepLimits(kept, reading, now)
+  if (JSON.stringify(keep) !== JSON.stringify(kept)) await update($, limitsKept, () => keep)
+  probe.polled = polled ? { ...carriedOf(sizeOf(polled.context?.tokens), polled), breakdown: probe.polled && probe.polled !== 'failed' ? probe.polled.breakdown : undefined } : 'failed'
+  if (sent) probe.sent = carriedOf(sizeOf(sent.context?.tokens), sent)
+  probe.limitsFrom = reading.limitsFrom
+  return reading
+}
+
 // The context as a tide; the plain call is free. Warns once per session near the top.
 // The size comes from the first source that has one: the measurement the engine just sent, the plain usage,
 // then the local count. Some surfaces (VS Code among them) can leave the plain size out for a whole session,
-// and the local count, made on this machine and sending nothing, still has it.
-async function refreshContext($: EngineInterface, sent?: SentContext, isCountDue = false): Promise<void> {
-  const usage = await $.session.usage().catch(() => null)
-  if (!usage) {
-    probe.polled = 'failed'
-    return
-  }
-  probe.polled = { ...carriedOf(sizeOf(usage.context.tokens), usage as { rateLimits?: { kind?: string }[]; cost?: unknown }), breakdown: probe.polled && probe.polled !== 'failed' ? probe.polled.breakdown : undefined }
-  await refreshUsage($, usage.rateLimits, usage.cost?.usd)
-  await refreshSpend($, usage.rateLimits, usage.cost?.usd)
+// and the local count, made on this machine and sending nothing, still has it. Where the poll answers
+// nothing at all, the event's figures still move the hourglass and the spend, and the sea too.
+async function refreshContext($: EngineInterface, sent?: Figures, isCountDue = false): Promise<void> {
+  const reading = await takeReading($, sent)
+  // A reading without the cost leaves a budget hourglass where it stood: the money went uncounted, not back.
+  const standing = await read($, usage)
+  await refreshUsage($, reading.limits, reading.usd ?? (standing?.kind === 'budget' ? standing.usd : undefined))
+  await refreshSpend($, reading.limits, reading.usd)
   const now = await $.clock.now()
-  const fromEvent = sizeOf(sent?.tokens)
-  const fromUsage = sizeOf(usage.context.tokens)
+  const fromEvent = reading.tokensFrom === 'event' ? reading.tokens : null
   probe.event = fromEvent
-  probe.usage = fromUsage
-  probe.window = usage.context.window
-  const measured = fromEvent ?? fromUsage
-  let tokens = measured
+  probe.usage = probe.polled && probe.polled !== 'failed' ? probe.polled.size : null
+  // The window the reading names, else the last one known.
+  if (reading.window !== null) probe.window = reading.window
+  let tokens = reading.tokens
   let isCounted = false
   if (tokens === null) {
     // Counting the whole conversation takes a moment: at most every so often, unless a turn just ended.
@@ -1283,10 +1318,12 @@ async function refreshContext($: EngineInterface, sent?: SentContext, isCountDue
     tokens = counted
     isCounted = true
   }
-  const window = sent?.window && sent.window > 0 && fromEvent !== null ? sent.window : usage.context.window
+  // With no window known yet there is nothing to scale the sea by.
+  const window = probe.window
+  if (!window) return
   const lines = await linesFor($, window)
   // Idle compaction needs the one-hour cache. Limit windows are our stand-in for a subscription that has it.
-  const mark = usage.rateLimits.length ? lines.idleMark : null
+  const mark = reading.limits.length ? lines.idleMark : null
   const level = tideOf(tokens, lines.full, mark)
   probe.used = isCounted ? 'local count' : fromEvent !== null ? 'measurement' : 'usage'
   // The level too: the same tokens fill a smaller window further, after /model.
@@ -1295,7 +1332,7 @@ async function refreshContext($: EngineInterface, sent?: SentContext, isCountDue
   await followTide($)
   if (level >= TIDE_WARN && !(await read($, contextWarned))) {
     await update($, contextWarned, () => true)
-    const percent = usage.context.percent ?? (100 * tokens) / Math.max(1, window)
+    const percent = (100 * tokens) / Math.max(1, window)
     if (await read($, areSignsOff)) $.ui.toast(`Context is ${Math.round(percent)}% full. A fresh session soon would help.`)
     else await plantSign($, 'context', CONTEXT_SIGN_MS)
   }
@@ -2174,11 +2211,11 @@ export const register: Register = (on, options) => {
   // Fires during a turn too, so a long turn raises the tide, and the sea moves with it at once.
   on('session.measure', async ($, e, next) => {
     seen.measure = await $.clock.now()
-    probe.sent = carriedOf(sizeOf((e as { context?: SentContext }).context?.tokens), e as { rateLimits?: { kind?: string }[]; cost?: unknown })
     // The context moved: a reply came. A limit window ticking on, with nobody here, is no sign of life.
     if (e.changed?.includes('context')) stirredAt = seen.measure
     const before = await read($, tide)
-    await refreshContext($, (e as { context?: SentContext }).context)
+    // The whole event's figures: on some surfaces the poll answers nothing, and these are all there is.
+    await refreshContext($, figuresOf(e))
     const after = await read($, tide)
     // A reply in the main conversation changes its context: the cache was just used. A context that grew
     // between turns says the same, where a surface reports its turns late or not at all.

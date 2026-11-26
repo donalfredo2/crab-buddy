@@ -260,6 +260,8 @@ declare module 'claude-code' {
       /** No Tab suggestions in the prompt box from the crab. */
       areTipsOff: boolean
       usage: Usage
+      /** The limit windows last seen, kept while they run: one reading without them leaves the hourglass. */
+      limitsKept: { limits: readonly { kind: string; percentUsed: number; resetsAt?: string }[]; at: number } | null
       isHourglassOff: boolean
       spend: Spend
       /** No dollar milestone signs. */
