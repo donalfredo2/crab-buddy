@@ -86,7 +86,7 @@ import { nextUsage, noHourglass, usageMark, usageSign, usageStat } from './usage
 import { EMPTY_SPEND, addTurn, measureSpend, nextMilestone, spendDetail, spendSign, spendStat } from './spend'
 import { keepLimits, mergeReading } from './reading'
 import type { Figures, Limit, Reading, Source } from './reading'
-import { ASHES_MS, TTL_1H, cacheDetail, cacheStat, coldAt, fireOf, inWords, keepFire, nextChangeAt, relit, rewriteText, shouldNudge, shouldTipCold, ttlOf } from './cache'
+import { ASHES_MS, TTL_1H, cacheDetail, cacheStat, coldAt, fireOf, inWords, keepFire, nextChangeAt, relit, retimed, rewriteText, shouldNudge, shouldTipCold, ttlOf } from './cache'
 import { ALERTS, WAIT_ALERT_MS, addWait, alertOf, alertText, flagWords, waitStat, waitedWords } from './wait'
 import type { AlertMode } from './wait'
 import { NO_CIRCLES, afterCheck, afterFail, circlesToast, newTurn } from './circles'
@@ -1158,10 +1158,28 @@ async function refreshUsage($: EngineInterface, limits: readonly { kind: string;
   const next = nextUsage(await read($, usage), limits, usd, cfg.budgetUsd, now)
   const mark = usageMark(next)
   await update($, usage, () => (next && mark !== null ? { ...next, signed: mark } : next))
+  await retimeFire($, limits)
   if (!next || mark === null || (await read($, isHourglassOff))) return
   const words = usageSign(next, now)
   if (await read($, areSignsOff)) $.ui.toast(`${next.kind === 'budget' ? 'Budget' : 'Usage limit'} at ${words}.`)
   else await plantSign($, next.kind, mark >= 95 ? CONTEXT_SIGN_MS : SIGN_MS, words)
+}
+
+/**
+ * A fire lit on five minutes because the limit windows had not come yet (the desktop app and VS Code can send
+ * them late) gets the subscription's hour once they show, counted from when it was lit. Only a fire lit as an
+ * API key's, and only once the windows name a plan, so a session on a real key reads nothing more here.
+ */
+async function retimeFire($: EngineInterface, limits: readonly Limit[]): Promise<void> {
+  const cur = await read($, cache)
+  if (!cur || cur.why !== 'api' || cur.isCompacted || !limits.some(l => l.kind !== 'spend_limit')) return
+  const next = retimed(cur, await cacheTtl($, limits), await $.clock.now())
+  if (next === cur) return
+  // The five-minute life's cooling sign or cold tip is old news for the hour's.
+  if (cur.nudged || cur.coldTipped) await update($, plantedSign, p => (p?.kind === 'cache' || p?.kind === 'cold' ? null : p))
+  await update($, cache, () => next)
+  await keepCache($)
+  await tendFire($)
 }
 
 // What the session costs: Claude Code's dollar total, and a sign at $5, $10, $25, $50, $100, then every 100,
@@ -1179,9 +1197,11 @@ async function refreshSpend($: EngineInterface, limits: readonly { kind: string 
 
 // The prompt cache as a campfire. Each request of the main conversation keeps it warm for its lifetime, which
 // Claude Code picks from the environment, the promptCacheTtl setting or the plan; read here the same way.
-async function cacheTtl($: EngineInterface): Promise<ReturnType<typeof ttlOf>> {
+// The limit windows are the ones handed in, else a reading's, which counts those kept from earlier: the event
+// that lit the fire may have come without them.
+async function cacheTtl($: EngineInterface, given?: readonly Limit[]): Promise<ReturnType<typeof ttlOf>> {
+  const limits = given ?? (await takeReading($)).limits
   // Each name written out: the engine lists which variables a mod reads.
-  const limits = (await $.session.usage().catch(() => null))?.rateLimits ?? []
   return ttlOf({
     force5m: await $.env.get('FORCE_PROMPT_CACHING_5M').catch(() => undefined),
     env: await $.env.get('CLAUDE_CODE_PROMPT_CACHE_TTL').catch(() => undefined),
@@ -2231,7 +2251,7 @@ export const register: Register = (on, options) => {
     const after = await read($, tide)
     // A reply in the main conversation changes its context: the cache was just used. A context that grew
     // between turns says the same, where a surface reports its turns late or not at all.
-    const hasGrown = !!before && !before.isCounted && !!after && !after.isCounted && after.tokens > before.tokens
+    const hasGrown = !!before && !!after && after.tokens > before.tokens
     if (e.changed?.includes('context') && (isTurnRunning || hasGrown)) await feedFire($)
     return next(e)
   })

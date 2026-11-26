@@ -15,8 +15,14 @@ const BAND = {
 const PLAN = [{ kind: 'five_hour', percentUsed: 62, resetsAt: new Date(T0 + 3_600_000).toISOString() }]
 const EVENT = { context: { tokens: 120_000, window: 200_000 }, rateLimits: PLAN, cost: { usd: 3.1 } }
 
-/** What the poll answers: everything ('full'), a window and nothing else ('empty'), or an error ('throws'). */
-type Fake = { poll: 'full' | 'empty' | 'throws'; window?: number }
+const TURN = { answer: 'hi', durationMs: 1000, isAborted: false, turnId: 't1', reason: 'answer' } as const
+
+/**
+ * What the poll answers: everything ('full'), a window and nothing else ('empty'), an error ('throws'), or no
+ * size but the local count's `counted` when the summary is asked for ('counted'). Read at each call, so a test
+ * can change `counted` as it goes.
+ */
+type Fake = { poll: 'full' | 'empty' | 'throws' | 'counted'; window?: number; counted?: number }
 
 /** The engine beneath the plugin; returns the toasts it was asked to show. */
 function engine(on: On, fake: Fake): string[] {
@@ -35,6 +41,10 @@ function engine(on: On, fake: Fake): string[] {
     if (fake.poll === 'throws') throw new Error('no usage on this surface')
     if (fake.poll === 'empty') return { value: { startedAt: T0, context: { window }, rateLimits: [] } } as never
     const isSummary = !!(e as { breakdown?: string }).breakdown
+    if (fake.poll === 'counted') {
+      const breakdown = { autoCompactThreshold: window, isAutoCompactEnabled: true, totalTokens: fake.counted ?? 0 }
+      return { value: { startedAt: T0, context: { window, ...(isSummary ? { breakdown } : {}) }, rateLimits: [] } } as never
+    }
     return {
       value: {
         startedAt: T0,
@@ -139,4 +149,31 @@ test('on API billing a cost that only the event carries fills the budget hourgla
   await start($)
   await measure($, { context: { tokens: 10_000, window: 200_000 }, rateLimits: [], cost: { usd: 4 } })
   expect((await crab($, 'stats')).text).toContain('spent $4.00 of $10')
+})
+
+test('with no limits at the turn\'s end and limits a moment later, the fire lives an hour', async ($, on) => {
+  mock.clock(on, { now: T0 })
+  mock.store(on)
+  engine(on, { poll: 'empty' })
+  await start($)
+  // Lit on five minutes: nothing tells a subscription yet.
+  await $.turn.complete(TURN)
+  // The plan shows itself.
+  await measure($, { ...EVENT, rateLimits: PLAN })
+  expect((await crab($, 'cache')).text).toContain('A one-hour cache: a subscription within its usage limits gets an hour.')
+})
+
+test('a sea that goes by the local count still lights the fire when it grows', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const fake: Fake = { poll: 'counted', counted: 40_000 }
+  engine(on, fake)
+  await start($)
+  await measure($, { context: { window: 200_000 }, rateLimits: [] })
+  expect(await band($)).not.toContain('class="cfire"')
+  fake.counted = 55_000
+  // Past COUNT_EVERY_MS, so the conversation is counted again.
+  await clock.advance(21_000)
+  await measure($, { context: { window: 200_000 }, rateLimits: [] })
+  expect(await band($)).toContain('class="cfire"')
 })
