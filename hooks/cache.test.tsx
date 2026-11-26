@@ -3,7 +3,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Cache } from '../types'
-import { ASHES_MS, NUDGE_TOKENS, TTL_1H, TTL_5M, cacheDetail, cacheStat, familyOf, fireOf, inWords, nextChangeAt, rewriteText, rewriteUsd, shouldNudge, ttlOf } from './cache'
+import { ASHES_MS, NUDGE_TOKENS, TTL_1H, TTL_5M, cacheDetail, cacheStat, familyOf, fireOf, inWords, nextChangeAt, rewriteText, retimed, rewriteUsd, shouldNudge, ttlOf } from './cache'
 
 const MIN = 60_000
 const T0 = new Date(2026, 10, 11, 12).getTime()
@@ -109,4 +109,12 @@ test('the words: a plank, the stats and the detail', () => {
 
 test('every cooling sign fits on a plank', () => {
   for (const words of [`cache cools ${inWords(10 * MIN)}`, `fire out ${inWords(10 * MIN)}`]) expect(words.length).toBeLessThanOrEqual(22)
+})
+
+test('a fire lit as an API key becomes a subscription\'s, from when it was lit', () => {
+  const lit: NonNullable<Cache> = { at: T0, ttlMs: TTL_5M, why: 'api', tokens: 60_000, model: 'm', nudged: true, fire: 'ashes' }
+  const hour = retimed(lit, { ms: TTL_1H, why: 'subscription' }, T0 + 10 * 60_000)
+  expect(hour).toMatchObject({ at: T0, ttlMs: TTL_1H, why: 'subscription', nudged: false, fire: 'blaze' })
+  expect(retimed(lit, { ms: TTL_1H, why: 'subscription' }, T0 + TTL_1H)).toBe(lit)
+  expect(retimed({ ...lit, why: 'setting' }, { ms: TTL_1H, why: 'subscription' }, T0 + 1000)).toMatchObject({ why: 'setting' })
 })

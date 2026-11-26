@@ -54,6 +54,19 @@ export const fireOf = (c: Cache, now: number): Fire | null => {
   return left > -ASHES_MS ? 'ashes' : null
 }
 
+/**
+ * A fire lit as an API key's, five minutes, when the limit windows that tell a subscription had not come yet:
+ * once they come, and while the hour from its lighting still runs, it is the subscription's hour, counted from
+ * when it was lit. The cooling sign and the cold tip are due again, at their times for the longer life. Any
+ * other fire, a compacted one among them, stays as it is (the same object).
+ */
+export const retimed = (c: Cache, ttl: { ms: number; why: TtlWhy }, now: number): Cache => {
+  if (!c || c.isCompacted || c.why !== 'api' || ttl.why !== 'subscription' || now >= c.at + ttl.ms) return c
+  const { coldTipped: _, ...rest } = c
+  const next: NonNullable<Cache> = { ...rest, ttlMs: ttl.ms, why: ttl.why, nudged: false }
+  return { ...next, fire: fireOf(next, now) }
+}
+
 /** How long before it goes cold the crab says so: a minute for the five-minute cache, ten for the hour's. */
 export const leadMs = (ttlMs: number): number => (ttlMs <= TTL_5M ? 60_000 : 10 * 60_000)
 

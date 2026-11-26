@@ -2,6 +2,16 @@
 
 What changed in each version, newest first. To update: `/plugin marketplace update crab-buddy`, then `/plugin update crab-buddy@crab-buddy`, then start a new session.
 
+## 0.29.1
+The sea, the hourglass and the campfire take their figures from more places, and the hourglass is easier to see.
+- The sea, the hourglass and the session's cost now also take the figures each measurement carries with it. They no longer depend on one call that some surfaces may answer empty or not at all.
+- The hourglass no longer disappears after one reading that carried no limit. The last limit seen is kept until its reset time has passed (five hours when it has none), or until Claude Code says the limit is gone.
+- A budget hourglass (API billing with `budgetUsd`) keeps its last cost through a reading with none, until a new conversation starts, so its 80% and 95% signs are not raised again.
+- The campfire: a subscription whose limits show themselves only after the fire was lit now gets its hour, counted from when the fire was lit, where it used to get five minutes. A sea that goes by the local count now lights the fire when it grows.
+- The hourglass is bigger (9 by 13 pixels, it was 7 by 9) and has an outline that shows on light and on dark themes.
+- `/crab what` says why there is no hourglass when there is none. `/crab debug` says, for the last measurement and the last poll, whether each carried a size, limits and a cost, how many limits it could not read, and where the limits it goes by came from. Nothing is sent.
+- If the sea, the campfire or the hourglass still does not show, paste `/crab debug` into a report (`/crab feedback` says where).
+
 ## 0.29.0
 See it sooner
 - The red flag says how long Claude has waited for you, from a minute on ("needs you: Bash · 4m"), and `/crab stats` adds up the day: "waited 37m for you (5 times)".

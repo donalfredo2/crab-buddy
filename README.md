@@ -185,7 +185,7 @@ Beside the strip (or under the tank): 🍤 feed, 🎾 play, ✋ pet.
 - `/crab last`: what was left open in this folder last time
 - `/crab alert off|chirp|notify|both`: a chirp or a notification once Claude has waited a minute for you; off by default
 - `/crab cost`: what the session has cost, in dollars and tokens; `/crab cost on|off` turns its signs on or off
-- `/crab debug`: what the sea and the campfire are going by (each source of the context's size, the line where Claude compacts, the mark, when the turn hooks last came), to paste into a report. Nothing is sent
+- `/crab debug`: what the sea, the hourglass and the campfire are going by (each source of the context's size and of the limits, the line where Claude compacts, the mark, when the turn hooks last came), to paste into a report. Nothing is sent
 - `/crab cache`: how long the prompt cache likely stays warm, and what letting it go cold would cost; `/crab cache on|off` shows or hides the campfire and its sign
 - `/crab stats`: session time, turns, tool calls, context, usage limit or budget, cost and tokens, how long Claude waited for you today, needs, how warm the prompt cache is, shells, fish, what kind of crab it is and today's theme
 - `/crab lines`: the subagents out fishing

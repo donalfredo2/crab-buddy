@@ -3702,6 +3702,7 @@ test('/crab what names what is on the beach, and nothing that is not', () => {
   expect(bare).toContain('The sea, far out: your context.')
   expect(bare).toContain('The pirate costume: today is pirate day.')
   for (const absent of ['campfire', 'hourglass', 'fishing rod', 'red flag', 'bottle', 'seaweed line', 'sign', 'blocks', 'The sky', 'shell']) expect(bare).not.toContain(absent)
+  expect(legend({ ...SEEN, noHourglass: 'no usage limit reported yet' })).toContain('No hourglass: no usage limit reported yet.')
   const busy = legend({
     ...SEEN, sea: { tokens: '310k', full: '967k', hasMark: true, isPastMark: true }, fire: 'embers', cacheWords: 'cache warm ~1 min', usageWords: 'limit 62% (resets 16:20)', rods: 2,
     flag: { what: 'a question for you', waited: '4m' }, planted: 'high tide soon', hasBottle: true, work: 3, weather: 'rain, windy', isPicked: true, shells: 12,
