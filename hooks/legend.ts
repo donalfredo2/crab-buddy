@@ -15,6 +15,8 @@ export type Seen = {
   cacheWords: string
   /** "limit 62% (resets 16:20)" or "spent $3.10 of $10"; null with no hourglass. */
   usageWords: string | null
+  /** Why there is no hourglass, when there is none. */
+  noHourglass?: string | null
   rods: number
   /** The red flag: what Claude waits for, and for how long ("4m", or empty under a minute). */
   flag: { what: string; waited: string } | null
@@ -51,6 +53,7 @@ export const legend = (s: Seen): string => {
   if (s.planted) lines.push(`The sign in the sand: "${s.planted}".`)
   if (s.fire) lines.push(`${FIRE[s.fire]}${s.cacheWords ? ` (${s.cacheWords})` : ''}. /crab cache says more.`)
   if (s.usageWords) lines.push(`The hourglass on the home shell: ${s.usageWords}.`)
+  if (s.noHourglass) lines.push(`No hourglass: ${s.noHourglass}.`)
   if (s.rods) lines.push(`${s.rods === 1 ? 'The fishing rod: a subagent' : `The ${s.rods} fishing rods: subagents`} at work. A fish means it finished, a boot that it failed. /crab lines names them.`)
   if (s.hasBottle) lines.push('The bottle at the waterline: the log of your work, sent to the summarizer at a compaction or washed up from last time. /crab log and /crab last show it.')
   if (s.work) lines.push(`The ${s.work === 1 ? 'block' : `${s.work} blocks`} by the sandcastle: one for each tool Claude used this turn.`)

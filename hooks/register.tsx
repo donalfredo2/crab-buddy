@@ -82,7 +82,7 @@ const circles = atom({ plugin: 'crab-buddy', key: 'circles' } as const, NO_CIRCL
 // savvy-progress draws its own crab in its bar: ours steps aside while that bar is up. Written here, where it's
 // read: the engine lists what a module reads from $.state, so the reference must be a literal in this file.
 const savvyFlow = { plugin: 'savvy-progress', key: 'flow' } as const
-import { nextUsage, usageMark, usageSign, usageStat } from './usage'
+import { nextUsage, noHourglass, usageMark, usageSign, usageStat } from './usage'
 import { EMPTY_SPEND, addTurn, measureSpend, nextMilestone, spendDetail, spendSign, spendStat } from './spend'
 import { keepLimits, mergeReading } from './reading'
 import type { Figures, Limit, Reading, Source } from './reading'
@@ -538,10 +538,21 @@ const carriedWords = (c: Carried): string =>
   [c.size !== null ? `size ${fmtTokens(c.size)}` : 'no size', c.limits.length ? `limits ${c.limits.join(', ')}` : 'no limits', c.cost ? 'cost' : 'no cost'].join(', ')
 
 /** The hourglass block's first line for /crab debug: the reading in words, or why there is none. */
-async function hourglassWords($: EngineInterface, now: number): Promise<string> {
-  if (await read($, isHourglassOff)) return 'switched off'
+/** Why there is no hourglass, or null when one stands; the same words for /crab what and /crab debug. */
+async function hourglassWhy($: EngineInterface): Promise<string | null> {
   const used = await read($, usage)
-  return used ? usageStat(used, now) : 'no usage limit reported yet'
+  return noHourglass({
+    isOff: await read($, isHourglassOff),
+    hasLimits: used?.kind === 'limit',
+    budgetUsd: cfg.budgetUsd,
+    hasCost: (await read($, spend)).usd !== null,
+  })
+}
+
+async function hourglassWords($: EngineInterface, now: number): Promise<string> {
+  const why = await hourglassWhy($)
+  const used = await read($, usage)
+  return why === null && used ? usageStat(used, now) : (why ?? 'no usage limit reported yet')
 }
 
 /**
@@ -1845,6 +1856,7 @@ async function whatText($: EngineInterface): Promise<string> {
     fire: v.beach.fire ?? null,
     cacheWords: cacheStat(await read($, cache), v.now),
     usageWords: used ? usageStat(used, v.now) : null,
+    noHourglass: await hourglassWhy($),
     rods: (await read($, rods)).length,
     flag: flag && v.beach.isFlag ? { what: flag.what, waited: waitedWords(flag.since, v.now) } : null,
     held: v.beach.sign && !v.beach.isFlag ? v.beach.sign : null,

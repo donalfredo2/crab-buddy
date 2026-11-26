@@ -77,3 +77,11 @@ export const usageStat = (u: NonNullable<Usage>, now: number): string => {
   const notes = [u.resetsAt !== null ? `resets ${clockOf(u.resetsAt)}` : '', pace].filter(Boolean)
   return `limit ${Math.floor(u.percent)}%${notes.length ? ` (${notes.join(', ')})` : ''}`
 }
+
+/** Why no hourglass stands, or null when one does. The order is the order of what decides it. */
+export const noHourglass = (i: { isOff: boolean; hasLimits: boolean; budgetUsd: number; hasCost: boolean }): string | null => {
+  if (i.isOff) return 'switched off (/crab hourglass on)'
+  if (i.hasLimits || (i.budgetUsd > 0 && i.hasCost)) return null
+  if (i.hasCost) return 'no usage limit reported, as on API billing (budgetUsd sets a budget to count down)'
+  return 'no usage limit reported yet'
+}

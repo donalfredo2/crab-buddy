@@ -11,7 +11,7 @@ import { ACTIVE_MS, finishedElsewhere, holderOf, parseBeach, wantsNote } from '.
 import { beachCells, decodeCells } from './terminal'
 import { skyFor } from './sky'
 import { hourglassSvg } from './scene'
-import { clockOf, nextUsage, usageForecast, usageMark } from './usage'
+import { clockOf, noHourglass, nextUsage, usageForecast, usageMark } from './usage'
 
 const MIN = 60_000
 // The host's own timer: a turn of its event loop lets a settled call reach the plugin.
@@ -401,6 +401,16 @@ test('the /compact keeps files, the last commit and anything failing, in a short
 })
 
 // --- the hourglass
+
+test('noHourglass names why there is no hourglass, in order', () => {
+  const base = { isOff: false, hasLimits: false, budgetUsd: 0, hasCost: false }
+  expect(noHourglass({ ...base, isOff: true, hasLimits: true })).toBe('switched off (/crab hourglass on)')
+  expect(noHourglass({ ...base, hasLimits: true })).toBeNull()
+  expect(noHourglass({ ...base, budgetUsd: 10, hasCost: true })).toBeNull()
+  expect(noHourglass({ ...base, hasCost: true })).toBe('no usage limit reported, as on API billing (budgetUsd sets a budget to count down)')
+  expect(noHourglass(base)).toBe('no usage limit reported yet')
+  expect(noHourglass({ ...base, budgetUsd: 10 })).toBe('no usage limit reported yet')
+})
 
 const RESET = new Date(T0 + 3 * 3_600_000).toISOString()
 const hourglassOf = async ($: Tester): Promise<string | null> => /<g class="hourglass"[\s\S]*?<\/g>/.exec((await band($)).source)?.[0] ?? null
@@ -1118,7 +1128,8 @@ test('/crab what explains the beach as it is: the far sea at first, then the fla
   await start($)
   const fresh = await said($, 'what')
   expect(fresh).toMatch(/^On Crabby's beach right now:\n- The sea: your context, /)
-  for (const absent of ['campfire', 'red flag', 'hourglass', 'fishing rod']) expect(fresh).not.toContain(absent)
+  for (const absent of ['campfire', 'red flag', 'The hourglass on the home shell', 'fishing rod']) expect(fresh).not.toContain(absent)
+  expect(fresh).toContain('No hourglass: no usage limit reported yet.')
   ctx.tokens = 310_000
   await $.turn.complete({ ...TURN, usage: USED } as never)
   const waiting = await ask($, 'c1')
